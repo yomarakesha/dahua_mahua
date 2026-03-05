@@ -18,7 +18,7 @@ from pathlib import Path
 
 DIR = Path(__file__).resolve().parent
 INVENTORY = DIR / "nvr_inventory.json"
-MEDIAMTX_BIN = DIR / "mediamtx"
+MEDIAMTX_BIN = DIR / ("mediamtx.exe" if sys.platform == "win32" else "mediamtx")
 MEDIAMTX_CFG = DIR / "mediamtx.yml"
 GENERATE_SCRIPT = DIR / "generate_config.py"
 WEB_DIR = DIR / "web"
