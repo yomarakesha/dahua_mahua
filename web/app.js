@@ -708,7 +708,7 @@ function renderGrid() {
 
       cell.draggable = true;
       setupDragDrop(cell, path, i);
-      setupZoom(cell, video, i);
+
 
       // Queue connection (respects maxConcurrent)
       connectCamera(path, video);
@@ -975,65 +975,7 @@ function togglePatrol() {
 dom.gridContainer.addEventListener("mouseenter", () => { if (state.patrol.active) state.patrol.paused = true; });
 dom.gridContainer.addEventListener("mouseleave", () => { if (state.patrol.active) state.patrol.paused = false; });
 
-// ===== DIGITAL ZOOM ===========================================================
-
-function setupZoom(cell, video, index) {
-  let scale = 1, panX = 0, panY = 0;
-  let isPanning = false, lastX = 0, lastY = 0;
-
-  cell.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    scale = Math.max(1, Math.min(10, scale + (e.deltaY > 0 ? -0.3 : 0.3)));
-    if (scale === 1) { panX = 0; panY = 0; }
-    applyTransform();
-  }, { passive: false });
-
-  cell.addEventListener("mousedown", (e) => {
-    if (scale <= 1 || e.button !== 0) return;
-    isPanning = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    cell.style.cursor = "grabbing";
-    e.preventDefault();
-  });
-
-  const onMove = (e) => {
-    if (!isPanning) return;
-    panX += e.clientX - lastX;
-    panY += e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    applyTransform();
-  };
-
-  const onUp = () => {
-    if (isPanning) { isPanning = false; cell.style.cursor = ""; }
-  };
-
-  // Use cell-scoped listeners to avoid N global listeners
-  cell.addEventListener("mousemove", onMove);
-  cell.addEventListener("mouseup", onUp);
-  cell.addEventListener("mouseleave", onUp);
-
-  video.addEventListener("dblclick", (e) => {
-    if (scale > 1) {
-      e.stopPropagation();
-      scale = 1; panX = 0; panY = 0;
-      applyTransform();
-    }
-  });
-
-  function applyTransform() {
-    video.style.transform = scale > 1 ? `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)` : "";
-    let indicator = cell.querySelector(".zoom-indicator");
-    if (scale > 1) {
-      if (!indicator) { indicator = document.createElement("div"); indicator.className = "zoom-indicator"; cell.appendChild(indicator); }
-      indicator.textContent = scale.toFixed(1) + "x";
-    } else if (indicator) {
-      indicator.remove();
-    }
-  }
-}
+// ===== DIGITAL ZOOM (removed) ================================================
 
 // ===== KEYBOARD SHORTCUTS =====================================================
 
@@ -1121,6 +1063,8 @@ function openFullscreen(path) {
     dom.fsVideo.srcObject = conn.video.srcObject;
   }
   dom.fsOverlay.classList.remove("hidden");
+  // Request true browser fullscreen
+  dom.fsOverlay.requestFullscreen().catch(() => {});
   // Connect to main-stream for full quality
   connectFullscreenMain(path);
 }
@@ -1169,7 +1113,21 @@ function closeFullscreen() {
   dom.fsOverlay.classList.add("hidden");
   dom.fsVideo.srcObject = null;
   state.fullscreenPath = null;
+  // Exit browser fullscreen if active
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
 }
+
+// Handle browser fullscreen exit (e.g. user presses Escape natively)
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && state.fullscreenPath) {
+    disconnectFullscreenMain();
+    dom.fsOverlay.classList.add("hidden");
+    dom.fsVideo.srcObject = null;
+    state.fullscreenPath = null;
+  }
+});
 
 // ===== STATUS PANEL ===========================================================
 

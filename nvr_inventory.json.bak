@@ -22,7 +22,7 @@
     },
     {
       "id": "nvr03",
-      "label": "asdf",
+      "label": "Dahua NVR 192.168.20.37",
       "ip": "192.168.20.37",
       "channels": 1,
       "group": "dahua"
