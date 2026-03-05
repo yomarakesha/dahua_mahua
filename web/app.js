@@ -50,6 +50,8 @@ const state = {
   patrol: { active: false, timer: null, countdown: 0, paused: false },
   focusedCell: -1,
   fullscreenPath: null,
+  fullscreenConn: null,  // { pc } for main-stream in fullscreen
+  inventory: null,        // fetched NVR inventory (labels, metadata)
 };
 
 // ===== CONNECTION QUEUE =======================================================
@@ -249,12 +251,19 @@ async function fetchCameras() {
     if (!res.ok) throw new Error(`API ${res.status}`);
     const data = await res.json();
     const items = data.items || data;
-    const paths = items.map(i => i.name).sort();
+    const paths = items.map(i => i.name).filter(n => !n.endsWith("_main")).sort();
     if (JSON.stringify(paths) !== JSON.stringify(state.allCameras)) {
       state.allCameras = paths;
       applyFilter();
       renderSidebar();
     }
+  } catch (_) {}
+}
+
+async function fetchInventory() {
+  try {
+    const res = await fetch("/api/inventory");
+    if (res.ok) state.inventory = await res.json();
   } catch (_) {}
 }
 
@@ -450,8 +459,14 @@ function renderNvrTree() {
     arrow.className = "tree-arrow";
     arrow.textContent = "\u25B6";
 
+    // Use inventory label if available
+    const nvrMeta = state.inventory && state.inventory.nvrs
+      ? state.inventory.nvrs.find(n => n.id === nvrId) : null;
+    const displayLabel = nvrMeta && nvrMeta.label ? nvrMeta.label : nvrId.toUpperCase();
+
     const label = document.createElement("span");
-    label.textContent = `${nvrId.toUpperCase()} (${cameras.length})`;
+    label.textContent = `${displayLabel} (${cameras.length})`;
+    label.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1";
 
     header.appendChild(arrow);
     header.appendChild(label);
@@ -490,6 +505,14 @@ function renderNvrTree() {
     });
 
     header.addEventListener("dblclick", () => applyFilter("nvr", nvrId));
+
+    header.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      showContextMenu(e, [
+        { label: "Show NVR", action: () => applyFilter("nvr", nvrId) },
+        { label: "Rename", action: () => renameNvr(nvrId) },
+      ]);
+    });
 
     node.appendChild(header);
     node.appendChild(children);
@@ -785,6 +808,23 @@ function showGroupDialog() {
 
 function hideGroupDialog() { dom.groupDialog.classList.add("hidden"); }
 
+async function renameNvr(nvrId) {
+  if (!state.inventory) return;
+  const nvr = state.inventory.nvrs.find(n => n.id === nvrId);
+  const current = nvr ? (nvr.label || nvrId) : nvrId;
+  const newName = prompt("Rename NVR:", current);
+  if (!newName || newName === current) return;
+  if (nvr) nvr.label = newName;
+  try {
+    const res = await fetch("/api/inventory", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state.inventory),
+    });
+    if (res.ok) renderSidebar();
+  } catch (_) {}
+}
+
 // ===== LAYOUTS ================================================================
 
 function saveLayout(name) {
@@ -1076,13 +1116,56 @@ function openFullscreen(path) {
   const conn = state.connections[path];
   state.fullscreenPath = path;
   dom.fsTitle.textContent = formatName(path);
+  // Show sub-stream immediately as preview
   if (conn && conn.video && conn.video.srcObject) {
     dom.fsVideo.srcObject = conn.video.srcObject;
   }
   dom.fsOverlay.classList.remove("hidden");
+  // Connect to main-stream for full quality
+  connectFullscreenMain(path);
+}
+
+async function connectFullscreenMain(path) {
+  disconnectFullscreenMain();
+  const mainPath = path + "_main";
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+  state.fullscreenConn = { pc };
+
+  pc.addTransceiver("video", { direction: "recvonly" });
+
+  pc.ontrack = (evt) => {
+    if (state.fullscreenConn && state.fullscreenConn.pc === pc) {
+      dom.fsVideo.srcObject = evt.streams[0];
+    }
+  };
+
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    const res = await fetch(`${CONFIG.webrtcBase}/${mainPath}/whep`, {
+      method: "POST",
+      headers: { "Content-Type": "application/sdp" },
+      body: pc.localDescription.sdp,
+    });
+    if (!res.ok) throw new Error(`WHEP ${res.status}`);
+    const answer = await res.text();
+    await pc.setRemoteDescription({ type: "answer", sdp: answer });
+  } catch (_) {
+    // Main stream unavailable — keep showing sub-stream preview
+  }
+}
+
+function disconnectFullscreenMain() {
+  if (state.fullscreenConn) {
+    try { state.fullscreenConn.pc.close(); } catch (_) {}
+    state.fullscreenConn = null;
+  }
 }
 
 function closeFullscreen() {
+  disconnectFullscreenMain();
   dom.fsOverlay.classList.add("hidden");
   dom.fsVideo.srcObject = null;
   state.fullscreenPath = null;
@@ -1384,8 +1467,9 @@ async function saveSettings() {
       return;
     }
     setSettingsStatus(data.message || "Saved & applied");
-    // Re-fetch cameras after config regeneration + MediaMTX restart
+    // Re-fetch cameras + inventory after config regeneration + MediaMTX restart
     setTimeout(async () => {
+      await fetchInventory();
       await fetchCameras();
       reconnectAllVisible();
     }, 1500);
@@ -1435,6 +1519,7 @@ async function init() {
   bindEvents();
   setupKeyboard();
 
+  await fetchInventory();
   await fetchCameras();
 
   if (state.prefs.lastLayout) {

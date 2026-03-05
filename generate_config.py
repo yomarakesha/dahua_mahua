@@ -41,7 +41,7 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
         "###############################################",
         "# MediaMTX Configuration - Auto-generated",
         f"# NVRs: {len(inventory['nvrs'])}",
-        f"# Stream type: {'sub-stream' if subtype == 1 else 'main-stream'}",
+        f"# Grid stream: {'sub-stream' if subtype == 1 else 'main-stream'} (+ main-stream for fullscreen)",
         "###############################################",
         "",
         "# Global settings",
@@ -78,6 +78,7 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
         lines.append(f"  # --- {label} ({nvr['ip']}, {channels} ch, group: {group}) ---")
 
         for ch in range(1, channels + 1):
+            # Sub-stream (default — used in grid view)
             path_name = f"{nvr_id}_ch{ch}"
             url = build_rtsp_url(nvr, ch, defaults, subtype)
             lines.append(f"  {path_name}:")
@@ -85,6 +86,16 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
             lines.append(f"    rtspTransport: tcp")
             lines.append(f"    sourceOnDemand: yes")
             lines.append(f"    sourceOnDemandCloseAfter: 30s")
+
+            # Main-stream (used for fullscreen view)
+            main_path = f"{nvr_id}_ch{ch}_main"
+            main_url = build_rtsp_url(nvr, ch, defaults, 0)
+            lines.append(f"  {main_path}:")
+            lines.append(f"    source: {main_url}")
+            lines.append(f"    rtspTransport: tcp")
+            lines.append(f"    sourceOnDemand: yes")
+            lines.append(f"    sourceOnDemandCloseAfter: 30s")
+
             total_channels += 1
 
         lines.append("")

@@ -108,6 +108,11 @@ class Handler(SimpleHTTPRequestHandler):
             return self._put_inventory()
         self._send(405, {"error": "Method not allowed"})
 
+    def do_PATCH(self):
+        if self.path == "/api/inventory":
+            return self._patch_inventory()
+        self._send(405, {"error": "Method not allowed"})
+
     def do_POST(self):
         if self.path == "/api/restart":
             return self._post_restart()
@@ -161,6 +166,26 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         self._send(200, {"ok": True, "message": result.stdout.strip()})
+
+    def _patch_inventory(self):
+        """Update inventory JSON only (no config regen or MediaMTX restart)."""
+        try:
+            body = self._read_body()
+            data = json.loads(body)
+        except (json.JSONDecodeError, ValueError) as e:
+            self._send(400, {"error": f"Invalid JSON: {e}"})
+            return
+
+        err = validate_inventory(data)
+        if err:
+            self._send(400, {"error": err})
+            return
+
+        if INVENTORY.exists():
+            shutil.copy2(INVENTORY, str(INVENTORY) + ".bak")
+
+        INVENTORY.write_text(json.dumps(data, indent=2) + "\n")
+        self._send(200, {"ok": True})
 
     def _post_restart(self):
         try:

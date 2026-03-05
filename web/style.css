@@ -22,16 +22,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  padding: 0 8px;
   border-bottom: 1px solid #1e1e30;
-  gap: 6px;
+  gap: 4px;
   z-index: 20;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
+
+#toolbar::-webkit-scrollbar { height: 0; }
 
 .toolbar-left, .toolbar-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .logo {
@@ -45,27 +50,30 @@ body {
 .toolbar-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   font-size: 12px;
   color: #888;
+  flex-shrink: 0;
 }
 
 .toolbar-divider {
   width: 1px;
   height: 20px;
   background: #2a2a40;
-  margin: 0 4px;
+  margin: 0 2px;
+  flex-shrink: 0;
 }
 
 #toolbar button {
   background: #1a1a2e;
   color: #c8c8d0;
   border: 1px solid #2a2a40;
-  padding: 3px 10px;
+  padding: 3px 8px;
   border-radius: 3px;
   cursor: pointer;
   font-size: 12px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 #toolbar button:hover { background: #252540; border-color: #3a3a55; }
@@ -88,7 +96,8 @@ body {
   padding: 3px 8px;
   border-radius: 3px;
   font-size: 12px;
-  width: 170px;
+  width: 140px;
+  min-width: 80px;
   outline: none;
 }
 
@@ -358,6 +367,13 @@ body {
 .grid-32 .label, .grid-64 .label,
 .grid-32 .cell-controls, .grid-64 .cell-controls { display: none; }
 .grid-32 .status-dot, .grid-64 .status-dot { width: 3px; height: 3px; top: 1px; right: 1px; }
+
+/* Compact toolbar on narrow screens */
+@media (max-width: 1100px) {
+  .toolbar-group span { display: none; }
+  .logo { margin-right: 2px; }
+  #search { width: 100px; min-width: 60px; }
+}
 
 /* ===== PAGE INDICATOR (subtle, in status bar) ===== */
 #page-indicator {
