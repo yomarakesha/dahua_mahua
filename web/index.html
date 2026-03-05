@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DSS - Camera Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div class="toolbar-left">
+      <button id="sidebar-toggle" title="Toggle sidebar (Tab)">&#9776;</button>
+      <span class="logo">DSS</span>
+      <label class="toolbar-group">
+        <span>Grid</span>
+        <select id="grid-size">
+          <option value="2">2&times;2</option>
+          <option value="4" selected>4&times;4</option>
+          <option value="8">8&times;8</option>
+          <option value="16">16&times;16</option>
+          <option value="32">32&times;32</option>
+          <option value="64">64&times;64</option>
+        </select>
+      </label>
+      <label class="toolbar-group">
+        <span>Layout</span>
+        <select id="layout-select">
+          <option value="">— Select —</option>
+        </select>
+      </label>
+      <button id="save-layout-btn" title="Save current layout">&#128190; Save</button>
+      <div class="toolbar-divider"></div>
+      <button id="patrol-btn" title="Toggle patrol (Space)">&#9654; Patrol</button>
+      <select id="patrol-interval" title="Patrol interval">
+        <option value="5">5s</option>
+        <option value="10" selected>10s</option>
+        <option value="15">15s</option>
+        <option value="30">30s</option>
+        <option value="60">60s</option>
+      </select>
+      <span id="patrol-countdown"></span>
+    </div>
+    <div class="toolbar-right">
+      <input id="search" type="text" placeholder="Search cameras... (/)" autocomplete="off">
+      <button id="settings-btn" title="NVR Settings (,)">&#9881;</button>
+      <button id="status-toggle" title="Connection status">
+        <span class="status-dot online"></span>
+        <span id="status-summary">0/0</span>
+      </button>
+      <button id="shortcuts-btn" title="Keyboard shortcuts (?)">?</button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div id="main">
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-header">
+          <h3>NVRs</h3>
+          <button id="show-all-btn" class="sidebar-btn" title="Show all cameras">All</button>
+        </div>
+        <div id="nvr-tree"></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-header">
+          <h3>Groups</h3>
+          <button id="add-group-btn" class="sidebar-btn" title="Create group (G)">+</button>
+        </div>
+        <div id="group-tree"></div>
+      </div>
+    </div>
+
+    <!-- Grid Area -->
+    <div id="grid-container">
+      <div id="camera-grid"></div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div id="status-bar">
+    <span id="sb-online">Online: 0</span>
+    <span class="sb-divider">|</span>
+    <span id="sb-connecting">Connecting: 0</span>
+    <span class="sb-divider">|</span>
+    <span id="sb-error">Error: 0</span>
+    <span class="sb-divider">|</span>
+    <span id="sb-total">Total: 0</span>
+    <span class="sb-spacer"></span>
+    <span id="sb-page"></span>
+    <span id="sb-filter">All cameras</span>
+  </div>
+
+  <!-- Fullscreen Overlay -->
+  <div id="fullscreen-overlay" class="hidden">
+    <div id="fs-header">
+      <span id="fs-title"></span>
+      <div id="fs-controls">
+        <button id="fs-snapshot-btn" title="Snapshot (S)">&#128247;</button>
+        <button id="fs-close-btn" title="Close (Esc)">&times;</button>
+      </div>
+    </div>
+    <video id="fs-video" autoplay muted playsinline></video>
+  </div>
+
+  <!-- Status Panel Modal -->
+  <div id="status-panel" class="modal hidden">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2>Connection Status</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="status-actions">
+          <button id="reconnect-all-btn">Reconnect All Errors</button>
+        </div>
+        <div id="status-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shortcuts Modal -->
+  <div id="shortcuts-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Keyboard Shortcuts</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <table class="shortcuts-table">
+          <tr><td><kbd>1</kbd>-<kbd>6</kbd></td><td>Grid size (2x2 to 64x64)</td></tr>
+          <tr><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td>Previous / next page</td></tr>
+          <tr><td><kbd>Space</kbd></td><td>Toggle patrol mode</td></tr>
+          <tr><td><kbd>F</kbd></td><td>Fullscreen focused camera</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Exit fullscreen / close modal</td></tr>
+          <tr><td><kbd>S</kbd></td><td>Snapshot focused camera</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Focus search box</td></tr>
+          <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+          <tr><td><kbd>G</kbd></td><td>Create new group</td></tr>
+          <tr><td><kbd>Tab</kbd></td><td>Toggle sidebar</td></tr>
+          <tr><td><kbd>,</kbd></td><td>NVR settings</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Group Dialog -->
+  <div id="group-dialog" class="modal hidden">
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2 id="group-dialog-title">New Group</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input id="group-name-input" type="text" placeholder="Group name..." autocomplete="off">
+        <div class="dialog-actions">
+          <button id="group-create-btn">Create</button>
+          <button id="group-cancel-btn" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Layout Dialog -->
+  <div id="layout-dialog" class="modal hidden">
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2>Save Layout</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input id="layout-name-input" type="text" placeholder="Layout name..." autocomplete="off">
+        <div class="dialog-actions">
+          <button id="layout-save-btn">Save</button>
+          <button id="layout-cancel-btn" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-content modal-xlarge">
+      <div class="modal-header">
+        <h2>NVR Settings</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h3 class="settings-label">Global Defaults</h3>
+          <div class="settings-global">
+            <label>Port <input id="settings-port" type="number" min="1" max="65535"></label>
+            <label>User <input id="settings-user" type="text" autocomplete="off"></label>
+            <label>Pass <input id="settings-pass" type="password" autocomplete="off"></label>
+            <label>Subtype
+              <select id="settings-subtype">
+                <option value="0">Main</option>
+                <option value="1">Sub</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3 class="settings-label">NVRs (<span id="settings-nvr-count">0</span>)</h3>
+          <div class="settings-table-wrap">
+            <table id="settings-nvr-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Label</th>
+                  <th>IP</th>
+                  <th>CH</th>
+                  <th>Pass</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="settings-nvr-body"></tbody>
+              <tfoot>
+                <tr id="settings-add-row">
+                  <td><input id="settings-new-id" type="text" placeholder="nvr__"></td>
+                  <td><input id="settings-new-label" type="text" placeholder="Label"></td>
+                  <td><input id="settings-new-ip" type="text" placeholder="192.168.x.x"></td>
+                  <td><input id="settings-new-ch" type="number" min="1" value="1"></td>
+                  <td><input id="settings-new-pass" type="password" placeholder="(global)"></td>
+                  <td><button id="settings-add-btn" class="settings-row-btn add" title="Add NVR">+</button></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+        <div class="settings-footer">
+          <button id="settings-restart-btn" class="btn-secondary" title="Force restart MediaMTX">&#8635; Force Restart</button>
+          <span id="settings-status"></span>
+          <button id="settings-save-btn">Save &amp; Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Context Menu -->
+  <div id="context-menu" class="hidden">
+    <div id="context-menu-items"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

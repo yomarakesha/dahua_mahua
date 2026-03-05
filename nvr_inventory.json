@@ -1,0 +1,87 @@
+{
+  "global": {
+    "default_port": 554,
+    "default_username": "admin",
+    "default_password": "post2525...",
+    "default_subtype": 1
+  },
+  "nvrs": [
+    {
+      "id": "nvr01",
+      "label": "Dahua NVR 192.168.20.12",
+      "ip": "192.168.20.12",
+      "channels": 2,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr02",
+      "label": "Dahua NVR 192.168.20.15",
+      "ip": "192.168.20.15",
+      "channels": 14,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr03",
+      "label": "Dahua NVR 192.168.20.37",
+      "ip": "192.168.20.37",
+      "channels": 1,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr04",
+      "label": "Dahua NVR 192.168.20.254",
+      "ip": "192.168.20.254",
+      "channels": 1,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr05",
+      "label": "Dahua NVR 192.168.20.39",
+      "ip": "192.168.20.39",
+      "channels": 17,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr06",
+      "label": "Dahua NVR 192.168.20.30",
+      "ip": "192.168.20.30",
+      "channels": 6,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr07",
+      "label": "Dahua NVR 192.168.20.20",
+      "ip": "192.168.20.20",
+      "channels": 13,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr08",
+      "label": "Dahua NVR 192.168.20.89",
+      "ip": "192.168.20.89",
+      "channels": 1,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr09",
+      "label": "Dahua NVR 192.168.20.31",
+      "ip": "192.168.20.31",
+      "channels": 10,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr10",
+      "label": "Dahua NVR 192.168.20.32",
+      "ip": "192.168.20.32",
+      "channels": 30,
+      "group": "dahua"
+    },
+    {
+      "id": "nvr11",
+      "label": "Dahua NVR 192.168.20.58",
+      "ip": "192.168.20.58",
+      "channels": 29,
+      "group": "dahua"
+    }
+  ]
+}
