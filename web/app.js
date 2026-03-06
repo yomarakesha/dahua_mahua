@@ -134,6 +134,11 @@ const dom = {
   groupNameInput: $("group-name-input"),
   groupCreateBtn: $("group-create-btn"),
   groupCancelBtn: $("group-cancel-btn"),
+  groupCamSearch: $("group-cam-search"),
+  groupCamList:   $("group-cam-list"),
+  groupSelectAll: $("group-select-all"),
+  groupSelectedCount: $("group-selected-count"),
+  groupDialogTitle: $("group-dialog-title"),
   layoutDialog:   $("layout-dialog"),
   layoutNameInput:$("layout-name-input"),
   layoutSaveBtn:  $("layout-save-btn"),
@@ -679,9 +684,17 @@ function renderGroupTree() {
 
     const label = document.createElement("span");
     label.textContent = `${grp.name} (${grp.cameras.length})`;
+    label.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+
+    const editBtn = document.createElement("span");
+    editBtn.className = "tree-edit-btn";
+    editBtn.textContent = "\u270E";
+    editBtn.title = "Edit group";
+    editBtn.addEventListener("click", (e) => { e.stopPropagation(); showGroupDialog(grp.name); });
 
     header.appendChild(arrow);
     header.appendChild(label);
+    header.appendChild(editBtn);
 
     const children = document.createElement("div");
     children.className = "tree-children";
@@ -729,7 +742,9 @@ function renderGroupTree() {
       e.preventDefault();
       showContextMenu(e, [
         { label: "Show group", action: () => applyFilter("group", grp.name) },
-        { label: "Delete group", action: () => deleteGroup(grp.name) },
+        { label: "Edit group", action: () => showGroupDialog(grp.name) },
+        { type: "separator" },
+        { label: "Delete group", action: () => { if (confirm("Delete group \"" + grp.name + "\"?")) deleteGroup(grp.name); } },
       ]);
     });
 
@@ -984,9 +999,17 @@ function prevPage() { goToPage(state.currentPage - 1); }
 
 // ===== GROUPS =================================================================
 
-function createGroup(name) {
-  if (!name || state.groups.find(g => g.name === name)) return;
-  state.groups.push({ name, cameras: [] });
+// Track which group we're editing (null = creating new)
+let _editingGroup = null;
+
+function createGroup(name, cameras) {
+  if (!name) return;
+  const existing = state.groups.find(g => g.name === name);
+  if (existing) {
+    existing.cameras = cameras || [];
+  } else {
+    state.groups.push({ name, cameras: cameras || [] });
+  }
   saveGroups();
   renderGroupTree();
 }
@@ -1015,13 +1038,156 @@ function deleteGroup(name) {
   if (state.activeFilter.type === "group" && state.activeFilter.value === name) applyFilter("all", "");
 }
 
-function showGroupDialog() {
+function showGroupDialog(editGroupName) {
+  _editingGroup = editGroupName || null;
+  const grp = _editingGroup ? state.groups.find(g => g.name === _editingGroup) : null;
+
+  dom.groupDialogTitle.textContent = grp ? "Edit Group" : "New Group";
+  dom.groupNameInput.value = grp ? grp.name : "";
+  dom.groupCamSearch.value = "";
+  dom.groupCreateBtn.textContent = grp ? "Save" : "Create";
+
+  renderGroupCameraPicker(grp ? new Set(grp.cameras) : new Set());
   dom.groupDialog.classList.remove("hidden");
-  dom.groupNameInput.value = "";
   dom.groupNameInput.focus();
 }
 
-function hideGroupDialog() { dom.groupDialog.classList.add("hidden"); }
+function hideGroupDialog() {
+  dom.groupDialog.classList.add("hidden");
+  _editingGroup = null;
+}
+
+function renderGroupCameraPicker(selectedSet) {
+  const nvrs = getNvrList();
+  dom.groupCamList.innerHTML = "";
+
+  [...nvrs.keys()].sort().forEach(nvrId => {
+    const cameras = nvrs.get(nvrId);
+    if (cameras.length === 0) return;
+
+    const section = document.createElement("div");
+    section.className = "group-nvr-section";
+
+    // NVR header with toggle
+    const nvrMeta = state.inventory && state.inventory.nvrs
+      ? state.inventory.nvrs.find(n => n.id === nvrId) : null;
+    const displayLabel = nvrMeta && nvrMeta.label ? nvrMeta.label : nvrId.toUpperCase();
+
+    const header = document.createElement("div");
+    header.className = "group-nvr-header";
+
+    const toggle = document.createElement("span");
+    toggle.className = "nvr-toggle open";
+    toggle.textContent = "\u25B6";
+
+    const headerLabel = document.createElement("span");
+    const selectedInNvr = cameras.filter(c => selectedSet.has(c)).length;
+    headerLabel.textContent = `${displayLabel} (${selectedInNvr}/${cameras.length})`;
+
+    header.appendChild(toggle);
+    header.appendChild(headerLabel);
+
+    const camsDiv = document.createElement("div");
+    camsDiv.className = "group-nvr-cams open";
+
+    cameras.forEach(cam => {
+      const item = document.createElement("div");
+      item.className = "group-cam-item";
+      item.dataset.cam = cam;
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = selectedSet.has(cam);
+      cb.id = "gcb_" + cam;
+
+      const lbl = document.createElement("label");
+      lbl.htmlFor = cb.id;
+      lbl.textContent = formatName(cam);
+
+      cb.addEventListener("change", () => {
+        if (cb.checked) selectedSet.add(cam);
+        else selectedSet.delete(cam);
+        updateGroupPickerCounts(selectedSet);
+      });
+
+      item.addEventListener("click", (e) => {
+        if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); }
+      });
+
+      item.appendChild(cb);
+      item.appendChild(lbl);
+      camsDiv.appendChild(item);
+    });
+
+    header.addEventListener("click", () => {
+      toggle.classList.toggle("open");
+      camsDiv.classList.toggle("open");
+    });
+
+    section.appendChild(header);
+    section.appendChild(camsDiv);
+    dom.groupCamList.appendChild(section);
+  });
+
+  updateGroupPickerCounts(selectedSet);
+}
+
+function updateGroupPickerCounts(selectedSet) {
+  dom.groupSelectedCount.textContent = selectedSet.size + " selected";
+
+  // Update NVR header counts
+  dom.groupCamList.querySelectorAll(".group-nvr-section").forEach(section => {
+    const cbs = section.querySelectorAll('input[type="checkbox"]');
+    const checked = [...cbs].filter(cb => cb.checked).length;
+    const headerLabel = section.querySelector(".group-nvr-header span:last-child");
+    if (headerLabel) {
+      const base = headerLabel.textContent.replace(/\(\d+\/\d+\)/, "").trim();
+      headerLabel.textContent = `${base} (${checked}/${cbs.length})`;
+    }
+  });
+}
+
+function getGroupDialogSelected() {
+  const selected = [];
+  dom.groupCamList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+    const item = cb.closest(".group-cam-item");
+    if (item && item.dataset.cam) selected.push(item.dataset.cam);
+  });
+  return selected;
+}
+
+function filterGroupCameras(query) {
+  const q = query.toLowerCase();
+  dom.groupCamList.querySelectorAll(".group-cam-item").forEach(item => {
+    const cam = item.dataset.cam || "";
+    const match = !q || cam.toLowerCase().includes(q) || formatName(cam).toLowerCase().includes(q);
+    item.style.display = match ? "" : "none";
+  });
+  // Hide NVR sections with no visible cameras
+  dom.groupCamList.querySelectorAll(".group-nvr-section").forEach(section => {
+    const visibleCams = section.querySelectorAll('.group-cam-item:not([style*="display: none"])');
+    section.style.display = visibleCams.length > 0 ? "" : "none";
+  });
+}
+
+function saveGroupDialog() {
+  const name = dom.groupNameInput.value.trim();
+  if (!name) return;
+
+  const cameras = getGroupDialogSelected();
+
+  if (_editingGroup && _editingGroup !== name) {
+    // Renamed — delete old, create new
+    const oldFilter = state.activeFilter.type === "group" && state.activeFilter.value === _editingGroup;
+    state.groups = state.groups.filter(g => g.name !== _editingGroup);
+    createGroup(name, cameras);
+    if (oldFilter) applyFilter("group", name);
+  } else {
+    createGroup(name, cameras);
+  }
+
+  hideGroupDialog();
+}
 
 async function renameNvr(nvrId) {
   if (!state.inventory) return;
@@ -1592,14 +1758,18 @@ function bindEvents() {
     if (e.key === "Enter") { const n = dom.layoutNameInput.value.trim(); if (n) { saveLayout(n); hideLayoutDialog(); } }
   });
 
-  dom.addGroupBtn.addEventListener("click", showGroupDialog);
-  dom.groupCreateBtn.addEventListener("click", () => {
-    const name = dom.groupNameInput.value.trim();
-    if (name) { createGroup(name); hideGroupDialog(); }
-  });
+  dom.addGroupBtn.addEventListener("click", () => showGroupDialog());
+  dom.groupCreateBtn.addEventListener("click", saveGroupDialog);
   dom.groupCancelBtn.addEventListener("click", hideGroupDialog);
   dom.groupNameInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { const n = dom.groupNameInput.value.trim(); if (n) { createGroup(n); hideGroupDialog(); } }
+    if (e.key === "Enter") saveGroupDialog();
+  });
+  dom.groupCamSearch.addEventListener("input", () => filterGroupCameras(dom.groupCamSearch.value));
+  dom.groupSelectAll.addEventListener("click", () => {
+    // Toggle: if all visible are checked, uncheck all visible; otherwise check all visible
+    const visible = dom.groupCamList.querySelectorAll('.group-cam-item:not([style*="display: none"]) input[type="checkbox"]');
+    const allChecked = [...visible].every(cb => cb.checked);
+    visible.forEach(cb => { cb.checked = !allChecked; cb.dispatchEvent(new Event("change")); });
   });
 
   dom.statusToggle.addEventListener("click", () => { renderStatusPanel(); toggleModal(dom.statusPanel); });

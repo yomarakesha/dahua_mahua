@@ -144,17 +144,27 @@
     </div>
   </div>
 
-  <!-- Group Dialog -->
+  <!-- Group Dialog (Create / Edit) -->
   <div id="group-dialog" class="modal hidden">
-    <div class="modal-content modal-small">
+    <div class="modal-content modal-group">
       <div class="modal-header">
         <h2 id="group-dialog-title">New Group</h2>
         <button class="modal-close">&times;</button>
       </div>
       <div class="modal-body">
         <input id="group-name-input" type="text" placeholder="Group name..." autocomplete="off">
+        <div class="group-camera-picker">
+          <div class="group-picker-toolbar">
+            <input id="group-cam-search" type="text" placeholder="Search cameras..." autocomplete="off">
+            <button id="group-select-all" class="btn-secondary" title="Select / deselect all visible">All</button>
+          </div>
+          <div id="group-cam-list" class="group-cam-list"></div>
+          <div class="group-picker-status">
+            <span id="group-selected-count">0 selected</span>
+          </div>
+        </div>
         <div class="dialog-actions">
-          <button id="group-create-btn">Create</button>
+          <button id="group-create-btn">Save</button>
           <button id="group-cancel-btn" class="btn-secondary">Cancel</button>
         </div>
       </div>

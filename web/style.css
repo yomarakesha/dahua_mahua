@@ -227,6 +227,19 @@ body {
 .tree-camera[draggable="true"] { cursor: grab; }
 .tree-camera[draggable="true"]:active { cursor: grabbing; }
 
+.tree-edit-btn {
+  font-size: 11px;
+  color: #555;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  padding: 0 2px;
+}
+
+.tree-group:hover .tree-edit-btn,
+.tree-nvr:hover .tree-edit-btn { opacity: 1; }
+.tree-edit-btn:hover { color: #e94560; }
+
 .tree-cam-dot {
   display: inline-block;
   width: 5px;
@@ -671,6 +684,116 @@ kbd {
   padding: 3px 14px;
   font-size: 11px;
   color: #888;
+}
+
+/* ===== GROUP DIALOG ===== */
+.modal-group { min-width: 380px; max-width: 480px; }
+
+.group-camera-picker { margin-bottom: 10px; }
+
+.group-picker-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.group-picker-toolbar input {
+  flex: 1;
+  background: #1a1a2e;
+  border: 1px solid #2a2a40;
+  color: #c8c8d0;
+  padding: 5px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  outline: none;
+}
+
+.group-picker-toolbar input:focus { border-color: #e94560; }
+
+.group-picker-toolbar button {
+  background: #2a2a40;
+  color: #aaa;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.group-picker-toolbar button:hover { background: #353550; color: #fff; }
+
+.group-cam-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #2a2a40;
+  border-radius: 3px;
+  background: #0f0f1a;
+}
+
+.group-nvr-section {
+  border-bottom: 1px solid #1a1a28;
+}
+
+.group-nvr-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  background: #121220;
+}
+
+.group-nvr-header:hover { background: #181830; color: #aaa; }
+
+.group-nvr-header .nvr-toggle {
+  font-size: 9px;
+  width: 12px;
+  transition: transform 0.15s;
+}
+
+.group-nvr-header .nvr-toggle.open { transform: rotate(90deg); }
+
+.group-nvr-cams { display: none; }
+.group-nvr-cams.open { display: block; }
+
+.group-cam-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 26px;
+  font-size: 12px;
+  color: #aaa;
+  cursor: pointer;
+}
+
+.group-cam-item:hover { background: #181830; color: #ddd; }
+
+.group-cam-item input[type="checkbox"] {
+  accent-color: #e94560;
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.group-cam-item label {
+  cursor: pointer;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-picker-status {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #666;
 }
 
 /* ===== SETTINGS MODAL ===== */

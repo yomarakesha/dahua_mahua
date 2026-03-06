@@ -33,9 +33,20 @@ def build_rtsp_url(nvr: dict, channel: int, defaults: dict, subtype: int) -> str
     )
 
 
+def get_server_ips(inventory: dict) -> list:
+    """Collect unique NVR subnet IPs to guess the server's LAN interfaces."""
+    subnets = set()
+    for nvr in inventory.get("nvrs", []):
+        parts = nvr["ip"].rsplit(".", 1)
+        if len(parts) == 2:
+            subnets.add(parts[0])
+    return sorted(subnets)
+
+
 def generate_config(inventory: dict, subtype_override: int | None = None) -> str:
     defaults = inventory.get("global", {})
     subtype = subtype_override if subtype_override is not None else defaults.get("default_subtype", 1)
+    subnets = get_server_ips(inventory)
 
     lines = [
         "###############################################",
@@ -50,7 +61,11 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
         "",
         "# Performance tuning",
         "readBufferCount: 1024",
-        "writeQueueSize: 2048",
+        "writeQueueSize: 4096",
+        "",
+        "# Metrics (monitor stream health at :9998/metrics)",
+        "metrics: yes",
+        "metricsAddress: :9998",
         "",
         "# API (used by web UI to list streams)",
         "api: yes",
@@ -61,12 +76,30 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
         "",
         "# WebRTC server (used by web UI for low-latency playback)",
         "webrtcAddress: :8889",
+        "# Single muxed port for all WebRTC UDP — fewer firewall issues",
+        "webrtcLocalUDPAddress: :8189",
+        "webrtcLocalTCPAddress: :8189",
+        "# LAN IPs — prevents ICE gathering failures on local network",
+        "webrtcAdditionalHosts:",
+    ]
+
+    # Add discovered LAN subnets as hints (user should set actual server IP)
+    if subnets:
+        for subnet in subnets:
+            lines.append(f"  - {subnet}.X  # <-- replace X with your server's IP on this subnet")
+    else:
+        lines.append("  - 192.168.1.X  # <-- replace with your server's LAN IP")
+
+    lines += [
         "",
         "# HLS server (fallback)",
         "hlsAddress: :8888",
         "hlsVariant: lowLatency",
         "hlsSegmentCount: 3",
-        "hlsSegmentDuration: 500ms",
+        "hlsSegmentDuration: 1s",
+        "hlsPartDuration: 200ms",
+        "# Save HLS segments to disk instead of RAM (important with many cameras)",
+        "hlsDirectory: /tmp/mediamtx-hls",
         "",
         "# Pull streams on demand — close after 5 min idle to reduce RTSP churn",
         "",
