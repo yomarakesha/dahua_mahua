@@ -8,80 +8,88 @@
   "nvrs": [
     {
       "id": "nvr01",
-      "label": "asdf",
+      "label": "NVR 1",
       "ip": "192.168.20.12",
       "channels": 2,
       "group": "dahua"
     },
     {
       "id": "nvr02",
-      "label": "asdf",
+      "label": "NVR 2",
       "ip": "192.168.20.15",
       "channels": 14,
       "group": "dahua"
     },
     {
       "id": "nvr03",
-      "label": "Dahua NVR 192.168.20.37",
+      "label": "NVR 3",
       "ip": "192.168.20.37",
       "channels": 1,
       "group": "dahua"
     },
     {
       "id": "nvr04",
-      "label": "Dahua NVR 192.168.20.254",
+      "label": "NVR 4",
       "ip": "192.168.20.254",
       "channels": 1,
-      "group": "dahua"
+      "group": "dahua",
+      "password": "post2626..."
     },
     {
       "id": "nvr05",
-      "label": "Dahua NVR 192.168.20.39",
+      "label": "NVR 5",
       "ip": "192.168.20.39",
       "channels": 17,
-      "group": "dahua"
+      "group": "dahua",
+      "password": "post2525..."
     },
     {
       "id": "nvr06",
-      "label": "Dahua NVR 192.168.20.30",
+      "label": "NVR 6",
       "ip": "192.168.20.30",
       "channels": 6,
-      "group": "dahua"
+      "group": "dahua",
+      "password": "post2626..."
     },
     {
       "id": "nvr07",
-      "label": "Dahua NVR 192.168.20.20",
+      "label": "NVR 7",
       "ip": "192.168.20.20",
       "channels": 13,
-      "group": "dahua"
+      "group": "dahua",
+      "password": "post2626..."
     },
     {
       "id": "nvr08",
-      "label": "Dahua NVR 192.168.20.89",
+      "label": "NVR 8",
       "ip": "192.168.20.89",
       "channels": 1,
-      "group": "dahua"
+      "group": "dahua",
+      "password": "post2626..."
     },
     {
       "id": "nvr09",
-      "label": "Dahua NVR 192.168.20.31",
+      "label": "NVR 9",
       "ip": "192.168.20.31",
       "channels": 10,
-      "group": "dahua"
+      "group": "dahua",
+      "password": "post2626..."
     },
     {
       "id": "nvr10",
-      "label": "Dahua NVR 192.168.20.32",
+      "label": "NVR 10",
       "ip": "192.168.20.32",
       "channels": 30,
-      "group": "dahua"
+      "group": "dahua",
+      "password": "post2626..."
     },
     {
       "id": "nvr11",
-      "label": "Dahua NVR 192.168.20.58",
+      "label": "NVR 11",
       "ip": "192.168.20.58",
       "channels": 29,
-      "group": "dahua"
+      "group": "dahua",
+      "password": "post2626..."
     }
   ]
 }

@@ -79,7 +79,7 @@ body {
 #toolbar button:hover { background: #252540; border-color: #3a3a55; }
 #toolbar button.active { background: #e94560; border-color: #e94560; color: #fff; }
 
-#toolbar select {
+#toolbar select, #grid-size {
   background: #1a1a2e;
   color: #c8c8d0;
   border: 1px solid #2a2a40;
@@ -87,6 +87,11 @@ body {
   border-radius: 3px;
   font-size: 12px;
   cursor: pointer;
+}
+
+#grid-size {
+  width: 50px;
+  text-align: center;
 }
 
 #search {
@@ -389,6 +394,16 @@ body {
 #sb-online { color: #4caf50; }
 #sb-error { color: #f44336; }
 #sb-connecting { color: #ff9800; }
+
+/* ===== WARNING BANNER ===== */
+#warning-banner {
+  background: #b71c1c;
+  color: #fff;
+  padding: 6px 16px;
+  font-size: 12px;
+  text-align: center;
+}
+#warning-banner.hidden { display: none; }
 
 /* ===== FULLSCREEN OVERLAY ===== */
 #fullscreen-overlay {
@@ -814,6 +829,13 @@ kbd {
 
 #settings-status.ok { color: #4caf50; }
 #settings-status.err { color: #f44336; }
+
+#settings-chpw-status {
+  font-size: 12px;
+  color: #888;
+}
+#settings-chpw-status.ok { color: #4caf50; }
+#settings-chpw-status.err { color: #f44336; }
 
 #settings-save-btn {
   background: #e94560;

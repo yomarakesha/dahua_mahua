@@ -15,14 +15,7 @@
       <span class="logo">DSS</span>
       <label class="toolbar-group">
         <span>Grid</span>
-        <select id="grid-size">
-          <option value="2">2&times;2</option>
-          <option value="4" selected>4&times;4</option>
-          <option value="8">8&times;8</option>
-          <option value="16">16&times;16</option>
-          <option value="32">32&times;32</option>
-          <option value="64">64&times;64</option>
-        </select>
+        <input id="grid-size" type="text" value="4x4" title="Columns x Rows (e.g. 4x4, 3x2)">
       </label>
       <label class="toolbar-group">
         <span>Layout</span>
@@ -50,6 +43,7 @@
         <span id="status-summary">0/0</span>
       </button>
       <button id="shortcuts-btn" title="Keyboard shortcuts (?)">?</button>
+      <button id="logout-btn" title="Logout">&#9211;</button>
     </div>
   </div>
 
@@ -79,6 +73,9 @@
     </div>
   </div>
 
+  <!-- Warning Banner (hidden by default) -->
+  <div id="warning-banner" class="hidden"></div>
+
   <!-- Status Bar -->
   <div id="status-bar">
     <span id="sb-online">Online: 0</span>
@@ -103,6 +100,7 @@
       </div>
     </div>
     <video id="fs-video" autoplay muted playsinline></video>
+    <video id="fs-buffer" autoplay muted playsinline style="display:none"></video>
   </div>
 
   <!-- Status Panel Modal -->
@@ -201,6 +199,12 @@
               </select>
             </label>
           </div>
+          <h3 class="settings-label" style="margin-top:12px">Connection</h3>
+          <div class="settings-global">
+            <label>Max retries <input id="settings-max-retries" type="number" min="0" max="100" title="0 = no retry, -1 = infinite"></label>
+            <label>Retry delay (s) <input id="settings-retry-delay" type="number" min="1" max="300"></label>
+            <label>Concurrent <input id="settings-max-concurrent" type="number" min="1" max="32"></label>
+          </div>
         </div>
         <div class="settings-section">
           <h3 class="settings-label">NVRs (<span id="settings-nvr-count">0</span>)</h3>
@@ -228,6 +232,15 @@
                 </tr>
               </tfoot>
             </table>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3 class="settings-label">Change Dashboard Password</h3>
+          <div class="settings-global">
+            <label>Current <input id="settings-cur-pw" type="password" autocomplete="off"></label>
+            <label>New <input id="settings-new-pw" type="password" autocomplete="off"></label>
+            <button id="settings-chpw-btn" class="btn-secondary">Change</button>
+            <span id="settings-chpw-status"></span>
           </div>
         </div>
         <div class="settings-footer">

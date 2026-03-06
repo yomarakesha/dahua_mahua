@@ -48,6 +48,10 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
         "logLevel: warn",
         "logDestinations: [stdout]",
         "",
+        "# Performance tuning",
+        "readBufferCount: 1024",
+        "writeQueueSize: 2048",
+        "",
         "# API (used by web UI to list streams)",
         "api: yes",
         "apiAddress: :9997",
@@ -58,11 +62,13 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
         "# WebRTC server (used by web UI for low-latency playback)",
         "webrtcAddress: :8889",
         "",
-        "# HLS server (fallback for browsers without WebRTC)",
+        "# HLS server (fallback)",
         "hlsAddress: :8888",
+        "hlsVariant: lowLatency",
+        "hlsSegmentCount: 3",
+        "hlsSegmentDuration: 500ms",
         "",
-        "# Pull streams on demand only (saves bandwidth)",
-        "# When no client is watching, MediaMTX disconnects from NVR",
+        "# Pull streams on demand — close after 5 min idle to reduce RTSP churn",
         "",
         "paths:",
     ]
@@ -85,7 +91,7 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
             lines.append(f"    source: {url}")
             lines.append(f"    rtspTransport: tcp")
             lines.append(f"    sourceOnDemand: yes")
-            lines.append(f"    sourceOnDemandCloseAfter: 30s")
+            lines.append(f"    sourceOnDemandCloseAfter: 5m")
 
             # Main-stream (used for fullscreen view)
             main_path = f"{nvr_id}_ch{ch}_main"
@@ -94,7 +100,7 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
             lines.append(f"    source: {main_url}")
             lines.append(f"    rtspTransport: tcp")
             lines.append(f"    sourceOnDemand: yes")
-            lines.append(f"    sourceOnDemandCloseAfter: 30s")
+            lines.append(f"    sourceOnDemandCloseAfter: 5m")
 
             total_channels += 1
 
