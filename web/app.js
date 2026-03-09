@@ -54,6 +54,7 @@ const state = {
   focusedCell: -1,
   fullscreenPath: null,
   fullscreenConn: null,  // { pc } for main-stream in fullscreen
+  fullscreenToken: 0,
   inventory: null,        // fetched NVR inventory (labels, metadata)
 };
 
@@ -241,6 +242,17 @@ function getNextPageCameras() {
   return state.filteredCameras.slice(start, start + perPage);
 }
 
+function getPreconnectLimit() {
+  const cells = gridCells();
+  let base = 0;
+
+  if (cells <= 4) base = state.patrol.active ? 4 : 2;
+  else if (cells <= 9) base = state.patrol.active ? 2 : 1;
+  else if (cells <= 16) base = 1;
+
+  return Math.max(0, Math.min(base, Math.max(0, state.prefs.maxConcurrent - 1)));
+}
+
 // ===== BATCHED STATUS UPDATES =================================================
 // Coalesce rapid status changes into single DOM update per frame.
 
@@ -334,6 +346,93 @@ function showWarning(msg) {
 
 // ===== CAMERA CONNECTIONS =====================================================
 
+function getActiveConnection(path, generation) {
+  const conn = state.connections[path];
+  if (!conn) return null;
+  if (generation !== undefined && conn.generation !== generation) return null;
+  return conn;
+}
+
+function resetVideoElement(videoEl) {
+  if (!videoEl) return;
+  try { videoEl.pause(); } catch (_) {}
+  videoEl.onerror = null;
+  videoEl.onplaying = null;
+  videoEl.srcObject = null;
+  videoEl.removeAttribute("src");
+  videoEl.load();
+}
+
+function bindHlsVideo(path, videoEl, conn) {
+  const generation = conn.generation;
+
+  videoEl.onerror = () => {
+    const active = getActiveConnection(path, generation);
+    if (!active || active.mode !== "hls" || active.video !== videoEl) return;
+    active.lastError = "hls-playback-failed";
+    active.status = "error";
+    updateCellDot(path, "error");
+    scheduleStatusUpdate();
+    scheduleReconnect(path, videoEl, generation);
+  };
+
+  videoEl.onplaying = () => {
+    const active = getActiveConnection(path, generation);
+    if (!active || active.mode !== "hls" || active.video !== videoEl) return;
+    active.status = "live";
+    active.failures = 0;
+    active.lastError = null;
+    updateCellDot(path, "live");
+    scheduleStatusUpdate();
+  };
+}
+
+function attachConnectionVideo(path, videoEl) {
+  const conn = state.connections[path];
+  if (!conn) return false;
+
+  const oldVideo = conn.video;
+  if (oldVideo !== videoEl) {
+    videoEl.autoplay = true;
+    videoEl.muted = true;
+    videoEl.playsInline = true;
+
+    if (conn.mode === "hls" && conn.hlsUrl) {
+      bindHlsVideo(path, videoEl, conn);
+      videoEl.srcObject = null;
+      if (videoEl.src !== conn.hlsUrl) {
+        videoEl.src = conn.hlsUrl;
+        videoEl.load();
+      }
+      videoEl.play().catch(() => {});
+    } else if (conn.stream) {
+      videoEl.onerror = null;
+      videoEl.onplaying = null;
+      videoEl.srcObject = conn.stream;
+      videoEl.play().catch(() => {});
+    } else {
+      videoEl.onerror = null;
+      videoEl.onplaying = null;
+    }
+
+    conn.video = videoEl;
+    conn.preconnected = false;
+
+    if (oldVideo && oldVideo !== videoEl) {
+      oldVideo.onerror = null;
+      oldVideo.onplaying = null;
+      if (oldVideo.parentNode === document.body) {
+        resetVideoElement(oldVideo);
+        oldVideo.remove();
+      }
+    }
+  }
+
+  updateCellDot(path, conn.status);
+  scheduleStatusUpdate();
+  return true;
+}
+
 // Prepare a connection slot (track in state) and enqueue negotiation.
 function connectCamera(path, videoEl) {
   // Cancel any pending retry
@@ -344,6 +443,7 @@ function connectCamera(path, videoEl) {
   }
 
   const generation = (existing ? existing.generation || 0 : 0) + 1;
+  resetVideoElement(videoEl);
   state.connections[path] = {
     pc: null,
     status: "connecting",
@@ -352,6 +452,10 @@ function connectCamera(path, videoEl) {
     retryTimer: null,
     generation,
     mode: "webrtc", // "webrtc" or "hls"
+    stream: null,
+    hlsUrl: "",
+    preconnected: false,
+    lastError: null,
   };
   updateCellDot(path, "connecting");
   scheduleStatusUpdate();
@@ -362,22 +466,26 @@ function connectCamera(path, videoEl) {
 async function doConnect(path, videoEl) {
   const conn = state.connections[path];
   if (!conn) return;
+  const generation = conn.generation;
+  const targetVideo = conn.video || videoEl;
 
   // Try WebRTC first, fall back to HLS on failure
-  const webrtcOk = await tryWebRTC(path, videoEl, conn);
+  const webrtcOk = await tryWebRTC(path, targetVideo, conn, generation);
+  const active = getActiveConnection(path, generation);
+  if (!active) return;
   if (!webrtcOk) {
     // WebRTC failed — try HLS immediately (don't waste a retry)
-    const hlsOk = tryHLS(path, videoEl, conn);
+    const hlsOk = tryHLS(path, active.video || targetVideo, active);
     if (!hlsOk) {
-      conn.status = "error";
+      active.status = "error";
       updateCellDot(path, "error");
       scheduleStatusUpdate();
-      scheduleReconnect(path, videoEl);
+      scheduleReconnect(path, active.video || targetVideo, generation);
     }
   }
 }
 
-async function tryWebRTC(path, videoEl, conn) {
+async function tryWebRTC(path, videoEl, conn, generation) {
   let pc;
   try {
     pc = new RTCPeerConnection({
@@ -388,30 +496,37 @@ async function tryWebRTC(path, videoEl, conn) {
   }
   conn.pc = pc;
   conn.mode = "webrtc";
+  conn.stream = null;
+  conn.hlsUrl = "";
 
   // VIDEO ONLY — no audio transceiver = significant bandwidth savings
   pc.addTransceiver("video", { direction: "recvonly" });
 
   pc.ontrack = (evt) => {
-    if (state.connections[path] && state.connections[path].pc === pc) {
-      videoEl.srcObject = evt.streams[0];
-      conn.status = "live";
-      conn.failures = 0;
-      updateCellDot(path, "live");
-      scheduleStatusUpdate();
+    const active = getActiveConnection(path, generation);
+    if (!active || active.pc !== pc) return;
+    active.stream = evt.streams[0];
+    if (active.video) {
+      active.video.srcObject = active.stream;
+      active.video.play().catch(() => {});
     }
+    active.status = "live";
+    active.failures = 0;
+    active.lastError = null;
+    updateCellDot(path, "live");
+    scheduleStatusUpdate();
   };
 
   pc.oniceconnectionstatechange = () => {
-    if (state.connections[path] && state.connections[path].pc !== pc) return;
+    const active = getActiveConnection(path, generation);
+    if (!active || active.pc !== pc) return;
     const s = pc.iceConnectionState;
     if (s === "failed" || s === "disconnected") {
-      if (state.connections[path]) {
-        state.connections[path].status = "error";
-      }
+      active.lastError = "webrtc-ice-" + s;
+      active.status = "error";
       updateCellDot(path, "error");
       scheduleStatusUpdate();
-      scheduleReconnect(path, videoEl);
+      scheduleReconnect(path, active.video || videoEl, generation);
     }
   };
 
@@ -432,6 +547,11 @@ async function tryWebRTC(path, videoEl, conn) {
     await pc.setRemoteDescription({ type: "answer", sdp: answer });
     return true;
   } catch (_) {
+    const active = getActiveConnection(path, generation);
+    if (active && active.pc === pc) {
+      active.pc = null;
+      active.lastError = "webrtc-negotiation-failed";
+    }
     try { pc.close(); } catch(_e){}
     return false;
   }
@@ -441,43 +561,26 @@ function tryHLS(path, videoEl, conn) {
   const hlsUrl = `${CONFIG.hlsBase}/${path}/index.m3u8`;
   conn.pc = null;
   conn.mode = "hls";
+  conn.stream = null;
+  conn.hlsUrl = hlsUrl;
 
-  // Native HLS (Safari) or MSE-based via <video> src
-  if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
-    videoEl.src = hlsUrl;
-  } else {
-    // Most browsers support HLS via MediaSource Extensions with fMP4
-    // MediaMTX serves fMP4 HLS which Chrome/Firefox can play natively
-    videoEl.src = hlsUrl;
-  }
-
-  videoEl.onerror = () => {
-    if (state.connections[path] && state.connections[path].mode === "hls") {
-      conn.status = "error";
-      updateCellDot(path, "error");
-      scheduleStatusUpdate();
-      scheduleReconnect(path, videoEl);
-    }
-  };
-
-  videoEl.onplaying = () => {
-    if (state.connections[path] && state.connections[path].mode === "hls") {
-      conn.status = "live";
-      conn.failures = 0;
-      updateCellDot(path, "live");
-      scheduleStatusUpdate();
-    }
-  };
-
+  bindHlsVideo(path, videoEl, conn);
+  videoEl.srcObject = null;
+  videoEl.src = hlsUrl;
   videoEl.load();
   videoEl.play().catch(() => {});
   return true;
 }
 
 // Reconnect with configurable max retries and delay
-function scheduleReconnect(path, videoEl) {
-  const conn = state.connections[path];
+function scheduleReconnect(path, videoEl, generation) {
+  const conn = getActiveConnection(path, generation);
   if (!conn) return;
+
+  if (conn.retryTimer) {
+    clearTimeout(conn.retryTimer);
+    conn.retryTimer = null;
+  }
 
   conn.failures = (conn.failures || 0) + 1;
   const maxRetries = state.prefs.maxRetries;
@@ -490,11 +593,16 @@ function scheduleReconnect(path, videoEl) {
     return;
   }
 
-  const delay = state.prefs.retryDelay * 1000;
+  const baseDelay = Math.max(1000, state.prefs.retryDelay * 1000);
+  const backoff = Math.min(CONFIG.reconnectMax, baseDelay * (2 ** Math.max(0, conn.failures - 1)));
+  const jitter = Math.floor(backoff * (Math.random() * 0.3 - 0.15));
+  const delay = Math.max(baseDelay, backoff + jitter);
 
   conn.retryTimer = setTimeout(() => {
-    if (state.connections[path]) {
-      connectCamera(path, videoEl);
+    const active = getActiveConnection(path, generation);
+    if (active) {
+      active.retryTimer = null;
+      connectCamera(path, active.video || videoEl);
     }
   }, delay);
 }
@@ -505,10 +613,7 @@ function disconnectCamera(path) {
     if (entry.retryTimer) clearTimeout(entry.retryTimer);
     if (entry.pc) { try { entry.pc.close(); } catch(_){} }
     if (entry.video) {
-      entry.video.srcObject = null;
-      entry.video.removeAttribute("src");
-      entry.video.onerror = null;
-      entry.video.onplaying = null;
+      resetVideoElement(entry.video);
       // Remove hidden preconnect video elements from DOM
       if (entry.preconnected && entry.video.parentNode === document.body) {
         entry.video.remove();
@@ -794,7 +899,8 @@ function renderGrid() {
   const rows = state.gridRows;
   const visibleSet = new Set(pageCams);
   const nextCams = getNextPageCameras();
-  const preconnectSet = new Set(nextCams);
+  const preconnectCams = nextCams.slice(0, getPreconnectLimit());
+  const preconnectSet = new Set(preconnectCams);
 
   // Flush pending queue — don't start connections for cameras we're about to leave
   flushQueue();
@@ -872,31 +978,17 @@ function renderGrid() {
       cell.draggable = true;
       setupDragDrop(cell, path, i);
 
-
-      // Reuse preconnected stream if available, otherwise queue new connection
-      const preConn = state.connections[path];
-      if (preConn && preConn.preconnected && (preConn.status === "live" || preConn.status === "connecting")) {
-        const oldVideo = preConn.video;
-        // Transfer the stream from the hidden preconnect video
-        if (preConn.mode === "hls" && oldVideo && oldVideo.src) {
-          video.src = oldVideo.src;
-          video.load();
-          video.play().catch(() => {});
-        } else if (oldVideo && oldVideo.srcObject) {
-          video.srcObject = oldVideo.srcObject;
+      // Reuse the active session if one already exists for this camera.
+      const existingConn = state.connections[path];
+      if (existingConn) {
+        attachConnectionVideo(path, video);
+        if (existingConn.status === "error") {
+          if (existingConn.retryTimer) {
+            clearTimeout(existingConn.retryTimer);
+            existingConn.retryTimer = null;
+          }
+          connectCamera(path, video);
         }
-        // Clean up hidden video element
-        if (oldVideo && oldVideo.parentNode === document.body) {
-          oldVideo.srcObject = null;
-          oldVideo.removeAttribute("src");
-          oldVideo.onerror = null;
-          oldVideo.onplaying = null;
-          oldVideo.remove();
-        }
-        // Update the connection to point to the visible video element
-        preConn.video = video;
-        preConn.preconnected = false;
-        updateCellDot(path, preConn.status);
       } else {
         connectCamera(path, video);
       }
@@ -924,14 +1016,14 @@ function renderGrid() {
   state.focusedCell = -1;
 
   // Preconnect next page streams after a short delay (let current page finish first)
-  if (tp > 1) {
+  if (tp > 1 && preconnectCams.length > 0) {
     clearTimeout(state._preconnectTimer);
-    state._preconnectTimer = setTimeout(preconnectNextPage, 2000);
+    state._preconnectTimer = setTimeout(() => preconnectNextPage(preconnectCams), 2000);
   }
 }
 
-function preconnectNextPage() {
-  const nextCams = getNextPageCameras();
+function preconnectNextPage(paths) {
+  const nextCams = Array.isArray(paths) ? paths : getNextPageCameras().slice(0, getPreconnectLimit());
   if (nextCams.length === 0) return;
 
   nextCams.forEach(path => {
@@ -959,8 +1051,7 @@ function cleanupPreconnected() {
   for (const p in state.connections) {
     const conn = state.connections[p];
     if (conn.preconnected && conn.video && conn.video.parentNode === document.body) {
-      conn.video.srcObject = null;
-      conn.video.removeAttribute("src");
+      resetVideoElement(conn.video);
       conn.video.remove();
     }
   }
@@ -1441,24 +1532,29 @@ function takeSnapshot(path, videoEl) {
 
 function openFullscreen(path) {
   const conn = state.connections[path];
+  const token = ++state.fullscreenToken;
   state.fullscreenPath = path;
   dom.fsTitle.textContent = formatName(path);
+  resetVideoElement(dom.fsVideo);
 
   // Show sub-stream immediately — never show black
   if (conn && conn.video && conn.video.srcObject) {
     dom.fsVideo.srcObject = conn.video.srcObject;
+    dom.fsVideo.play().catch(() => {});
   } else if (conn && conn.video && conn.video.src) {
     dom.fsVideo.src = conn.video.src;
+    dom.fsVideo.load();
+    dom.fsVideo.play().catch(() => {});
   }
 
   dom.fsOverlay.classList.remove("hidden");
   dom.fsOverlay.requestFullscreen().catch(() => {});
 
   // Buffer main-stream in hidden video, swap only when frames are ready
-  connectFullscreenMain(path);
+  connectFullscreenMain(path, token);
 }
 
-async function connectFullscreenMain(path) {
+async function connectFullscreenMain(path, token) {
   disconnectFullscreenMain();
   const mainPath = path + "_main";
 
@@ -1469,24 +1565,25 @@ async function connectFullscreenMain(path) {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
   } catch (_) {
-    tryFullscreenHLS(mainPath);
+    tryFullscreenHLS(mainPath, token);
     return;
   }
-  state.fullscreenConn = { pc, swapped: false };
+  state.fullscreenConn = { pc, swapped: false, token };
 
   pc.addTransceiver("video", { direction: "recvonly" });
 
   pc.ontrack = (evt) => {
-    if (!state.fullscreenConn || state.fullscreenConn.pc !== pc) return;
+    if (!state.fullscreenConn || state.fullscreenConn.pc !== pc || state.fullscreenConn.token !== token) return;
     // Buffer in hidden video first
     dom.fsBuffer.srcObject = evt.streams[0];
 
     // Wait for actual frames before swapping
     const onReady = () => {
-      if (!state.fullscreenConn || state.fullscreenConn.pc !== pc) return;
+      if (!state.fullscreenConn || state.fullscreenConn.pc !== pc || state.fullscreenConn.token !== token) return;
       if (dom.fsBuffer.videoWidth > 0) {
         // Main stream has frames — swap it in
         dom.fsVideo.srcObject = dom.fsBuffer.srcObject;
+        dom.fsVideo.play().catch(() => {});
         dom.fsBuffer.srcObject = null;
         state.fullscreenConn.swapped = true;
       }
@@ -1497,13 +1594,13 @@ async function connectFullscreenMain(path) {
   };
 
   pc.oniceconnectionstatechange = () => {
-    if (!state.fullscreenConn || state.fullscreenConn.pc !== pc) return;
+    if (!state.fullscreenConn || state.fullscreenConn.pc !== pc || state.fullscreenConn.token !== token) return;
     const s = pc.iceConnectionState;
     if (s === "failed" || s === "disconnected") {
       if (!state.fullscreenConn.swapped) {
         // WebRTC main failed before swap — try HLS main
         try { pc.close(); } catch(_){}
-        tryFullscreenHLS(mainPath);
+        tryFullscreenHLS(mainPath, token);
       }
     }
   };
@@ -1526,13 +1623,13 @@ async function connectFullscreenMain(path) {
   } catch (_) {
     // WebRTC negotiation failed — try HLS as fallback
     try { pc.close(); } catch(_e){}
-    if (state.fullscreenConn && !state.fullscreenConn.swapped) {
-      tryFullscreenHLS(mainPath);
+    if (state.fullscreenConn && !state.fullscreenConn.swapped && state.fullscreenConn.token === token) {
+      tryFullscreenHLS(mainPath, token);
     }
   }
 }
 
-function tryFullscreenHLS(mainPath) {
+function tryFullscreenHLS(mainPath, token) {
   // HLS fallback for main stream — sub-stream stays visible until this loads
   const hlsUrl = `${CONFIG.hlsBase}/${mainPath}/index.m3u8`;
   dom.fsBuffer.srcObject = null;
@@ -1541,7 +1638,7 @@ function tryFullscreenHLS(mainPath) {
   dom.fsBuffer.play().catch(() => {});
 
   const onReady = () => {
-    if (!state.fullscreenPath) return;
+    if (!state.fullscreenPath || state.fullscreenToken !== token) return;
     if (dom.fsBuffer.videoWidth > 0) {
       dom.fsVideo.srcObject = null;
       dom.fsVideo.src = hlsUrl;
@@ -1560,15 +1657,14 @@ function disconnectFullscreenMain() {
     try { state.fullscreenConn.pc.close(); } catch (_) {}
     state.fullscreenConn = null;
   }
-  dom.fsBuffer.srcObject = null;
-  dom.fsBuffer.removeAttribute("src");
+  resetVideoElement(dom.fsBuffer);
 }
 
 function closeFullscreen() {
+  state.fullscreenToken++;
   disconnectFullscreenMain();
   dom.fsOverlay.classList.add("hidden");
-  dom.fsVideo.srcObject = null;
-  dom.fsVideo.removeAttribute("src");
+  resetVideoElement(dom.fsVideo);
   state.fullscreenPath = null;
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
@@ -1578,10 +1674,10 @@ function closeFullscreen() {
 // Handle browser fullscreen exit (e.g. user presses Escape natively)
 document.addEventListener("fullscreenchange", () => {
   if (!document.fullscreenElement && state.fullscreenPath) {
+    state.fullscreenToken++;
     disconnectFullscreenMain();
     dom.fsOverlay.classList.add("hidden");
-    dom.fsVideo.srcObject = null;
-    dom.fsVideo.removeAttribute("src");
+    resetVideoElement(dom.fsVideo);
     state.fullscreenPath = null;
   }
 });
@@ -1995,12 +2091,13 @@ async function forceRestart() {
 
 function reconnectAllVisible() {
   // Reset failure backoff for all connections and reconnect visible cameras
+  const visible = new Set(getPageCameras().filter(Boolean));
   for (const path in state.connections) {
     const c = state.connections[path];
     c.failures = 0;
     if (c.retryTimer) { clearTimeout(c.retryTimer); c.retryTimer = null; }
+    if (visible.has(path) && c.video) connectCamera(path, c.video);
   }
-  // Re-render grid triggers fresh connections for visible cameras
   renderGrid();
 }
 

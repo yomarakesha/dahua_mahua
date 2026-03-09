@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 from http.cookies import SimpleCookie
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 DIR = Path(__file__).resolve().parent
@@ -434,6 +434,10 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class DSSHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -451,7 +455,7 @@ def main():
     load_credentials()  # Ensure credentials file exists
     start_mediamtx()
 
-    server = HTTPServer(("", PORT), Handler)
+    server = DSSHTTPServer(("", PORT), Handler)
     print(f"  Web UI:    http://localhost:{PORT}")
     print(f"  Login:     http://localhost:{PORT}/login")
     print("  MediaMTX:  http://localhost:9997")

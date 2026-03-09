@@ -16,6 +16,9 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+SOURCE_ON_DEMAND_START_TIMEOUT = "10s"
+SOURCE_ON_DEMAND_CLOSE_AFTER = "20s"
+
 
 def load_inventory(path: str) -> dict:
     with open(path) as f:
@@ -68,7 +71,7 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
         "hlsSegmentDuration: 1s",
         "hlsPartDuration: 200ms",
         "",
-        "# Pull streams on demand — close after 5 min idle to reduce RTSP churn",
+        "# Pull streams on demand — close quickly to avoid RTSP churn across large pages",
         "",
         "paths:",
     ]
@@ -91,7 +94,8 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
             lines.append(f"    source: {url}")
             lines.append(f"    rtspTransport: tcp")
             lines.append(f"    sourceOnDemand: yes")
-            lines.append(f"    sourceOnDemandCloseAfter: 5m")
+            lines.append(f"    sourceOnDemandStartTimeout: {SOURCE_ON_DEMAND_START_TIMEOUT}")
+            lines.append(f"    sourceOnDemandCloseAfter: {SOURCE_ON_DEMAND_CLOSE_AFTER}")
 
             # Main-stream (used for fullscreen view)
             main_path = f"{nvr_id}_ch{ch}_main"
@@ -100,7 +104,8 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
             lines.append(f"    source: {main_url}")
             lines.append(f"    rtspTransport: tcp")
             lines.append(f"    sourceOnDemand: yes")
-            lines.append(f"    sourceOnDemandCloseAfter: 5m")
+            lines.append(f"    sourceOnDemandStartTimeout: {SOURCE_ON_DEMAND_START_TIMEOUT}")
+            lines.append(f"    sourceOnDemandCloseAfter: {SOURCE_ON_DEMAND_CLOSE_AFTER}")
 
             total_channels += 1
 
