@@ -74,7 +74,12 @@ body {
   font-size: 12px;
   white-space: nowrap;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
+
+#toolbar button svg { display: block; }
 
 #toolbar button:hover { background: #252540; border-color: #3a3a55; }
 #toolbar button.active { background: #e94560; border-color: #e94560; color: #fff; }
@@ -797,7 +802,7 @@ kbd {
 }
 
 /* ===== SETTINGS MODAL ===== */
-.modal-xlarge { min-width: 700px; max-width: 900px; }
+.modal-xlarge { min-width: 700px; max-width: 950px; }
 
 .settings-section { margin-bottom: 16px; }
 
@@ -814,6 +819,7 @@ kbd {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .settings-global label {
@@ -840,6 +846,22 @@ kbd {
 .settings-global select:focus { border-color: #e94560; }
 
 .settings-global input[type="number"] { width: 70px; }
+.settings-global select { width: auto; min-width: 100px; }
+#settings-server-url { width: 200px; }
+
+/* Password visibility toggle */
+.pw-field { position: relative; }
+.pw-toggle {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  vertical-align: middle;
+  line-height: 1;
+}
+.pw-toggle:hover { color: #e94560; }
 
 .settings-table-wrap {
   overflow-x: auto;
@@ -892,10 +914,33 @@ kbd {
 
 #settings-nvr-table input[type="number"] { width: 50px; }
 #settings-nvr-table input[type="password"] { width: 80px; }
+#settings-nvr-table input[type="checkbox"] {
+  width: auto;
+  accent-color: #e94560;
+  cursor: pointer;
+}
+#settings-nvr-table select {
+  background: #1a1a2e;
+  border: 1px solid transparent;
+  color: #c8c8d0;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-size: 11px;
+  outline: none;
+}
+#settings-nvr-table select:focus { border-color: #e94560; }
 
-#settings-nvr-table td:first-child input { width: 60px; }
-#settings-nvr-table td:nth-child(2) input { width: 140px; }
-#settings-nvr-table td:nth-child(3) input { width: 120px; }
+/* Column widths: On | ID | Label | IP | CH | Pass | Source | Actions */
+#settings-nvr-table th:first-child,
+#settings-nvr-table td:first-child { width: 30px; text-align: center; }
+#settings-nvr-table td:nth-child(2) input { width: 56px; }
+#settings-nvr-table td:nth-child(3) input { width: 100px; }
+#settings-nvr-table td:nth-child(4) input { width: 100px; }
+#settings-nvr-table td:nth-child(5) input { width: 40px; }
+#settings-nvr-table td:nth-child(6) input { width: 72px; }
+#settings-nvr-table td:nth-child(7) select { width: 70px; }
+#settings-nvr-table th:last-child,
+#settings-nvr-table td:last-child { width: 60px; white-space: nowrap; }
 
 #settings-nvr-table tfoot td {
   border-bottom: none;
@@ -911,10 +956,11 @@ kbd {
   border-radius: 3px;
   cursor: pointer;
   font-size: 14px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  vertical-align: middle;
 }
 
 .settings-row-btn:hover { border-color: #e94560; color: #e94560; }
@@ -922,6 +968,52 @@ kbd {
 .settings-row-btn.del:hover { background: #f44336; color: #fff; border-color: #f44336; }
 .settings-row-btn.add { color: #4caf50; }
 .settings-row-btn.add:hover { background: #4caf50; color: #fff; border-color: #4caf50; }
+.settings-row-btn.test { color: #ff9800; font-size: 11px; }
+.settings-row-btn.test:hover { background: #ff9800; color: #fff; border-color: #ff9800; }
+.settings-row-btn:disabled { opacity: 0.4; cursor: wait; }
+
+/* Disabled NVR row */
+#settings-nvr-table tr.nvr-disabled { opacity: 0.45; }
+#settings-nvr-table tr.nvr-disabled input:not([data-field="enabled"]) { color: #666; }
+
+/* NVR row actions cell */
+.nvr-actions { display: flex; gap: 3px; align-items: center; }
+
+/* NVR health indicator */
+.nvr-health-dot.hidden { display: none; }
+.nvr-health-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.nvr-health-dot.ok { background: #4caf50; }
+.nvr-health-dot.fail { background: #f44336; }
+.nvr-health-dot.disabled { background: #555; }
+
+/* Ban timer */
+.nvr-ban-timer { font-size: 10px; color: #ff9800; margin-left: 4px; white-space: nowrap; }
+
+/* Health button area */
+.settings-health-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #1e1e30;
+}
+
+#settings-health-status { font-size: 12px; color: #888; }
+#settings-health-status.ok { color: #4caf50; }
+#settings-health-status.err { color: #f44336; }
+
+/* Disabled sidebar NVR */
+.tree-nvr.tree-nvr-disabled { opacity: 0.4; }
+.tree-nvr.tree-nvr-disabled .tree-cam-dot { background: #333; }
 
 .settings-footer {
   display: flex;
@@ -973,6 +1065,67 @@ kbd {
 
 #settings-save-btn:hover { background: #d13350; }
 #settings-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Import dialog */
+#import-textarea {
+  width: 100%;
+  background: #0f0f1a;
+  border: 1px solid #2a2a40;
+  color: #c8c8d0;
+  padding: 8px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+  resize: vertical;
+  outline: none;
+}
+#import-textarea:focus { border-color: #e94560; }
+#import-status.ok { color: #4caf50; }
+#import-status.err { color: #f44336; }
+
+/* Events log */
+.event-item {
+  display: flex;
+  gap: 10px;
+  padding: 4px 6px;
+  border-bottom: 1px solid #1a1a28;
+  font-size: 12px;
+  color: #aaa;
+}
+.event-item .event-time { color: #666; white-space: nowrap; min-width: 130px; }
+.event-item .event-nvr { color: #e94560; min-width: 50px; }
+.event-item .event-type { min-width: 90px; }
+.event-type.auth_fail, .event-type.banned, .event-type.auto_disabled { color: #f44336; }
+.event-type.auth_ok, .event-type.connect { color: #4caf50; }
+
+/* Toast notifications */
+#toast-container {
+  position: fixed;
+  top: 50px;
+  right: 16px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+.toast {
+  background: #1a1a2e;
+  border: 1px solid #2a2a40;
+  border-left: 3px solid #e94560;
+  color: #c8c8d0;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  max-width: 360px;
+  pointer-events: auto;
+  animation: toast-in 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.toast.warning { border-left-color: #ff9800; }
+.toast.success { border-left-color: #4caf50; }
+.toast-fade { opacity: 0; transition: opacity 0.3s; }
+@keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
 /* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar { width: 6px; }

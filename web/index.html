@@ -37,7 +37,7 @@
     </div>
     <div class="toolbar-right">
       <input id="search" type="text" placeholder="Search cameras... (/)" autocomplete="off">
-      <button id="settings-btn" title="NVR Settings (,)">&#9881;</button>
+      <button id="settings-btn" title="NVR Settings (,)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <button id="status-toggle" title="Connection status">
         <span class="status-dot online"></span>
         <span id="status-summary">0/0</span>
@@ -75,6 +75,9 @@
 
   <!-- Warning Banner (hidden by default) -->
   <div id="warning-banner" class="hidden"></div>
+
+  <!-- Toast Notifications -->
+  <div id="toast-container"></div>
 
   <!-- Status Bar -->
   <div id="status-bar">
@@ -201,13 +204,23 @@
           <div class="settings-global">
             <label>Port <input id="settings-port" type="number" min="1" max="65535"></label>
             <label>User <input id="settings-user" type="text" autocomplete="off"></label>
-            <label>Pass <input id="settings-pass" type="password" autocomplete="off"></label>
+            <label class="pw-field">Pass <input id="settings-pass" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></label>
             <label>Subtype
               <select id="settings-subtype">
                 <option value="0">Main</option>
                 <option value="1">Sub</option>
               </select>
             </label>
+          </div>
+          <h3 class="settings-label" style="margin-top:12px">Stream Source</h3>
+          <div class="settings-global">
+            <label>Source
+              <select id="settings-stream-source">
+                <option value="nvr">Direct NVR (default)</option>
+                <option value="server">Centralized Server</option>
+              </select>
+            </label>
+            <label>Server URL <input id="settings-server-url" type="text" placeholder="rtsp://server:8554" autocomplete="off" title="RTSP URL of centralized MediaMTX server"></label>
           </div>
           <h3 class="settings-label" style="margin-top:12px">Connection</h3>
           <div class="settings-global">
@@ -222,42 +235,89 @@
             <table id="settings-nvr-table">
               <thead>
                 <tr>
+                  <th>On</th>
                   <th>ID</th>
                   <th>Label</th>
                   <th>IP</th>
                   <th>CH</th>
                   <th>Pass</th>
+                  <th>Source</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="settings-nvr-body"></tbody>
               <tfoot>
                 <tr id="settings-add-row">
+                  <td></td>
                   <td><input id="settings-new-id" type="text" placeholder="nvr__"></td>
                   <td><input id="settings-new-label" type="text" placeholder="Label"></td>
                   <td><input id="settings-new-ip" type="text" placeholder="192.168.x.x"></td>
                   <td><input id="settings-new-ch" type="number" min="1" value="1"></td>
                   <td><input id="settings-new-pass" type="password" placeholder="(global)"></td>
+                  <td></td>
                   <td><button id="settings-add-btn" class="settings-row-btn add" title="Add NVR">+</button></td>
                 </tr>
               </tfoot>
             </table>
+            <div class="settings-health-row">
+              <button id="settings-health-btn" class="btn-secondary" title="TCP reachability check (no credentials)">Check Health</button>
+              <button id="settings-test-all-btn" class="btn-secondary" title="Test RTSP credentials for all enabled NVRs">Test All</button>
+              <button id="settings-import-btn" class="btn-secondary" title="Import NVRs from CSV or JSON">Import</button>
+              <span id="settings-health-status"></span>
+            </div>
           </div>
         </div>
         <div class="settings-section">
           <h3 class="settings-label">Change Dashboard Password</h3>
           <div class="settings-global">
-            <label>Current <input id="settings-cur-pw" type="password" autocomplete="off"></label>
-            <label>New <input id="settings-new-pw" type="password" autocomplete="off"></label>
+            <label class="pw-field">Current <input id="settings-cur-pw" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></label>
+            <label class="pw-field">New <input id="settings-new-pw" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></label>
             <button id="settings-chpw-btn" class="btn-secondary">Change</button>
             <span id="settings-chpw-status"></span>
           </div>
         </div>
         <div class="settings-footer">
           <button id="settings-restart-btn" class="btn-secondary" title="Force restart MediaMTX">&#8635; Force Restart</button>
+          <button id="settings-events-btn" class="btn-secondary" title="View NVR event log">Events</button>
           <span id="settings-status"></span>
           <button id="settings-save-btn">Save &amp; Apply</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Dialog -->
+  <div id="import-dialog" class="modal hidden">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2>Import NVRs</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:#888;margin-bottom:8px">Paste CSV (id,label,ip,channels,password) or JSON array of NVR objects:</p>
+        <textarea id="import-textarea" rows="10" placeholder='id,label,ip,channels,password
+nvr12,NVR 12,192.168.20.100,16,mypass
+
+or JSON:
+[{"id":"nvr12","label":"NVR 12","ip":"192.168.20.100","channels":16}]'></textarea>
+        <div id="import-status" style="font-size:12px;margin-top:6px;min-height:16px"></div>
+        <div class="dialog-actions" style="margin-top:10px">
+          <button id="import-apply-btn">Import</button>
+          <button id="import-cancel-btn" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Events Dialog -->
+  <div id="events-dialog" class="modal hidden">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2>NVR Event Log</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="events-list" style="max-height:400px;overflow-y:auto;font-size:12px"></div>
       </div>
     </div>
   </div>

@@ -12,25 +12,62 @@ import os
 import secrets
 import shutil
 import signal
+import socket
+import ssl
 import subprocess
 import sys
 import time
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote, parse_qs, urlparse
 
 DIR = Path(__file__).resolve().parent
 INVENTORY = DIR / "nvr_inventory.json"
 CREDENTIALS = DIR / "credentials.json"
 MEDIAMTX_BIN = DIR / ("mediamtx.exe" if sys.platform == "win32" else "mediamtx")
 MEDIAMTX_CFG = DIR / "mediamtx.yml"
-GENERATE_SCRIPT = DIR / "generate_config.py"
+GENERATE_SCRIPT = DIR / "test" / "generate_config.py"
+EVENT_LOG = DIR / "nvr_events.jsonl"
+TLS_CERT = DIR / "cert.pem"
+TLS_KEY = DIR / "key.pem"
 WEB_DIR = DIR / "web"
 PORT = 8080
 
 mtx_proc = None
 # Active sessions: token -> { username, created }
 sessions = {}
+use_tls = False
+
+# ── Configuration constants ──────────────────────────────────────────────────
+
+SESSION_TTL = 28800            # 8 hours
+LOGIN_RATE_WINDOW = 300        # 5 minutes
+LOGIN_RATE_MAX = 10            # max login attempts per window per IP
+DEFAULT_BAN_COOLDOWN = 1800    # 30 minutes — Dahua default lockout
+EVENT_LOG_MAX_LINES = 10000    # max lines before rotation
+
+
+# ── Login rate limiting ──────────────────────────────────────────────────────
+
+login_attempts = {}  # ip -> [timestamp, ...]
+
+
+def check_login_rate(client_ip):
+    """Returns (allowed: bool, retry_after: int)."""
+    now = time.time()
+    attempts = login_attempts.get(client_ip, [])
+    # Prune old attempts
+    attempts = [t for t in attempts if now - t < LOGIN_RATE_WINDOW]
+    login_attempts[client_ip] = attempts
+    if len(attempts) >= LOGIN_RATE_MAX:
+        retry_after = int(LOGIN_RATE_WINDOW - (now - attempts[0]))
+        return False, max(1, retry_after)
+    return True, 0
+
+
+def record_login_attempt(client_ip):
+    login_attempts.setdefault(client_ip, []).append(time.time())
 
 
 # ── Authentication ───────────────────────────────────────────────────────────
@@ -68,7 +105,14 @@ def get_session(cookie_header):
     if "dss_session" not in cookie:
         return None
     token = cookie["dss_session"].value
-    return sessions.get(token)
+    session = sessions.get(token)
+    if not session:
+        return None
+    # Session expiry check
+    if time.time() - session["created"] > SESSION_TTL:
+        sessions.pop(token, None)
+        return None
+    return session
 
 
 LOGIN_PAGE = """<!DOCTYPE html>
@@ -111,6 +155,8 @@ LOGIN_PAGE = """<!DOCTYPE html>
   <script>
     document.getElementById("form").addEventListener("submit", async (e) => {
       e.preventDefault();
+      const err = document.getElementById("error");
+      err.style.display = "none";
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -122,7 +168,9 @@ LOGIN_PAGE = """<!DOCTYPE html>
       if (res.ok) {
         location.href = "/";
       } else {
-        document.getElementById("error").style.display = "block";
+        const data = await res.json().catch(() => ({}));
+        err.textContent = data.error || "Invalid username or password";
+        err.style.display = "block";
       }
     });
   </script>
@@ -168,6 +216,152 @@ def restart_mediamtx():
     start_mediamtx()
 
 
+# ── NVR Lockout Tracking ─────────────────────────────────────────────────────
+
+nvr_lockouts = {}  # ip -> { "banned_at": float, "cooldown": int }
+
+
+def get_lockout_info(ip):
+    """Returns (is_locked: bool, remaining_seconds: int, banned_until: float)."""
+    info = nvr_lockouts.get(ip)
+    if not info:
+        return False, 0, 0
+    elapsed = time.time() - info["banned_at"]
+    cooldown = info.get("cooldown", DEFAULT_BAN_COOLDOWN)
+    remaining = cooldown - elapsed
+    if remaining <= 0:
+        nvr_lockouts.pop(ip, None)
+        return False, 0, 0
+    return True, int(remaining), info["banned_at"] + cooldown
+
+
+def record_lockout(ip, cooldown=None):
+    nvr_lockouts[ip] = {
+        "banned_at": time.time(),
+        "cooldown": cooldown or DEFAULT_BAN_COOLDOWN,
+    }
+
+
+def clear_lockout(ip):
+    nvr_lockouts.pop(ip, None)
+
+
+# ── NVR Event Log ────────────────────────────────────────────────────────────
+
+def log_nvr_event(nvr_id, ip, event_type, message=""):
+    entry = {
+        "ts": time.time(),
+        "nvr_id": nvr_id,
+        "ip": ip,
+        "event": event_type,
+        "message": message,
+    }
+    try:
+        with open(EVENT_LOG, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+        # Simple rotation: if file too large, truncate to last N lines
+        if EVENT_LOG.stat().st_size > 2 * 1024 * 1024:  # > 2MB
+            lines = EVENT_LOG.read_text().strip().split("\n")
+            EVENT_LOG.write_text("\n".join(lines[-EVENT_LOG_MAX_LINES:]) + "\n")
+    except OSError:
+        pass
+
+
+def read_events(nvr_id=None, limit=200):
+    if not EVENT_LOG.exists():
+        return []
+    try:
+        lines = EVENT_LOG.read_text().strip().split("\n")
+        events = []
+        for line in reversed(lines):
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if nvr_id and entry.get("nvr_id") != nvr_id:
+                continue
+            events.append(entry)
+            if len(events) >= limit:
+                break
+        return events
+    except OSError:
+        return []
+
+
+# ── NVR Health ─────────────────────────────────────────────────────────────
+
+def test_nvr_rtsp(ip, port, username, password, channel=1, timeout=5, nvr_id=None):
+    """Test RTSP connectivity to an NVR by sending an OPTIONS request.
+    Returns (ok: bool, message: str, extra: dict)."""
+    extra = {}
+
+    # Check lockout first
+    is_locked, remaining, banned_until = get_lockout_info(ip)
+    if is_locked:
+        mins = remaining // 60
+        secs = remaining % 60
+        extra["banned_until"] = banned_until
+        extra["remaining"] = remaining
+        msg = f"Locked out — retry in {mins}m {secs}s"
+        return False, msg, extra
+
+    sock = None
+    try:
+        sock = socket.create_connection((ip, port), timeout=timeout)
+        user_enc = quote(username, safe="")
+        pass_enc = quote(password, safe="")
+        url = f"rtsp://{user_enc}:{pass_enc}@{ip}:{port}/cam/realmonitor?channel={channel}&subtype=1"
+        request = f"OPTIONS {url} RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: DSS\r\n\r\n"
+        sock.sendall(request.encode())
+        response = sock.recv(4096).decode(errors="replace")
+        if "RTSP/1.0 200" in response:
+            clear_lockout(ip)
+            if nvr_id:
+                log_nvr_event(nvr_id, ip, "auth_ok", "Credential test passed")
+            return True, "OK", extra
+        elif "401" in response:
+            record_lockout(ip)
+            extra["banned_until"] = time.time() + DEFAULT_BAN_COOLDOWN
+            extra["remaining"] = DEFAULT_BAN_COOLDOWN
+            if nvr_id:
+                log_nvr_event(nvr_id, ip, "auth_fail", "Wrong password (401)")
+            return False, "Authentication failed (wrong password)", extra
+        elif "403" in response:
+            record_lockout(ip)
+            extra["banned_until"] = time.time() + DEFAULT_BAN_COOLDOWN
+            extra["remaining"] = DEFAULT_BAN_COOLDOWN
+            if nvr_id:
+                log_nvr_event(nvr_id, ip, "banned", "IP banned by NVR (403)")
+            return False, "Forbidden (IP banned — too many failed attempts)", extra
+        else:
+            first_line = response.split("\r\n")[0] if response else "No response"
+            return False, f"Unexpected: {first_line}", extra
+    except socket.timeout:
+        return False, "Connection timeout (NVR unreachable)", extra
+    except ConnectionRefusedError:
+        return False, "Connection refused (RTSP port closed)", extra
+    except OSError as e:
+        return False, f"Network error: {e}", extra
+    finally:
+        if sock:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+def check_nvr_reachable(ip, port=554, timeout=3):
+    """Quick TCP connect check — does NOT send credentials."""
+    try:
+        sock = socket.create_connection((ip, port), timeout=timeout)
+        sock.close()
+        return True, "Reachable"
+    except (socket.timeout, ConnectionRefusedError, OSError) as e:
+        return False, str(e)
+
+
 # ── Validation ────────────────────────────────────────────────────────────────
 
 def validate_inventory(data):
@@ -177,6 +371,7 @@ def validate_inventory(data):
         return "Missing 'global' key"
     if "nvrs" not in data or not isinstance(data["nvrs"], list):
         return "Missing or invalid 'nvrs' array"
+    valid_sources = ("nvr", "server", "")
     for i, nvr in enumerate(data["nvrs"]):
         if not isinstance(nvr, dict):
             return f"NVR #{i} is not an object"
@@ -186,6 +381,9 @@ def validate_inventory(data):
             return f"NVR #{i} ({nvr.get('id', '?')}) missing 'ip'"
         if not isinstance(nvr.get("channels"), int) or nvr["channels"] < 1:
             return f"NVR #{i} ({nvr['id']}) 'channels' must be a positive integer"
+        src = nvr.get("stream_source", "")
+        if src and src not in valid_sources:
+            return f"NVR #{i} ({nvr['id']}) invalid stream_source: {src}"
     return None
 
 
@@ -196,7 +394,6 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
 
     def log_message(self, format, *args):
-        # Quieter logging — only log API calls
         if self.path.startswith("/api/"):
             super().log_message(format, *args)
 
@@ -206,10 +403,8 @@ class Handler(SimpleHTTPRequestHandler):
         return get_session(self.headers.get("Cookie")) is not None
 
     def _require_auth(self):
-        """Returns True if authenticated, False if redirect/401 was sent."""
         if self._is_authenticated():
             return True
-        # API calls get 401, page requests get redirect
         if self.path.startswith("/api/"):
             self._send(401, {"error": "Unauthorized"})
         else:
@@ -223,11 +418,19 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/login":
             return self._serve_login()
-        if self.path == "/api/inventory":
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/inventory":
             if not self._require_auth():
                 return
             return self._get_inventory()
-        # All other pages require auth
+        if parsed.path == "/api/events":
+            if not self._require_auth():
+                return
+            return self._get_events(parsed.query)
+        if parsed.path == "/api/lockouts":
+            if not self._require_auth():
+                return
+            return self._get_lockouts()
         if not self._require_auth():
             return
         super().do_GET()
@@ -257,12 +460,19 @@ class Handler(SimpleHTTPRequestHandler):
             return self._post_restart()
         if self.path == "/api/change-password":
             return self._post_change_password()
+        if self.path == "/api/test-nvr":
+            return self._post_test_nvr()
+        if self.path == "/api/test-all-nvrs":
+            return self._post_test_all_nvrs()
+        if self.path == "/api/health":
+            return self._post_health()
+        if self.path == "/api/auto-disable-nvr":
+            return self._post_auto_disable_nvr()
         self._send(405, {"error": "Method not allowed"})
 
     # ── Auth handlers ──
 
     def _serve_login(self):
-        # If already logged in, redirect to dashboard
         if self._is_authenticated():
             self.send_response(302)
             self.send_header("Location", "/")
@@ -276,6 +486,17 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def _post_login(self):
+        client_ip = self.client_address[0]
+
+        # Rate limiting
+        allowed, retry_after = check_login_rate(client_ip)
+        if not allowed:
+            self._send(429, {
+                "error": f"Too many login attempts. Try again in {retry_after}s",
+                "retry_after": retry_after,
+            })
+            return
+
         try:
             body = self._read_body()
             data = json.loads(body)
@@ -286,6 +507,8 @@ class Handler(SimpleHTTPRequestHandler):
         username = data.get("username", "")
         password = data.get("password", "")
 
+        record_login_attempt(client_ip)
+
         if not verify_login(username, password):
             self._send(401, {"error": "Invalid credentials"})
             return
@@ -295,7 +518,10 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", len(resp))
-        self.send_header("Set-Cookie", f"dss_session={token}; Path=/; HttpOnly; SameSite=Strict")
+        cookie_flags = "Path=/; HttpOnly; SameSite=Strict"
+        if use_tls:
+            cookie_flags += "; Secure"
+        self.send_header("Set-Cookie", f"dss_session={token}; {cookie_flags}")
         self.end_headers()
         self.wfile.write(resp)
 
@@ -339,6 +565,148 @@ class Handler(SimpleHTTPRequestHandler):
         CREDENTIALS.write_text(json.dumps(creds, indent=2) + "\n")
         self._send(200, {"ok": True})
 
+    # ── NVR test / health handlers ──
+
+    def _post_test_nvr(self):
+        try:
+            body = self._read_body()
+            data = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            self._send(400, {"error": "Invalid JSON"})
+            return
+
+        ip = data.get("ip", "")
+        port = data.get("port", 554)
+        username = data.get("username", "admin")
+        password = data.get("password", "")
+        channel = data.get("channel", 1)
+        nvr_id = data.get("nvr_id", "")
+
+        if not ip:
+            self._send(400, {"error": "IP is required"})
+            return
+
+        ok, message, extra = test_nvr_rtsp(ip, port, username, password, channel, nvr_id=nvr_id)
+        result = {"ok": ok, "message": message}
+        result.update(extra)
+        self._send(200, result)
+
+    def _post_test_all_nvrs(self):
+        """Test RTSP credentials for all enabled NVRs in the provided inventory."""
+        try:
+            body = self._read_body()
+            data = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            self._send(400, {"error": "Invalid JSON"})
+            return
+
+        defaults = data.get("global", {})
+        results = []
+        for nvr in data.get("nvrs", []):
+            if not nvr.get("enabled", True):
+                results.append({"id": nvr.get("id", "?"), "ok": None, "message": "Disabled (skipped)"})
+                continue
+
+            ip = nvr.get("ip", "")
+            port = nvr.get("port", defaults.get("default_port", 554))
+            username = nvr.get("username", defaults.get("default_username", "admin"))
+            password = nvr.get("password", defaults.get("default_password", ""))
+            nvr_id = nvr.get("id", "")
+
+            ok, message, extra = test_nvr_rtsp(ip, port, username, password, nvr_id=nvr_id)
+            result = {"id": nvr_id, "ok": ok, "message": message}
+            result.update(extra)
+            results.append(result)
+
+        failed = [r for r in results if r["ok"] is False]
+        self._send(200, {"results": results, "failed_count": len(failed)})
+
+    def _post_health(self):
+        try:
+            inv = json.loads(INVENTORY.read_text())
+        except Exception as e:
+            self._send(500, {"error": str(e)})
+            return
+
+        defaults = inv.get("global", {})
+        results = []
+        for nvr in inv.get("nvrs", []):
+            if not nvr.get("enabled", True):
+                results.append({"id": nvr["id"], "ok": False, "message": "Disabled"})
+                continue
+            port = nvr.get("port", defaults.get("default_port", 554))
+            ok, msg = check_nvr_reachable(nvr["ip"], port)
+            results.append({"id": nvr["id"], "ok": ok, "message": msg})
+        self._send(200, {"results": results})
+
+    def _post_auto_disable_nvr(self):
+        """Auto-disable an NVR due to auth failure. Called by frontend."""
+        try:
+            body = self._read_body()
+            data = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            self._send(400, {"error": "Invalid JSON"})
+            return
+
+        nvr_id = data.get("nvr_id", "")
+        reason = data.get("reason", "Auth failure detected by client")
+
+        if not nvr_id:
+            self._send(400, {"error": "nvr_id is required"})
+            return
+
+        try:
+            inv = json.loads(INVENTORY.read_text())
+        except Exception as e:
+            self._send(500, {"error": str(e)})
+            return
+
+        found = False
+        for nvr in inv.get("nvrs", []):
+            if nvr["id"] == nvr_id:
+                if not nvr.get("enabled", True):
+                    self._send(200, {"ok": True, "message": "Already disabled"})
+                    return
+                nvr["enabled"] = False
+                found = True
+                log_nvr_event(nvr_id, nvr.get("ip", ""), "auto_disabled", reason)
+                break
+
+        if not found:
+            self._send(404, {"error": f"NVR '{nvr_id}' not found"})
+            return
+
+        # Backup and save
+        if INVENTORY.exists():
+            shutil.copy2(INVENTORY, str(INVENTORY) + ".bak")
+        INVENTORY.write_text(json.dumps(inv, indent=2) + "\n")
+
+        self._send(200, {"ok": True, "message": f"NVR '{nvr_id}' disabled: {reason}"})
+
+    # ── Event log handlers ──
+
+    def _get_events(self, query_string):
+        params = parse_qs(query_string)
+        nvr_id = params.get("nvr_id", [None])[0]
+        limit = min(int(params.get("limit", [200])[0]), 1000)
+        events = read_events(nvr_id=nvr_id, limit=limit)
+        self._send(200, {"events": events})
+
+    def _get_lockouts(self):
+        now = time.time()
+        result = {}
+        for ip, info in list(nvr_lockouts.items()):
+            remaining = info["cooldown"] - (now - info["banned_at"])
+            if remaining > 0:
+                result[ip] = {
+                    "banned_at": info["banned_at"],
+                    "banned_until": info["banned_at"] + info["cooldown"],
+                    "remaining": int(remaining),
+                }
+            else:
+                nvr_lockouts.pop(ip, None)
+        self._send(200, {"lockouts": result})
+
     # ── API handlers ──
 
     def _get_inventory(self):
@@ -376,7 +744,6 @@ class Handler(SimpleHTTPRequestHandler):
             text=True,
         )
         if result.returncode != 0:
-            # Rollback inventory on config generation failure
             bak = str(INVENTORY) + ".bak"
             if os.path.exists(bak):
                 shutil.copy2(bak, INVENTORY)
@@ -393,7 +760,6 @@ class Handler(SimpleHTTPRequestHandler):
         self._send(200, {"ok": True, "message": result.stdout.strip()})
 
     def _patch_inventory(self):
-        """Update inventory JSON only (no config regen or MediaMTX restart)."""
         try:
             body = self._read_body()
             data = json.loads(body)
@@ -441,6 +807,8 @@ class DSSHTTPServer(ThreadingHTTPServer):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    global use_tls
+
     def shutdown(sig, frame):
         print("\nShutting down...")
         stop_mediamtx()
@@ -452,13 +820,29 @@ def main():
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print("  DSS Server")
 
-    load_credentials()  # Ensure credentials file exists
+    load_credentials()
     start_mediamtx()
 
     server = DSSHTTPServer(("", PORT), Handler)
-    print(f"  Web UI:    http://localhost:{PORT}")
-    print(f"  Login:     http://localhost:{PORT}/login")
+
+    # HTTPS/TLS support
+    if TLS_CERT.exists() and TLS_KEY.exists():
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(str(TLS_CERT), str(TLS_KEY))
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        use_tls = True
+        proto = "https"
+    else:
+        proto = "http"
+
+    print(f"  Web UI:    {proto}://localhost:{PORT}")
+    print(f"  Login:     {proto}://localhost:{PORT}/login")
+    if not use_tls:
+        print("  TLS:       off (add cert.pem + key.pem for HTTPS)")
+    else:
+        print("  TLS:       on")
     print("  MediaMTX:  http://localhost:9997")
+    print(f"  Sessions:  expire after {SESSION_TTL // 3600}h")
     print("  Press Ctrl+C to stop")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 

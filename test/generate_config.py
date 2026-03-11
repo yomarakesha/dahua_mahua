@@ -26,6 +26,7 @@ def load_inventory(path: str) -> dict:
 
 
 def build_rtsp_url(nvr: dict, channel: int, defaults: dict, subtype: int) -> str:
+    """Build RTSP URL pointing directly at the NVR."""
     username = quote(nvr.get("username", defaults.get("default_username", "admin")), safe="")
     password = quote(nvr.get("password", defaults.get("default_password", "admin")), safe="")
     ip = nvr["ip"]
@@ -36,14 +37,28 @@ def build_rtsp_url(nvr: dict, channel: int, defaults: dict, subtype: int) -> str
     )
 
 
+def build_server_rtsp_url(server_url: str, nvr_id: str, channel: int, suffix: str = "") -> str:
+    """Build RTSP URL pointing at a centralized MediaMTX server."""
+    base = server_url.rstrip("/")
+    path_name = f"{nvr_id}_ch{channel}{suffix}"
+    return f"{base}/{path_name}"
+
+
 def generate_config(inventory: dict, subtype_override: int | None = None) -> str:
     defaults = inventory.get("global", {})
     subtype = subtype_override if subtype_override is not None else defaults.get("default_subtype", 1)
+    stream_source = defaults.get("stream_source", "nvr")
+    server_url = defaults.get("server_url", "")
+
+    # Filter to enabled NVRs only
+    enabled_nvrs = [n for n in inventory["nvrs"] if n.get("enabled", True)]
+    disabled_nvrs = [n for n in inventory["nvrs"] if not n.get("enabled", True)]
 
     lines = [
         "###############################################",
         "# MediaMTX Configuration - Auto-generated",
-        f"# NVRs: {len(inventory['nvrs'])}",
+        f"# NVRs: {len(enabled_nvrs)} enabled, {len(disabled_nvrs)} disabled",
+        f"# Stream source: {stream_source}" + (f" ({server_url})" if stream_source == "server" and server_url else ""),
         f"# Grid stream: {'sub-stream' if subtype == 1 else 'main-stream'} (+ main-stream for fullscreen)",
         "###############################################",
         "",
@@ -77,19 +92,40 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
     ]
 
     total_channels = 0
+    global_use_server = stream_source == "server" and server_url
 
-    for nvr in inventory["nvrs"]:
+    for nvr in enabled_nvrs:
         nvr_id = nvr["id"]
         label = nvr.get("label", nvr_id)
         channels = nvr.get("channels", 1)
         group = nvr.get("group", "default")
 
-        lines.append(f"  # --- {label} ({nvr['ip']}, {channels} ch, group: {group}) ---")
+        # Per-NVR stream source override
+        nvr_source = nvr.get("stream_source", "")
+        nvr_server_url = nvr.get("server_url", "")
+        if nvr_source == "server" and nvr_server_url:
+            use_server_for_nvr = True
+            effective_server_url = nvr_server_url
+        elif nvr_source == "server" and server_url:
+            use_server_for_nvr = True
+            effective_server_url = server_url
+        elif nvr_source == "nvr":
+            use_server_for_nvr = False
+            effective_server_url = ""
+        else:
+            use_server_for_nvr = global_use_server
+            effective_server_url = server_url
+
+        src_tag = " [server]" if use_server_for_nvr else ""
+        lines.append(f"  # --- {label} ({nvr['ip']}, {channels} ch, group: {group}){src_tag} ---")
 
         for ch in range(1, channels + 1):
             # Sub-stream (default — used in grid view)
             path_name = f"{nvr_id}_ch{ch}"
-            url = build_rtsp_url(nvr, ch, defaults, subtype)
+            if use_server_for_nvr:
+                url = build_server_rtsp_url(effective_server_url, nvr_id, ch)
+            else:
+                url = build_rtsp_url(nvr, ch, defaults, subtype)
             lines.append(f"  {path_name}:")
             lines.append(f"    source: {url}")
             lines.append(f"    rtspTransport: tcp")
@@ -99,7 +135,10 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
 
             # Main-stream (used for fullscreen view)
             main_path = f"{nvr_id}_ch{ch}_main"
-            main_url = build_rtsp_url(nvr, ch, defaults, 0)
+            if use_server_for_nvr:
+                main_url = build_server_rtsp_url(effective_server_url, nvr_id, ch, "_main")
+            else:
+                main_url = build_rtsp_url(nvr, ch, defaults, 0)
             lines.append(f"  {main_path}:")
             lines.append(f"    source: {main_url}")
             lines.append(f"    rtspTransport: tcp")
@@ -111,7 +150,13 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
 
         lines.append("")
 
-    lines.insert(3, f"# Total channels: {total_channels}")
+    if disabled_nvrs:
+        lines.append(f"  # --- DISABLED NVRs ({len(disabled_nvrs)}) ---")
+        for nvr in disabled_nvrs:
+            lines.append(f"  # {nvr['id']}: {nvr.get('label', nvr['id'])} ({nvr['ip']}, {nvr.get('channels', 1)} ch) — DISABLED")
+        lines.append("")
+
+    lines.insert(5, f"# Total channels: {total_channels}")
 
     return "\n".join(lines) + "\n"
 
@@ -134,9 +179,13 @@ def main():
     with open(args.output, "w") as f:
         f.write(config)
 
-    nvr_count = len(inventory["nvrs"])
-    ch_count = sum(n.get("channels", 1) for n in inventory["nvrs"])
-    print(f"Generated {args.output}: {nvr_count} NVRs, {ch_count} channels")
+    enabled = [n for n in inventory["nvrs"] if n.get("enabled", True)]
+    disabled = len(inventory["nvrs"]) - len(enabled)
+    ch_count = sum(n.get("channels", 1) for n in enabled)
+    msg = f"Generated {args.output}: {len(enabled)} NVRs, {ch_count} channels"
+    if disabled:
+        msg += f" ({disabled} disabled)"
+    print(msg)
 
 
 if __name__ == "__main__":

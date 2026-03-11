@@ -56,7 +56,22 @@ const state = {
   fullscreenConn: null,  // { pc } for main-stream in fullscreen
   fullscreenToken: 0,
   inventory: null,        // fetched NVR inventory (labels, metadata)
+  streamHealth: {},       // path -> { ready, source, readers } from MediaMTX API
+  autoDisabledNvrs: new Set(), // NVR IDs auto-disabled this session
 };
+
+// ===== TOAST NOTIFICATIONS ====================================================
+
+function showToast(message, type = "", duration = 6000) {
+  const el = document.createElement("div");
+  el.className = "toast" + (type ? " " + type : "");
+  el.textContent = message;
+  dom.toastContainer.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("toast-fade");
+    setTimeout(() => el.remove(), 400);
+  }, duration);
+}
 
 // ===== CONNECTION QUEUE =======================================================
 // Only allow CONFIG.maxConcurrent WebRTC negotiations at once.
@@ -163,13 +178,28 @@ const dom = {
   settingsSaveBtn:$("settings-save-btn"),
   settingsRestartBtn:$("settings-restart-btn"),
   settingsStatus: $("settings-status"),
+  settingsStreamSource: $("settings-stream-source"),
+  settingsServerUrl: $("settings-server-url"),
   settingsMaxRetries: $("settings-max-retries"),
   settingsRetryDelay: $("settings-retry-delay"),
   settingsMaxConcurrent: $("settings-max-concurrent"),
+  settingsHealthBtn: $("settings-health-btn"),
+  settingsHealthStatus: $("settings-health-status"),
+  settingsTestAllBtn: $("settings-test-all-btn"),
+  settingsImportBtn: $("settings-import-btn"),
+  settingsEventsBtn: $("settings-events-btn"),
   settingsCurPw:  $("settings-cur-pw"),
   settingsNewPw:  $("settings-new-pw"),
   settingsChpwBtn:$("settings-chpw-btn"),
   settingsChpwStatus:$("settings-chpw-status"),
+  importDialog:   $("import-dialog"),
+  importTextarea: $("import-textarea"),
+  importStatus:   $("import-status"),
+  importApplyBtn: $("import-apply-btn"),
+  importCancelBtn:$("import-cancel-btn"),
+  eventsDialog:   $("events-dialog"),
+  eventsList:     $("events-list"),
+  toastContainer: $("toast-container"),
   logoutBtn:      $("logout-btn"),
   warningBanner:  $("warning-banner"),
 };
@@ -316,6 +346,16 @@ async function fetchCameras() {
       page++;
     }
     const paths = allItems.map(i => i.name).filter(n => !n.endsWith("_main")).sort();
+    // Extract stream health info from MediaMTX API
+    allItems.forEach(item => {
+      if (!item.name) return;
+      const src = item.source || {};
+      state.streamHealth[item.name] = {
+        ready: item.ready || false,
+        sourceType: src.type || "",
+        readers: (item.readers || []).length,
+      };
+    });
     if (JSON.stringify(paths) !== JSON.stringify(state.allCameras)) {
       state.allCameras = paths;
       applyFilter();
@@ -583,6 +623,10 @@ function scheduleReconnect(path, videoEl, generation) {
   }
 
   conn.failures = (conn.failures || 0) + 1;
+
+  // Check for auto-disable on repeated auth failures
+  checkAutoDisable(path);
+
   const maxRetries = state.prefs.maxRetries;
 
   // Stop retrying if max retries reached (0 = no retry, -1 = infinite)
@@ -716,10 +760,13 @@ function renderNvrTree() {
     // Use inventory label if available
     const nvrMeta = state.inventory && state.inventory.nvrs
       ? state.inventory.nvrs.find(n => n.id === nvrId) : null;
+    const isDisabled = nvrMeta && nvrMeta.enabled === false;
     const displayLabel = nvrMeta && nvrMeta.label ? nvrMeta.label : nvrId.toUpperCase();
 
+    if (isDisabled) header.classList.add("tree-nvr-disabled");
+
     const label = document.createElement("span");
-    label.textContent = `${displayLabel} (${cameras.length})`;
+    label.textContent = `${displayLabel} (${cameras.length})${isDisabled ? " - off" : ""}`;
     label.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1";
 
     header.appendChild(arrow);
@@ -1885,6 +1932,25 @@ function bindEvents() {
   dom.settingsAddBtn.addEventListener("click", addNvrFromFooter);
   dom.settingsSaveBtn.addEventListener("click", saveSettings);
   dom.settingsRestartBtn.addEventListener("click", forceRestart);
+  dom.settingsHealthBtn.addEventListener("click", checkNvrHealth);
+  dom.settingsTestAllBtn.addEventListener("click", testAllNvrs);
+  dom.settingsImportBtn.addEventListener("click", () => {
+    dom.importTextarea.value = "";
+    dom.importStatus.textContent = "";
+    dom.importDialog.classList.remove("hidden");
+  });
+  dom.importApplyBtn.addEventListener("click", importNvrs);
+  dom.importCancelBtn.addEventListener("click", () => dom.importDialog.classList.add("hidden"));
+  dom.settingsEventsBtn.addEventListener("click", openEventsLog);
+
+  // Password toggles (global settings)
+  document.querySelectorAll(".settings-global .pw-toggle").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const inp = btn.previousElementSibling;
+      if (inp) inp.type = inp.type === "password" ? "text" : "password";
+    });
+  });
 
   // Auth
   dom.logoutBtn.addEventListener("click", logout);
@@ -1914,6 +1980,8 @@ function renderSettingsForm(inv) {
   dom.settingsUser.value = g.default_username || "";
   dom.settingsPass.value = g.default_password || "";
   dom.settingsSubtype.value = g.default_subtype != null ? g.default_subtype : 1;
+  dom.settingsStreamSource.value = g.stream_source || "nvr";
+  dom.settingsServerUrl.value = g.server_url || "";
 
   // Connection settings from prefs
   dom.settingsMaxRetries.value = state.prefs.maxRetries;
@@ -1924,22 +1992,116 @@ function renderSettingsForm(inv) {
   (inv.nvrs || []).forEach(nvr => appendNvrRow(nvr));
   updateNvrCount();
   clearAddRow();
+  dom.settingsHealthStatus.textContent = "";
 }
 
 function appendNvrRow(nvr) {
+  const enabled = nvr.enabled !== false;
+  const srcVal = nvr.stream_source || "";
   const tr = document.createElement("tr");
+  if (!enabled) tr.classList.add("nvr-disabled");
+  tr.dataset.nvrId = nvr.id || "";
   tr.innerHTML =
-    `<td><input type="text" value="${esc(nvr.id)}" data-field="id"></td>` +
+    `<td><input type="checkbox" data-field="enabled" ${enabled ? "checked" : ""} title="Enable/disable this NVR"></td>` +
+    `<td><input type="text" value="${esc(nvr.id)}" data-field="id"><span class="nvr-health-dot hidden"></span></td>` +
     `<td><input type="text" value="${esc(nvr.label || "")}" data-field="label"></td>` +
     `<td><input type="text" value="${esc(nvr.ip)}" data-field="ip"></td>` +
     `<td><input type="number" min="1" value="${nvr.channels || 1}" data-field="channels"></td>` +
-    `<td><input type="text" value="${esc(nvr.password || "")}" placeholder="(global)" data-field="password"></td>` +
-    `<td><button class="settings-row-btn del" title="Remove">&times;</button></td>`;
+    `<td><span class="pw-field"><input type="password" value="${esc(nvr.password || "")}" placeholder="(global)" data-field="password"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></span></td>` +
+    `<td><select data-field="stream_source"><option value="">Default</option><option value="nvr"${srcVal === "nvr" ? " selected" : ""}>NVR</option><option value="server"${srcVal === "server" ? " selected" : ""}>Server</option></select></td>` +
+    `<td><div class="nvr-actions">` +
+      `<button class="settings-row-btn test" title="Test RTSP credentials">Test</button>` +
+      `<button class="settings-row-btn del" title="Remove">&times;</button>` +
+    `</div></td>`;
+
+  // Enable/disable toggle
+  tr.querySelector('[data-field="enabled"]').addEventListener("change", (e) => {
+    tr.classList.toggle("nvr-disabled", !e.target.checked);
+  });
+
+  // Password toggle
+  const pwToggle = tr.querySelector(".pw-toggle");
+  if (pwToggle) {
+    pwToggle.addEventListener("click", (e) => {
+      e.preventDefault();
+      const inp = tr.querySelector('[data-field="password"]');
+      inp.type = inp.type === "password" ? "text" : "password";
+    });
+  }
+
+  // Test button
+  tr.querySelector(".test").addEventListener("click", async () => {
+    const ip = tr.querySelector('[data-field="ip"]').value.trim();
+    const pw = tr.querySelector('[data-field="password"]').value || dom.settingsPass.value;
+    const user = dom.settingsUser.value.trim() || "admin";
+    const port = parseInt(dom.settingsPort.value) || 554;
+    const nvrId = tr.querySelector('[data-field="id"]').value.trim();
+    const btn = tr.querySelector(".test");
+    btn.disabled = true;
+    btn.textContent = "...";
+    setSettingsStatus("");
+    try {
+      const res = await fetch("/api/test-nvr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip, port, username: user, password: pw, nvr_id: nvrId }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        btn.textContent = "OK";
+        btn.style.color = "#4caf50";
+        btn.style.borderColor = "#4caf50";
+        setSettingsStatus(`${ip}: Connection OK`, false);
+        clearBanTimer(tr);
+      } else {
+        btn.textContent = "Fail";
+        btn.style.color = "#f44336";
+        btn.style.borderColor = "#f44336";
+        setSettingsStatus(`${ip}: ${data.message}`, true);
+        if (data.banned_until) showBanTimer(tr, data.banned_until);
+      }
+    } catch (e) {
+      btn.textContent = "Err";
+      btn.style.color = "#f44336";
+      btn.style.borderColor = "#f44336";
+      setSettingsStatus("Network error testing NVR", true);
+    }
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = "Test";
+      btn.style.color = "";
+      btn.style.borderColor = "";
+    }, 4000);
+  });
 
   // Delete button
   tr.querySelector(".del").addEventListener("click", () => { tr.remove(); updateNvrCount(); });
 
   dom.settingsNvrBody.appendChild(tr);
+}
+
+function showBanTimer(tr, bannedUntil) {
+  clearBanTimer(tr);
+  const span = document.createElement("span");
+  span.className = "nvr-ban-timer";
+  const idCell = tr.querySelector('[data-field="id"]');
+  if (idCell) idCell.parentElement.appendChild(span);
+  const tick = () => {
+    const rem = Math.max(0, Math.ceil(bannedUntil - Date.now() / 1000));
+    if (rem <= 0) { span.remove(); return; }
+    const m = Math.floor(rem / 60), s = rem % 60;
+    span.textContent = `ban: ${m}m${s}s`;
+    span._timer = setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+function clearBanTimer(tr) {
+  const existing = tr.querySelector(".nvr-ban-timer");
+  if (existing) {
+    if (existing._timer) clearTimeout(existing._timer);
+    existing.remove();
+  }
 }
 
 function esc(s) { return String(s).replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
@@ -1980,6 +2142,7 @@ function addNvrFromFooter() {
     ip,
     channels: ch,
     password: dom.settingsNewPass.value,
+    enabled: true,
   });
   updateNvrCount();
   clearAddRow();
@@ -1993,20 +2156,26 @@ function harvestInventory() {
       default_username: dom.settingsUser.value.trim() || "admin",
       default_password: dom.settingsPass.value,
       default_subtype: parseInt(dom.settingsSubtype.value),
+      stream_source: dom.settingsStreamSource.value || "nvr",
+      server_url: dom.settingsServerUrl.value.trim(),
     },
     nvrs: [],
   };
   dom.settingsNvrBody.querySelectorAll("tr").forEach(tr => {
     const get = f => (tr.querySelector(`[data-field="${f}"]`) || {}).value || "";
+    const chk = f => { const el = tr.querySelector(`[data-field="${f}"]`); return el ? el.checked : true; };
     const nvr = {
       id: get("id").trim(),
       label: get("label").trim(),
       ip: get("ip").trim(),
       channels: parseInt(get("channels")) || 1,
       group: "dahua",
+      enabled: chk("enabled"),
     };
     const pw = get("password");
     if (pw) nvr.password = pw;
+    const src = get("stream_source");
+    if (src) nvr.stream_source = src;
     inv.nvrs.push(nvr);
   });
   return inv;
@@ -2045,6 +2214,40 @@ async function saveSettings() {
   const inv = harvestInventory();
   const err = validateInventory(inv);
   if (err) { setSettingsStatus(err, true); return; }
+
+  // Pre-validate: test all enabled NVR credentials before saving
+  const enabledCount = inv.nvrs.filter(n => n.enabled !== false).length;
+  if (enabledCount > 0) {
+    dom.settingsSaveBtn.disabled = true;
+    setSettingsStatus(`Testing ${enabledCount} NVRs before save...`);
+    try {
+      const testRes = await fetch("/api/test-all-nvrs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(inv),
+      });
+      const testData = await testRes.json();
+      if (testData.failed_count > 0) {
+        const failedNames = testData.results
+          .filter(r => r.ok === false)
+          .map(r => `${r.id}: ${r.message}`)
+          .join("\n");
+        const proceed = confirm(
+          `${testData.failed_count} NVR(s) failed credential test:\n\n${failedNames}\n\n` +
+          "Saving with wrong credentials may trigger IP bans on Dahua NVRs.\n\n" +
+          "Click OK to save anyway, or Cancel to fix first."
+        );
+        if (!proceed) {
+          setSettingsStatus("Save cancelled — fix credentials first", true);
+          dom.settingsSaveBtn.disabled = false;
+          return;
+        }
+      }
+    } catch (e) {
+      // If test endpoint fails, continue with save
+    }
+  }
+
   dom.settingsSaveBtn.disabled = true;
   setSettingsStatus("Saving...");
   try {
@@ -2060,7 +2263,6 @@ async function saveSettings() {
       return;
     }
     setSettingsStatus(data.message || "Saved & applied");
-    // Re-fetch cameras + inventory after config regeneration + MediaMTX restart
     setTimeout(async () => {
       await fetchInventory();
       await fetchCameras();
@@ -2088,6 +2290,251 @@ async function forceRestart() {
     dom.settingsRestartBtn.disabled = false;
   }
 }
+
+async function checkNvrHealth() {
+  dom.settingsHealthBtn.disabled = true;
+  dom.settingsHealthBtn.textContent = "Checking...";
+  dom.settingsHealthStatus.textContent = "";
+  dom.settingsHealthStatus.className = "";
+  try {
+    const res = await fetch("/api/health", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      dom.settingsHealthStatus.textContent = data.error || "Health check failed";
+      dom.settingsHealthStatus.className = "err";
+      return;
+    }
+    const results = data.results || [];
+    let ok = 0, fail = 0, disabled = 0;
+    // Update dot indicators on each NVR row
+    dom.settingsNvrBody.querySelectorAll("tr").forEach(tr => {
+      const id = (tr.querySelector('[data-field="id"]') || {}).value;
+      const r = results.find(x => x.id === id);
+      const dot = tr.querySelector(".nvr-health-dot");
+      if (!dot || !r) return;
+      dot.classList.remove("hidden", "ok", "fail", "disabled");
+      if (r.message === "Disabled") {
+        dot.classList.add("disabled");
+        dot.title = "Disabled";
+        disabled++;
+      } else if (r.ok) {
+        dot.classList.add("ok");
+        dot.title = "Reachable";
+        ok++;
+      } else {
+        dot.classList.add("fail");
+        dot.title = r.message;
+        fail++;
+      }
+    });
+    let msg = `${ok} reachable`;
+    if (fail > 0) msg += `, ${fail} unreachable`;
+    if (disabled > 0) msg += `, ${disabled} disabled`;
+    dom.settingsHealthStatus.textContent = msg;
+    dom.settingsHealthStatus.className = fail > 0 ? "err" : "ok";
+  } catch (e) {
+    dom.settingsHealthStatus.textContent = "Network error";
+    dom.settingsHealthStatus.className = "err";
+  } finally {
+    dom.settingsHealthBtn.disabled = false;
+    dom.settingsHealthBtn.textContent = "Check Health";
+  }
+}
+
+// ===== TEST ALL NVRs ==========================================================
+
+async function testAllNvrs() {
+  const inv = harvestInventory();
+  const enabled = inv.nvrs.filter(n => n.enabled !== false);
+  if (enabled.length === 0) {
+    dom.settingsHealthStatus.textContent = "No enabled NVRs to test";
+    return;
+  }
+  dom.settingsTestAllBtn.disabled = true;
+  dom.settingsTestAllBtn.textContent = `Testing 0/${enabled.length}...`;
+  dom.settingsHealthStatus.textContent = "";
+
+  try {
+    const res = await fetch("/api/test-all-nvrs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(inv),
+    });
+    const data = await res.json();
+    const results = data.results || [];
+    let ok = 0, fail = 0;
+
+    dom.settingsNvrBody.querySelectorAll("tr").forEach(tr => {
+      const id = (tr.querySelector('[data-field="id"]') || {}).value;
+      const r = results.find(x => x.id === id);
+      if (!r) return;
+      const btn = tr.querySelector(".test");
+      if (r.ok === true) {
+        ok++;
+        if (btn) { btn.textContent = "OK"; btn.style.color = "#4caf50"; btn.style.borderColor = "#4caf50"; }
+        clearBanTimer(tr);
+      } else if (r.ok === false) {
+        fail++;
+        if (btn) { btn.textContent = "Fail"; btn.style.color = "#f44336"; btn.style.borderColor = "#f44336"; }
+        if (r.banned_until) showBanTimer(tr, r.banned_until);
+      }
+      // Reset buttons after delay
+      setTimeout(() => {
+        if (btn) { btn.textContent = "Test"; btn.style.color = ""; btn.style.borderColor = ""; }
+      }, 6000);
+    });
+
+    let msg = `${ok} passed`;
+    if (fail > 0) msg += `, ${fail} failed`;
+    dom.settingsHealthStatus.textContent = msg;
+    dom.settingsHealthStatus.className = fail > 0 ? "err" : "ok";
+  } catch (e) {
+    dom.settingsHealthStatus.textContent = "Network error";
+    dom.settingsHealthStatus.className = "err";
+  } finally {
+    dom.settingsTestAllBtn.disabled = false;
+    dom.settingsTestAllBtn.textContent = "Test All";
+  }
+}
+
+// ===== IMPORT NVRs ============================================================
+
+function importNvrs() {
+  const raw = dom.importTextarea.value.trim();
+  if (!raw) { dom.importStatus.textContent = "Nothing to import"; dom.importStatus.className = "err"; return; }
+
+  let nvrs = [];
+  // Try JSON first
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      nvrs = parsed;
+    } else {
+      dom.importStatus.textContent = "JSON must be an array of NVR objects";
+      dom.importStatus.className = "err";
+      return;
+    }
+  } catch (_) {
+    // Try CSV
+    const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+    const header = lines[0].toLowerCase();
+    const hasHeader = header.includes("id") && header.includes("ip");
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    for (const line of dataLines) {
+      const parts = line.split(",").map(s => s.trim());
+      if (parts.length < 3) continue;
+      nvrs.push({
+        id: parts[0],
+        label: parts[1] || parts[0],
+        ip: parts[2],
+        channels: parseInt(parts[3]) || 1,
+        password: parts[4] || "",
+      });
+    }
+  }
+
+  if (nvrs.length === 0) {
+    dom.importStatus.textContent = "No valid NVRs found in input";
+    dom.importStatus.className = "err";
+    return;
+  }
+
+  // Validate
+  const ipRe = /^(\d{1,3}\.){3}\d{1,3}$/;
+  const errors = [];
+  nvrs.forEach((n, i) => {
+    if (!n.id) errors.push(`Row ${i + 1}: missing id`);
+    if (!n.ip || !ipRe.test(n.ip)) errors.push(`Row ${i + 1}: invalid IP (${n.ip || "empty"})`);
+  });
+  if (errors.length > 0) {
+    dom.importStatus.textContent = errors.slice(0, 3).join("; ");
+    dom.importStatus.className = "err";
+    return;
+  }
+
+  nvrs.forEach(n => {
+    appendNvrRow({
+      id: n.id,
+      label: n.label || n.id,
+      ip: n.ip,
+      channels: parseInt(n.channels) || 1,
+      password: n.password || "",
+      enabled: n.enabled !== false,
+      stream_source: n.stream_source || "",
+    });
+  });
+  updateNvrCount();
+  dom.importStatus.textContent = `Imported ${nvrs.length} NVRs`;
+  dom.importStatus.className = "ok";
+  setTimeout(() => dom.importDialog.classList.add("hidden"), 1500);
+}
+
+// ===== EVENTS LOG =============================================================
+
+async function openEventsLog() {
+  dom.eventsDialog.classList.remove("hidden");
+  dom.eventsList.innerHTML = "<div style='color:#666'>Loading...</div>";
+  try {
+    const res = await fetch("/api/events?limit=200");
+    const data = await res.json();
+    const events = data.events || [];
+    if (events.length === 0) {
+      dom.eventsList.innerHTML = "<div style='color:#666'>No events recorded yet</div>";
+      return;
+    }
+    dom.eventsList.innerHTML = events.map(e => {
+      const d = new Date(e.ts * 1000);
+      const time = d.toLocaleString();
+      return `<div class="event-item">` +
+        `<span class="event-time">${esc(time)}</span>` +
+        `<span class="event-nvr">${esc(e.nvr_id)}</span>` +
+        `<span class="event-type ${esc(e.event)}">${esc(e.event)}</span>` +
+        `<span>${esc(e.message)}</span>` +
+      `</div>`;
+    }).join("");
+  } catch (e) {
+    dom.eventsList.innerHTML = "<div style='color:#f44336'>Failed to load events</div>";
+  }
+}
+
+// ===== AUTO-DISABLE ON AUTH FAILURE ===========================================
+
+async function autoDisableNvr(nvrId, reason) {
+  if (state.autoDisabledNvrs.has(nvrId)) return; // Already handled this session
+  state.autoDisabledNvrs.add(nvrId);
+  try {
+    const res = await fetch("/api/auto-disable-nvr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nvr_id: nvrId, reason }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`NVR "${nvrId}" auto-disabled: ${reason}`, "warning", 10000);
+      await fetchInventory();
+      renderSidebar();
+    }
+  } catch (_) {}
+}
+
+function checkAutoDisable(path) {
+  const conn = state.connections[path];
+  if (!conn || conn.failures < 3) return;
+  // If consistently failing quickly, likely auth issue
+  if (conn.lastError && (
+    conn.lastError.includes("negotiation-failed") ||
+    conn.lastError.includes("ice-failed")
+  )) {
+    const nvrId = getNvrId(path);
+    const nvrMeta = state.inventory && state.inventory.nvrs
+      ? state.inventory.nvrs.find(n => n.id === nvrId) : null;
+    if (nvrMeta && nvrMeta.enabled !== false) {
+      autoDisableNvr(nvrId, `Stream ${path} failed ${conn.failures} times (${conn.lastError})`);
+    }
+  }
+}
+
+// =============================================================================
 
 function reconnectAllVisible() {
   // Reset failure backoff for all connections and reconnect visible cameras
