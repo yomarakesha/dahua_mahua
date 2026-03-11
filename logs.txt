@@ -1,0 +1,843 @@
+127.0.0.1 - - [11/Mar/2026 17:30:20] "POST /api/client-log HTTP/1.1" 200 -
+17:30:28 WARNING [12:30:23.897] nvr02_ch6 ice-error | disconnected
+17:30:28 INFO  [12:30:23.897] nvr02_ch6 schedule-reconnect | failures=1 delay=11s lastErr=webrtc-ice-disconnected
+17:30:28 ERROR [12:30:25.510] nvr07_ch13 webrtc-negotiation-failed | whep-timeout-10s
+17:30:28 WARNING [12:30:25.510] nvr07_ch13 webrtc-failed, trying HLS
+17:30:28 INFO  [12:30:25.510] nvr07_ch13 hls-fallback | http://localhost:8888/nvr07_ch13/index.m3u8
+17:30:28 INFO  [12:30:25.510] nvr09_ch6 connect-start | gen=2 failures=1
+17:30:28 INFO  [12:30:25.515] nvr06_ch6 schedule-reconnect | failures=2 delay=23s lastErr=hls-playback-failed
+17:30:28 INFO  [12:30:26.957] nvr07_ch12 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:28 ERROR [12:30:26.958] nvr07_ch11 webrtc-negotiation-failed | whep-timeout-10s
+17:30:28 WARNING [12:30:26.959] nvr07_ch11 webrtc-failed, trying HLS
+17:30:28 INFO  [12:30:26.959] nvr07_ch11 hls-fallback | http://localhost:8888/nvr07_ch11/index.m3u8
+17:30:28 INFO  [12:30:26.959] nvr09_ch8 connect-start | gen=2 failures=1
+17:30:28 ERROR [12:30:26.989] nvr09_ch1 webrtc-negotiation-failed | whep-timeout-10s
+17:30:28 WARNING [12:30:26.990] nvr09_ch1 webrtc-failed, trying HLS
+17:30:28 INFO  [12:30:26.990] nvr09_ch1 hls-fallback | http://localhost:8888/nvr09_ch1/index.m3u8
+17:30:28 INFO  [12:30:26.990] nvr09_ch7 connect-start | gen=2 failures=1
+17:30:28 INFO  [12:30:26.997] nvr07_ch13 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:30:28 INFO  [12:30:27.165] nvr07_ch11 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:30:28 ERROR [12:30:27.168] nvr09_ch2 webrtc-negotiation-failed | whep-timeout-10s
+17:30:28 WARNING [12:30:27.168] nvr09_ch2 webrtc-failed, trying HLS
+17:30:28 INFO  [12:30:27.168] nvr09_ch2 hls-fallback | http://localhost:8888/nvr09_ch2/index.m3u8
+17:30:28 INFO  [12:30:27.168] nvr10_ch1 connect-start | gen=2 failures=1
+17:30:28 ERROR [12:30:27.588] nvr09_ch10 webrtc-negotiation-failed | whep-timeout-10s
+17:30:28 WARNING [12:30:27.589] nvr09_ch10 webrtc-failed, trying HLS
+17:30:28 INFO  [12:30:27.589] nvr09_ch10 hls-fallback | http://localhost:8888/nvr09_ch10/index.m3u8
+17:30:28 INFO  [12:30:27.589] nvr09_ch9 connect-start | gen=2 failures=1
+17:30:28 INFO  [12:30:27.597] nvr09_ch1 schedule-reconnect | failures=2 delay=17s lastErr=hls-playback-failed
+17:30:28 INFO  [12:30:27.739] nvr09_ch2 schedule-reconnect | failures=2 delay=20s lastErr=hls-playback-failed
+17:30:28 ERROR [12:30:27.741] nvr09_ch3 webrtc-negotiation-failed | whep-timeout-10s
+17:30:28 WARNING [12:30:27.741] nvr09_ch3 webrtc-failed, trying HLS
+17:30:28 INFO  [12:30:27.741] nvr09_ch3 hls-fallback | http://localhost:8888/nvr09_ch3/index.m3u8
+17:30:28 INFO  [12:30:27.742] nvr01_ch2 connect-start | gen=2 failures=2
+17:30:28 ERROR [12:30:28.041] nvr09_ch5 webrtc-negotiation-failed | whep-timeout-10s
+17:30:28 WARNING [12:30:28.041] nvr09_ch5 webrtc-failed, trying HLS
+17:30:28 INFO  [12:30:28.041] nvr09_ch5 hls-fallback | http://localhost:8888/nvr09_ch5/index.m3u8
+17:30:28 INFO  [12:30:28.041] nvr01_ch1 connect-start | gen=2 failures=2
+17:30:28 INFO  [12:30:28.049] nvr09_ch10 schedule-reconnect | failures=2 delay=20s lastErr=hls-playback-failed
+17:30:28 INFO  [12:30:28.112] nvr09_ch3 schedule-reconnect | failures=2 delay=19s lastErr=hls-playback-failed
+17:30:28 ERROR [12:30:28.115] nvr09_ch4 webrtc-negotiation-failed | whep-timeout-10s
+17:30:28 WARNING [12:30:28.115] nvr09_ch4 webrtc-failed, trying HLS
+17:30:28 INFO  [12:30:28.115] nvr09_ch4 hls-fallback | http://localhost:8888/nvr09_ch4/index.m3u8
+17:30:28 INFO  [12:30:28.116] nvr10_ch12 connect-start | gen=2 failures=1
+127.0.0.1 - - [11/Mar/2026 17:30:28] "POST /api/client-log HTTP/1.1" 200 -
+17:30:35 INFO  [12:30:30.191]  status-summary | online=68 connecting=42 error=14 total=124 errs=[nvr02_ch6(webrtc-ice-disconnected,f=1), nvr06_ch1(hls-playback-failed,f=2), nvr06_ch2(hls-playback-failed,f=2), nvr06_ch3(hls-playback-failed,f=2), nvr06_ch4(hls-playback-failed,f=2), nvr06_ch5(hls-playback-failed,f=2), nvr06_ch6(hls-playback-failed,f=2), nvr07_ch11(hls-playback-failed,f=2), nvr07_ch12(hls-playback-failed,f=2), nvr07_ch13(hls-playback-failed,f=2)]
+17:30:35 INFO  [12:30:30.445] nvr01_ch2 webrtc-track-received | streams=1
+17:30:35 INFO  [12:30:30.446] nvr01_ch2 webrtc-negotiation-ok
+17:30:35 INFO  [12:30:30.446] nvr10_ch10 connect-start | gen=2 failures=1
+17:30:35 INFO  [12:30:30.448] nvr01_ch2 ice-connected
+17:30:35 INFO  [12:30:30.855] nvr01_ch1 webrtc-track-received | streams=1
+17:30:35 INFO  [12:30:30.855] nvr01_ch1 webrtc-negotiation-ok
+17:30:35 INFO  [12:30:30.855] nvr10_ch11 connect-start | gen=2 failures=1
+17:30:35 INFO  [12:30:30.857] nvr01_ch1 ice-connected
+17:30:35 WARNING [12:30:33.920] nvr02_ch6 ice-error | failed
+17:30:35 INFO  [12:30:33.920] nvr02_ch6 schedule-reconnect | failures=2 delay=19s lastErr=webrtc-ice-failed
+127.0.0.1 - - [11/Mar/2026 17:30:35] "POST /api/client-log HTTP/1.1" 200 -
+17:30:40 INFO  [12:30:35.516] nvr09_ch5 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:40 ERROR [12:30:35.517] nvr09_ch6 webrtc-negotiation-failed | whep-timeout-10s
+17:30:40 WARNING [12:30:35.518] nvr09_ch6 webrtc-failed, trying HLS
+17:30:40 INFO  [12:30:35.518] nvr09_ch6 hls-fallback | http://localhost:8888/nvr09_ch6/index.m3u8
+17:30:40 INFO  [12:30:35.518] nvr02_ch10 connect-start | gen=2 failures=2
+17:30:40 INFO  [12:30:36.967] nvr09_ch4 schedule-reconnect | failures=2 delay=23s lastErr=hls-playback-failed
+17:30:40 ERROR [12:30:36.967] nvr09_ch8 webrtc-negotiation-failed | whep-timeout-10s
+17:30:40 WARNING [12:30:36.967] nvr09_ch8 webrtc-failed, trying HLS
+17:30:40 INFO  [12:30:36.967] nvr09_ch8 hls-fallback | http://localhost:8888/nvr09_ch8/index.m3u8
+17:30:40 INFO  [12:30:36.967] nvr02_ch1 connect-start | gen=2 failures=2
+17:30:40 INFO  [12:30:36.997] nvr09_ch6 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:40 ERROR [12:30:36.997] nvr09_ch7 webrtc-negotiation-failed | whep-timeout-10s
+17:30:40 WARNING [12:30:36.997] nvr09_ch7 webrtc-failed, trying HLS
+17:30:40 INFO  [12:30:36.997] nvr09_ch7 hls-fallback | http://localhost:8888/nvr09_ch7/index.m3u8
+17:30:40 INFO  [12:30:36.997] nvr10_ch13 connect-start | gen=2 failures=1
+17:30:40 INFO  [12:30:37.174] nvr09_ch8 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:40 ERROR [12:30:37.174] nvr10_ch1 webrtc-negotiation-failed | whep-timeout-10s
+17:30:40 WARNING [12:30:37.174] nvr10_ch1 webrtc-failed, trying HLS
+17:30:40 INFO  [12:30:37.174] nvr10_ch1 hls-fallback | http://localhost:8888/nvr10_ch1/index.m3u8
+17:30:40 INFO  [12:30:37.175] nvr10_ch14 connect-start | gen=2 failures=1
+17:30:40 ERROR [12:30:37.596] nvr09_ch9 webrtc-negotiation-failed | whep-timeout-10s
+17:30:40 WARNING [12:30:37.596] nvr09_ch9 webrtc-failed, trying HLS
+17:30:40 INFO  [12:30:37.596] nvr09_ch9 hls-fallback | http://localhost:8888/nvr09_ch9/index.m3u8
+17:30:40 INFO  [12:30:37.597] nvr10_ch15 connect-start | gen=2 failures=1
+17:30:40 INFO  [12:30:37.598] nvr09_ch7 schedule-reconnect | failures=2 delay=21s lastErr=hls-playback-failed
+17:30:40 INFO  [12:30:37.747] nvr10_ch1 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:40 INFO  [12:30:37.827] nvr02_ch10 webrtc-track-received | streams=1
+17:30:40 INFO  [12:30:37.827] nvr02_ch10 webrtc-negotiation-ok
+17:30:40 INFO  [12:30:37.827] nvr10_ch17 connect-start | gen=2 failures=1
+17:30:40 INFO  [12:30:37.830] nvr02_ch10 ice-connected
+17:30:40 INFO  [12:30:38.048] nvr09_ch9 schedule-reconnect | failures=2 delay=19s lastErr=hls-playback-failed
+17:30:40 ERROR [12:30:38.122] nvr10_ch12 webrtc-negotiation-failed | whep-timeout-10s
+17:30:40 WARNING [12:30:38.122] nvr10_ch12 webrtc-failed, trying HLS
+17:30:40 INFO  [12:30:38.122] nvr10_ch12 hls-fallback | http://localhost:8888/nvr10_ch12/index.m3u8
+17:30:40 INFO  [12:30:38.123] nvr10_ch16 connect-start | gen=2 failures=1
+17:30:40 INFO  [12:30:38.458] nvr02_ch1 webrtc-track-received | streams=1
+17:30:40 INFO  [12:30:38.458] nvr02_ch1 webrtc-negotiation-ok
+17:30:40 INFO  [12:30:38.458] nvr10_ch18 connect-start | gen=2 failures=1
+17:30:40 INFO  [12:30:38.460] nvr02_ch1 ice-connected
+17:30:40 ERROR [12:30:40.453] nvr10_ch10 webrtc-negotiation-failed | whep-timeout-10s
+17:30:40 WARNING [12:30:40.453] nvr10_ch10 webrtc-failed, trying HLS
+17:30:40 INFO  [12:30:40.453] nvr10_ch10 hls-fallback | http://localhost:8888/nvr10_ch10/index.m3u8
+17:30:40 INFO  [12:30:40.454] nvr10_ch19 connect-start | gen=2 failures=1
+127.0.0.1 - - [11/Mar/2026 17:30:40] "POST /api/client-log HTTP/1.1" 200 -
+17:30:45 INFO  [12:30:40.858] nvr10_ch12 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:45 ERROR [12:30:40.862] nvr10_ch11 webrtc-negotiation-failed | whep-timeout-10s
+17:30:45 WARNING [12:30:40.862] nvr10_ch11 webrtc-failed, trying HLS
+17:30:45 INFO  [12:30:40.862] nvr10_ch11 hls-fallback | http://localhost:8888/nvr10_ch11/index.m3u8
+17:30:45 INFO  [12:30:40.863] nvr10_ch2 connect-start | gen=2 failures=1
+17:30:45 INFO  [12:30:45.528] nvr10_ch10 schedule-reconnect | failures=2 delay=23s lastErr=hls-playback-failed
+127.0.0.1 - - [11/Mar/2026 17:30:45] "POST /api/client-log HTTP/1.1" 200 -
+17:30:51 INFO  [12:30:46.973] nvr10_ch11 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:51 ERROR [12:30:47.003] nvr10_ch13 webrtc-negotiation-failed | whep-timeout-10s
+17:30:51 WARNING [12:30:47.003] nvr10_ch13 webrtc-failed, trying HLS
+17:30:51 INFO  [12:30:47.003] nvr10_ch13 hls-fallback | http://localhost:8888/nvr10_ch13/index.m3u8
+17:30:51 INFO  [12:30:47.003] nvr10_ch22 connect-start | gen=2 failures=1
+17:30:51 ERROR [12:30:47.185] nvr10_ch14 webrtc-negotiation-failed | whep-timeout-10s
+17:30:51 WARNING [12:30:47.186] nvr10_ch14 webrtc-failed, trying HLS
+17:30:51 INFO  [12:30:47.186] nvr10_ch14 hls-fallback | http://localhost:8888/nvr10_ch14/index.m3u8
+17:30:51 INFO  [12:30:47.186] nvr10_ch20 connect-start | gen=2 failures=1
+17:30:51 ERROR [12:30:47.603] nvr10_ch15 webrtc-negotiation-failed | whep-timeout-10s
+17:30:51 WARNING [12:30:47.604] nvr10_ch15 webrtc-failed, trying HLS
+17:30:51 INFO  [12:30:47.604] nvr10_ch15 hls-fallback | http://localhost:8888/nvr10_ch15/index.m3u8
+17:30:51 INFO  [12:30:47.604] nvr10_ch21 connect-start | gen=2 failures=1
+17:30:51 INFO  [12:30:47.612] nvr10_ch13 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:30:51 INFO  [12:30:47.831] nvr10_ch14 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:51 ERROR [12:30:47.835] nvr10_ch17 webrtc-negotiation-failed | whep-timeout-10s
+17:30:51 WARNING [12:30:47.835] nvr10_ch17 webrtc-failed, trying HLS
+17:30:51 INFO  [12:30:47.835] nvr10_ch17 hls-fallback | http://localhost:8888/nvr10_ch17/index.m3u8
+17:30:51 INFO  [12:30:47.835] nvr10_ch24 connect-start | gen=2 failures=1
+17:30:51 ERROR [12:30:48.129] nvr10_ch16 webrtc-negotiation-failed | whep-timeout-10s
+17:30:51 WARNING [12:30:48.129] nvr10_ch16 webrtc-failed, trying HLS
+17:30:51 INFO  [12:30:48.129] nvr10_ch16 hls-fallback | http://localhost:8888/nvr10_ch16/index.m3u8
+17:30:51 INFO  [12:30:48.129] nvr10_ch23 connect-start | gen=2 failures=1
+17:30:51 INFO  [12:30:48.134] nvr10_ch15 schedule-reconnect | failures=2 delay=21s lastErr=hls-playback-failed
+17:30:51 INFO  [12:30:48.462] nvr10_ch17 schedule-reconnect | failures=2 delay=17s lastErr=hls-playback-failed
+17:30:51 ERROR [12:30:48.464] nvr10_ch18 webrtc-negotiation-failed | whep-timeout-10s
+17:30:51 WARNING [12:30:48.465] nvr10_ch18 webrtc-failed, trying HLS
+17:30:51 INFO  [12:30:48.465] nvr10_ch18 hls-fallback | http://localhost:8888/nvr10_ch18/index.m3u8
+17:30:51 INFO  [12:30:48.465] nvr10_ch25 connect-start | gen=2 failures=1
+17:30:51 ERROR [12:30:50.461] nvr10_ch19 webrtc-negotiation-failed | whep-timeout-10s
+17:30:51 WARNING [12:30:50.462] nvr10_ch19 webrtc-failed, trying HLS
+17:30:51 INFO  [12:30:50.462] nvr10_ch19 hls-fallback | http://localhost:8888/nvr10_ch19/index.m3u8
+17:30:51 INFO  [12:30:50.462] nvr10_ch26 connect-start | gen=2 failures=1
+17:30:51 INFO  [12:30:50.466] nvr10_ch16 schedule-reconnect | failures=2 delay=17s lastErr=hls-playback-failed
+17:30:51 INFO  [12:30:50.867] nvr10_ch18 schedule-reconnect | failures=2 delay=21s lastErr=hls-playback-failed
+17:30:51 ERROR [12:30:50.868] nvr10_ch2 webrtc-negotiation-failed | whep-timeout-10s
+17:30:51 WARNING [12:30:50.868] nvr10_ch2 webrtc-failed, trying HLS
+17:30:51 INFO  [12:30:50.868] nvr10_ch2 hls-fallback | http://localhost:8888/nvr10_ch2/index.m3u8
+17:30:51 INFO  [12:30:50.869] nvr10_ch27 connect-start | gen=2 failures=1
+127.0.0.1 - - [11/Mar/2026 17:30:51] "POST /api/client-log HTTP/1.1" 200 -
+17:30:58 WARNING [12:30:53.696] nvr07_ch6 ice-error | disconnected
+17:30:58 INFO  [12:30:53.696] nvr07_ch6 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:30:58 WARNING [12:30:53.826] nvr02_ch4 ice-error | disconnected
+17:30:58 INFO  [12:30:53.826] nvr02_ch4 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:30:58 WARNING [12:30:55.871] nvr02_ch2 ice-error | disconnected
+17:30:58 INFO  [12:30:55.871] nvr02_ch2 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:30:58 ERROR [12:30:57.009] nvr10_ch22 webrtc-negotiation-failed | whep-timeout-10s
+17:30:58 WARNING [12:30:57.009] nvr10_ch22 webrtc-failed, trying HLS
+17:30:58 INFO  [12:30:57.009] nvr10_ch22 hls-fallback | http://localhost:8888/nvr10_ch22/index.m3u8
+17:30:58 INFO  [12:30:57.009] nvr10_ch28 connect-start | gen=2 failures=1
+17:30:58 INFO  [12:30:57.015] nvr10_ch19 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:30:58 INFO  [12:30:57.192] nvr10_ch2 schedule-reconnect | failures=2 delay=20s lastErr=hls-playback-failed
+17:30:58 ERROR [12:30:57.192] nvr10_ch20 webrtc-negotiation-failed | whep-timeout-10s
+17:30:58 WARNING [12:30:57.193] nvr10_ch20 webrtc-failed, trying HLS
+17:30:58 INFO  [12:30:57.193] nvr10_ch20 hls-fallback | http://localhost:8888/nvr10_ch20/index.m3u8
+17:30:58 INFO  [12:30:57.193] nvr10_ch29 connect-start | gen=2 failures=1
+17:30:58 WARNING [12:30:57.418] nvr11_ch6 ice-error | disconnected
+17:30:58 INFO  [12:30:57.418] nvr11_ch6 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:30:58 INFO  [12:30:57.609] nvr10_ch22 schedule-reconnect | failures=2 delay=19s lastErr=hls-playback-failed
+17:30:58 ERROR [12:30:57.612] nvr10_ch21 webrtc-negotiation-failed | whep-timeout-10s
+17:30:58 WARNING [12:30:57.613] nvr10_ch21 webrtc-failed, trying HLS
+17:30:58 INFO  [12:30:57.613] nvr10_ch21 hls-fallback | http://localhost:8888/nvr10_ch21/index.m3u8
+17:30:58 INFO  [12:30:57.613] nvr10_ch3 connect-start | gen=2 failures=1
+17:30:58 INFO  [12:30:57.842] nvr10_ch20 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:58 ERROR [12:30:57.842] nvr10_ch24 webrtc-negotiation-failed | whep-timeout-10s
+17:30:58 WARNING [12:30:57.843] nvr10_ch24 webrtc-failed, trying HLS
+17:30:58 INFO  [12:30:57.843] nvr10_ch24 hls-fallback | http://localhost:8888/nvr10_ch24/index.m3u8
+17:30:58 INFO  [12:30:57.843] nvr10_ch30 connect-start | gen=2 failures=1
+17:30:58 ERROR [12:30:58.135] nvr10_ch23 webrtc-negotiation-failed | whep-timeout-10s
+17:30:58 WARNING [12:30:58.136] nvr10_ch23 webrtc-failed, trying HLS
+17:30:58 INFO  [12:30:58.136] nvr10_ch23 hls-fallback | http://localhost:8888/nvr10_ch23/index.m3u8
+17:30:58 INFO  [12:30:58.136] nvr10_ch4 connect-start | gen=2 failures=1
+17:30:58 INFO  [12:30:58.140] nvr10_ch21 schedule-reconnect | failures=2 delay=21s lastErr=hls-playback-failed
+17:30:58 INFO  [12:30:58.472] nvr10_ch24 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:30:58 ERROR [12:30:58.473] nvr10_ch25 webrtc-negotiation-failed | whep-timeout-10s
+17:30:58 WARNING [12:30:58.473] nvr10_ch25 webrtc-failed, trying HLS
+17:30:58 INFO  [12:30:58.473] nvr10_ch25 hls-fallback | http://localhost:8888/nvr10_ch25/index.m3u8
+17:30:58 INFO  [12:30:58.473] nvr10_ch6 connect-start | gen=2 failures=1
+17:30:58 WARNING [12:30:58.563] nvr11_ch11 ice-error | disconnected
+17:30:58 INFO  [12:30:58.563] nvr11_ch11 schedule-reconnect | failures=1 delay=11s lastErr=webrtc-ice-disconnected
+127.0.0.1 - - [11/Mar/2026 17:30:58] "POST /api/client-log HTTP/1.1" 200 -
+17:31:04 WARNING [12:30:59.801] nvr07_ch1 ice-error | disconnected
+17:31:04 INFO  [12:30:59.801] nvr07_ch1 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:31:04 WARNING [12:31:00.050] nvr07_ch10 ice-error | disconnected
+17:31:04 INFO  [12:31:00.050] nvr07_ch10 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:31:04 INFO  [12:31:00.192]  status-summary | online=65 connecting=38 error=21 total=124 errs=[nvr02_ch2(webrtc-ice-disconnected,f=1), nvr02_ch4(webrtc-ice-disconnected,f=1), nvr07_ch1(webrtc-ice-disconnected,f=1), nvr07_ch10(webrtc-ice-disconnected,f=1), nvr07_ch6(webrtc-ice-disconnected,f=1), nvr10_ch10(hls-playback-failed,f=2), nvr10_ch11(hls-playback-failed,f=2), nvr10_ch13(hls-playback-failed,f=2), nvr10_ch14(hls-playback-failed,f=2), nvr10_ch15(hls-playback-failed,f=2)]
+17:31:04 WARNING [12:31:00.434] nvr11_ch7 ice-error | disconnected
+17:31:04 INFO  [12:31:00.434] nvr11_ch7 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:31:04 ERROR [12:31:00.468] nvr10_ch26 webrtc-negotiation-failed | whep-timeout-10s
+17:31:04 WARNING [12:31:00.468] nvr10_ch26 webrtc-failed, trying HLS
+17:31:04 INFO  [12:31:00.468] nvr10_ch26 hls-fallback | http://localhost:8888/nvr10_ch26/index.m3u8
+17:31:04 INFO  [12:31:00.468] nvr10_ch7 connect-start | gen=2 failures=1
+17:31:04 INFO  [12:31:00.471] nvr10_ch23 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:31:04 ERROR [12:31:00.875] nvr10_ch27 webrtc-negotiation-failed | whep-timeout-10s
+17:31:04 WARNING [12:31:00.876] nvr10_ch27 webrtc-failed, trying HLS
+17:31:04 INFO  [12:31:00.876] nvr10_ch27 hls-fallback | http://localhost:8888/nvr10_ch27/index.m3u8
+17:31:04 INFO  [12:31:00.876] nvr07_ch9 connect-start | gen=2 failures=2
+17:31:04 INFO  [12:31:00.878] nvr10_ch25 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:31:04 WARNING [12:31:02.866] nvr11_ch14 ice-error | disconnected
+17:31:04 INFO  [12:31:02.866] nvr11_ch14 schedule-reconnect | failures=1 delay=11s lastErr=webrtc-ice-disconnected
+17:31:04 WARNING [12:31:03.797] nvr02_ch4 ice-error | failed
+17:31:04 INFO  [12:31:03.797] nvr02_ch4 schedule-reconnect | failures=2 delay=18s lastErr=webrtc-ice-failed
+127.0.0.1 - - [11/Mar/2026 17:31:04] "POST /api/client-log HTTP/1.1" 200 -
+17:31:10 WARNING [12:31:05.836] nvr02_ch2 ice-error | failed
+17:31:10 INFO  [12:31:05.836] nvr02_ch2 schedule-reconnect | failures=2 delay=21s lastErr=webrtc-ice-failed
+17:31:10 INFO  [12:31:07.016] nvr10_ch26 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:31:10 ERROR [12:31:07.016] nvr10_ch28 webrtc-negotiation-failed | whep-timeout-10s
+17:31:10 WARNING [12:31:07.016] nvr10_ch28 webrtc-failed, trying HLS
+17:31:10 INFO  [12:31:07.016] nvr10_ch28 hls-fallback | http://localhost:8888/nvr10_ch28/index.m3u8
+17:31:10 INFO  [12:31:07.017] nvr10_ch5 connect-start | gen=2 failures=1
+17:31:10 INFO  [12:31:07.198] nvr10_ch27 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:31:10 ERROR [12:31:07.201] nvr10_ch29 webrtc-negotiation-failed | whep-timeout-10s
+17:31:10 WARNING [12:31:07.202] nvr10_ch29 webrtc-failed, trying HLS
+17:31:10 INFO  [12:31:07.202] nvr10_ch29 hls-fallback | http://localhost:8888/nvr10_ch29/index.m3u8
+17:31:10 INFO  [12:31:07.202] nvr10_ch8 connect-start | gen=2 failures=1
+17:31:10 ERROR [12:31:07.619] nvr10_ch3 webrtc-negotiation-failed | whep-timeout-10s
+17:31:10 WARNING [12:31:07.619] nvr10_ch3 webrtc-failed, trying HLS
+17:31:10 INFO  [12:31:07.619] nvr10_ch3 hls-fallback | http://localhost:8888/nvr10_ch3/index.m3u8
+17:31:10 INFO  [12:31:07.619] nvr10_ch9 connect-start | gen=2 failures=1
+17:31:10 INFO  [12:31:07.626] nvr10_ch28 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:31:10 INFO  [12:31:07.734] nvr07_ch9 webrtc-track-received | streams=1
+17:31:10 INFO  [12:31:07.734] nvr07_ch9 webrtc-negotiation-ok
+17:31:10 INFO  [12:31:07.734] nvr11_ch29 connect-start | gen=2 failures=1
+17:31:10 INFO  [12:31:07.736] nvr07_ch9 ice-connected
+17:31:10 INFO  [12:31:07.849] nvr10_ch29 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:31:10 ERROR [12:31:07.851] nvr10_ch30 webrtc-negotiation-failed | whep-timeout-10s
+17:31:10 WARNING [12:31:07.851] nvr10_ch30 webrtc-failed, trying HLS
+17:31:10 INFO  [12:31:07.851] nvr10_ch30 hls-fallback | http://localhost:8888/nvr10_ch30/index.m3u8
+17:31:10 INFO  [12:31:07.851] nvr06_ch1 connect-start | gen=3 failures=2
+17:31:10 ERROR [12:31:08.144] nvr10_ch4 webrtc-negotiation-failed | whep-timeout-10s
+17:31:10 WARNING [12:31:08.144] nvr10_ch4 webrtc-failed, trying HLS
+17:31:10 INFO  [12:31:08.144] nvr10_ch4 hls-fallback | http://localhost:8888/nvr10_ch4/index.m3u8
+17:31:10 INFO  [12:31:08.145] nvr06_ch2 connect-start | gen=3 failures=2
+17:31:10 INFO  [12:31:08.148] nvr10_ch3 schedule-reconnect | failures=2 delay=20s lastErr=hls-playback-failed
+17:31:10 ERROR [12:31:08.479] nvr10_ch6 webrtc-negotiation-failed | whep-timeout-10s
+17:31:10 WARNING [12:31:08.480] nvr10_ch6 webrtc-failed, trying HLS
+17:31:10 INFO  [12:31:08.480] nvr10_ch6 hls-fallback | http://localhost:8888/nvr10_ch6/index.m3u8
+17:31:10 INFO  [12:31:08.480] nvr06_ch4 connect-start | gen=3 failures=2
+17:31:10 INFO  [12:31:08.485] nvr10_ch30 schedule-reconnect | failures=2 delay=21s lastErr=hls-playback-failed
+17:31:10 WARNING [12:31:08.530] nvr11_ch11 ice-error | failed
+17:31:10 INFO  [12:31:08.530] nvr11_ch11 schedule-reconnect | failures=2 delay=21s lastErr=webrtc-ice-failed
+17:31:10 ERROR [12:31:10.474] nvr10_ch7 webrtc-negotiation-failed | whep-timeout-10s
+17:31:10 WARNING [12:31:10.475] nvr10_ch7 webrtc-failed, trying HLS
+17:31:10 INFO  [12:31:10.475] nvr10_ch7 hls-fallback | http://localhost:8888/nvr10_ch7/index.m3u8
+17:31:10 INFO  [12:31:10.475] nvr06_ch3 connect-start | gen=3 failures=2
+17:31:10 INFO  [12:31:10.480] nvr10_ch4 schedule-reconnect | failures=2 delay=23s lastErr=hls-playback-failed
+127.0.0.1 - - [11/Mar/2026 17:31:10] "POST /api/client-log HTTP/1.1" 200 -
+17:31:15 INFO  [12:31:10.882] nvr10_ch6 schedule-reconnect | failures=2 delay=17s lastErr=hls-playback-failed
+17:31:15 WARNING [12:31:12.885] nvr11_ch14 ice-error | failed
+17:31:15 INFO  [12:31:12.885] nvr11_ch14 schedule-reconnect | failures=2 delay=20s lastErr=webrtc-ice-failed
+127.0.0.1 - - [11/Mar/2026 17:31:15] "POST /api/client-log HTTP/1.1" 200 -
+17:31:22 ERROR [12:31:17.024] nvr10_ch5 webrtc-negotiation-failed | whep-timeout-10s
+17:31:22 WARNING [12:31:17.024] nvr10_ch5 webrtc-failed, trying HLS
+17:31:22 INFO  [12:31:17.024] nvr10_ch5 hls-fallback | http://localhost:8888/nvr10_ch5/index.m3u8
+17:31:22 INFO  [12:31:17.025] nvr06_ch5 connect-start | gen=3 failures=2
+17:31:22 INFO  [12:31:17.033] nvr10_ch7 schedule-reconnect | failures=2 delay=19s lastErr=hls-playback-failed
+17:31:22 ERROR [12:31:17.210] nvr10_ch8 webrtc-negotiation-failed | whep-timeout-10s
+17:31:22 WARNING [12:31:17.211] nvr10_ch8 webrtc-failed, trying HLS
+17:31:22 INFO  [12:31:17.211] nvr10_ch8 hls-fallback | http://localhost:8888/nvr10_ch8/index.m3u8
+17:31:22 INFO  [12:31:17.211] nvr07_ch12 connect-start | gen=3 failures=2
+17:31:22 ERROR [12:31:17.626] nvr10_ch9 webrtc-negotiation-failed | whep-timeout-10s
+17:31:22 WARNING [12:31:17.627] nvr10_ch9 webrtc-failed, trying HLS
+17:31:22 INFO  [12:31:17.627] nvr10_ch9 hls-fallback | http://localhost:8888/nvr10_ch9/index.m3u8
+17:31:22 INFO  [12:31:17.627] nvr09_ch1 connect-start | gen=3 failures=2
+17:31:22 INFO  [12:31:17.631] nvr10_ch5 schedule-reconnect | failures=2 delay=20s lastErr=hls-playback-failed
+17:31:22 WARNING [12:31:17.725] nvr02_ch11 ice-error | disconnected
+17:31:22 INFO  [12:31:17.725] nvr02_ch11 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:31:22 INFO  [12:31:17.738] nvr10_ch8 schedule-reconnect | failures=2 delay=21s lastErr=hls-playback-failed
+17:31:22 ERROR [12:31:17.742] nvr11_ch29 webrtc-negotiation-failed | whep-timeout-10s
+17:31:22 WARNING [12:31:17.742] nvr11_ch29 webrtc-failed, trying HLS
+17:31:22 INFO  [12:31:17.742] nvr11_ch29 hls-fallback | http://localhost:8888/nvr11_ch29/index.m3u8
+17:31:22 INFO  [12:31:17.742] nvr09_ch3 connect-start | gen=3 failures=2
+17:31:22 ERROR [12:31:17.858] nvr06_ch1 webrtc-negotiation-failed | whep-timeout-10s
+17:31:22 WARNING [12:31:17.858] nvr06_ch1 webrtc-failed, trying HLS
+17:31:22 INFO  [12:31:17.858] nvr06_ch1 hls-fallback | http://localhost:8888/nvr06_ch1/index.m3u8
+17:31:22 INFO  [12:31:17.859] nvr09_ch2 connect-start | gen=3 failures=2
+17:31:22 INFO  [12:31:17.868] nvr10_ch9 schedule-reconnect | failures=2 delay=22s lastErr=hls-playback-failed
+17:31:22 INFO  [12:31:18.149] nvr11_ch29 schedule-reconnect | failures=2 delay=18s lastErr=hls-playback-failed
+17:31:22 ERROR [12:31:18.149] nvr06_ch2 webrtc-negotiation-failed | whep-timeout-10s
+17:31:22 WARNING [12:31:18.150] nvr06_ch2 webrtc-failed, trying HLS
+17:31:22 INFO  [12:31:18.150] nvr06_ch2 hls-fallback | http://localhost:8888/nvr06_ch2/index.m3u8
+17:31:22 INFO  [12:31:18.150] nvr09_ch10 connect-start | gen=3 failures=2
+17:31:22 ERROR [12:31:18.488] nvr06_ch4 webrtc-negotiation-failed | whep-timeout-10s
+17:31:22 WARNING [12:31:18.488] nvr06_ch4 webrtc-failed, trying HLS
+17:31:22 INFO  [12:31:18.488] nvr06_ch4 hls-fallback | http://localhost:8888/nvr06_ch4/index.m3u8
+17:31:22 INFO  [12:31:18.488] nvr06_ch6 connect-start | gen=3 failures=2
+17:31:22 INFO  [12:31:18.492] nvr06_ch1 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:31:22 INFO  [12:31:20.482] nvr06_ch2 schedule-reconnect | failures=3 delay=29s lastErr=hls-playback-failed
+17:31:22 ERROR [12:31:20.484] nvr06_ch3 webrtc-negotiation-failed | whep-timeout-10s
+17:31:22 WARNING [12:31:20.484] nvr06_ch3 webrtc-failed, trying HLS
+17:31:22 INFO  [12:31:20.484] nvr06_ch3 hls-fallback | http://localhost:8888/nvr06_ch3/index.m3u8
+17:31:22 INFO  [12:31:20.484] nvr07_ch13 connect-start | gen=3 failures=2
+127.0.0.1 - - [11/Mar/2026 17:31:22] "POST /api/client-log HTTP/1.1" 200 -
+17:31:32 INFO  [12:31:27.032] nvr06_ch4 schedule-reconnect | failures=3 delay=32s lastErr=hls-playback-failed
+17:31:32 ERROR [12:31:27.033] nvr06_ch5 webrtc-negotiation-failed | whep-timeout-10s
+17:31:32 WARNING [12:31:27.033] nvr06_ch5 webrtc-failed, trying HLS
+17:31:32 INFO  [12:31:27.033] nvr06_ch5 hls-fallback | http://localhost:8888/nvr06_ch5/index.m3u8
+17:31:32 INFO  [12:31:27.033] nvr07_ch11 connect-start | gen=3 failures=2
+17:31:32 INFO  [12:31:27.217] nvr06_ch3 schedule-reconnect | failures=3 delay=32s lastErr=hls-playback-failed
+17:31:32 ERROR [12:31:27.218] nvr07_ch12 webrtc-negotiation-failed | whep-timeout-10s
+17:31:32 WARNING [12:31:27.218] nvr07_ch12 webrtc-failed, trying HLS
+17:31:32 INFO  [12:31:27.218] nvr07_ch12 hls-fallback | http://localhost:8888/nvr07_ch12/index.m3u8
+17:31:32 INFO  [12:31:27.218] nvr02_ch6 connect-start | gen=2 failures=2
+17:31:32 INFO  [12:31:27.632] nvr06_ch5 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:31:32 ERROR [12:31:27.633] nvr09_ch1 webrtc-negotiation-failed | whep-timeout-10s
+17:31:32 WARNING [12:31:27.633] nvr09_ch1 webrtc-failed, trying HLS
+17:31:32 INFO  [12:31:27.633] nvr09_ch1 hls-fallback | http://localhost:8888/nvr09_ch1/index.m3u8
+17:31:32 INFO  [12:31:27.633] nvr09_ch5 connect-start | gen=3 failures=2
+17:31:32 WARNING [12:31:27.745] nvr02_ch11 ice-error | failed
+17:31:32 INFO  [12:31:27.745] nvr02_ch11 schedule-reconnect | failures=2 delay=22s lastErr=webrtc-ice-failed
+17:31:32 INFO  [12:31:27.748] nvr07_ch12 schedule-reconnect | failures=3 delay=28s lastErr=hls-playback-failed
+17:31:32 ERROR [12:31:27.749] nvr09_ch3 webrtc-negotiation-failed | whep-timeout-10s
+17:31:32 WARNING [12:31:27.750] nvr09_ch3 webrtc-failed, trying HLS
+17:31:32 INFO  [12:31:27.750] nvr09_ch3 hls-fallback | http://localhost:8888/nvr09_ch3/index.m3u8
+17:31:32 INFO  [12:31:27.750] nvr09_ch6 connect-start | gen=3 failures=2
+17:31:32 INFO  [12:31:27.868] nvr09_ch1 schedule-reconnect | failures=3 delay=28s lastErr=hls-playback-failed
+17:31:32 ERROR [12:31:27.868] nvr09_ch2 webrtc-negotiation-failed | whep-timeout-10s
+17:31:32 WARNING [12:31:27.869] nvr09_ch2 webrtc-failed, trying HLS
+17:31:32 INFO  [12:31:27.869] nvr09_ch2 hls-fallback | http://localhost:8888/nvr09_ch2/index.m3u8
+17:31:32 INFO  [12:31:27.869] nvr09_ch8 connect-start | gen=3 failures=2
+17:31:32 INFO  [12:31:28.156] nvr09_ch3 schedule-reconnect | failures=3 delay=33s lastErr=hls-playback-failed
+17:31:32 ERROR [12:31:28.162] nvr09_ch10 webrtc-negotiation-failed | whep-timeout-10s
+17:31:32 WARNING [12:31:28.162] nvr09_ch10 webrtc-failed, trying HLS
+17:31:32 INFO  [12:31:28.162] nvr09_ch10 hls-fallback | http://localhost:8888/nvr09_ch10/index.m3u8
+17:31:32 INFO  [12:31:28.162] nvr10_ch1 connect-start | gen=3 failures=2
+17:31:32 ERROR [12:31:28.495] nvr06_ch6 webrtc-negotiation-failed | whep-timeout-10s
+17:31:32 WARNING [12:31:28.495] nvr06_ch6 webrtc-failed, trying HLS
+17:31:32 INFO  [12:31:28.495] nvr06_ch6 hls-fallback | http://localhost:8888/nvr06_ch6/index.m3u8
+17:31:32 INFO  [12:31:28.495] nvr09_ch9 connect-start | gen=3 failures=2
+17:31:32 INFO  [12:31:28.500] nvr09_ch2 schedule-reconnect | failures=3 delay=29s lastErr=hls-playback-failed
+17:31:32 WARNING [12:31:28.792] nvr02_ch5 ice-error | disconnected
+17:31:32 INFO  [12:31:28.792] nvr02_ch5 schedule-reconnect | failures=1 delay=11s lastErr=webrtc-ice-disconnected
+17:31:32 INFO  [12:31:28.817] nvr02_ch6 webrtc-track-received | streams=1
+17:31:32 INFO  [12:31:28.817] nvr02_ch6 webrtc-negotiation-ok
+17:31:32 INFO  [12:31:28.817] nvr09_ch7 connect-start | gen=3 failures=2
+17:31:32 INFO  [12:31:28.820] nvr02_ch6 ice-connected
+17:31:32 INFO  [12:31:30.192]  status-summary | online=63 connecting=43 error=18 total=124 errs=[nvr02_ch11(webrtc-ice-failed,f=2), nvr02_ch5(webrtc-ice-disconnected,f=1), nvr06_ch1(hls-playback-failed,f=3), nvr06_ch2(hls-playback-failed,f=3), nvr06_ch3(hls-playback-failed,f=3), nvr06_ch4(hls-playback-failed,f=3), nvr06_ch5(hls-playback-failed,f=3), nvr07_ch12(hls-playback-failed,f=3), nvr09_ch1(hls-playback-failed,f=3), nvr09_ch2(hls-playback-failed,f=3)]
+17:31:32 INFO  [12:31:30.490] nvr09_ch10 schedule-reconnect | failures=3 delay=34s lastErr=hls-playback-failed
+17:31:32 ERROR [12:31:30.491] nvr07_ch13 webrtc-negotiation-failed | whep-timeout-10s
+17:31:32 WARNING [12:31:30.491] nvr07_ch13 webrtc-failed, trying HLS
+17:31:32 INFO  [12:31:30.491] nvr07_ch13 hls-fallback | http://localhost:8888/nvr07_ch13/index.m3u8
+17:31:32 INFO  [12:31:30.491] nvr10_ch12 connect-start | gen=3 failures=2
+17:31:32 WARNING [12:31:31.767] nvr11_ch28 ice-error | disconnected
+17:31:32 INFO  [12:31:31.767] nvr11_ch28 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+127.0.0.1 - - [11/Mar/2026 17:31:32] "POST /api/client-log HTTP/1.1" 200 -
+17:31:42 INFO  [12:31:37.040] nvr06_ch6 schedule-reconnect | failures=3 delay=34s lastErr=hls-playback-failed
+17:31:42 ERROR [12:31:37.040] nvr07_ch11 webrtc-negotiation-failed | whep-timeout-10s
+17:31:42 WARNING [12:31:37.041] nvr07_ch11 webrtc-failed, trying HLS
+17:31:42 INFO  [12:31:37.041] nvr07_ch11 hls-fallback | http://localhost:8888/nvr07_ch11/index.m3u8
+17:31:42 INFO  [12:31:37.041] nvr09_ch4 connect-start | gen=3 failures=2
+17:31:42 INFO  [12:31:37.226] nvr07_ch13 schedule-reconnect | failures=3 delay=32s lastErr=hls-playback-failed
+17:31:42 ERROR [12:31:37.637] nvr09_ch5 webrtc-negotiation-failed | whep-timeout-10s
+17:31:42 WARNING [12:31:37.637] nvr09_ch5 webrtc-failed, trying HLS
+17:31:42 INFO  [12:31:37.637] nvr09_ch5 hls-fallback | http://localhost:8888/nvr09_ch5/index.m3u8
+17:31:42 INFO  [12:31:37.638] nvr07_ch6 connect-start | gen=2 failures=1
+17:31:42 INFO  [12:31:37.647] nvr07_ch11 schedule-reconnect | failures=3 delay=32s lastErr=hls-playback-failed
+17:31:42 ERROR [12:31:37.757] nvr09_ch6 webrtc-negotiation-failed | whep-timeout-10s
+17:31:42 WARNING [12:31:37.757] nvr09_ch6 webrtc-failed, trying HLS
+17:31:42 INFO  [12:31:37.757] nvr09_ch6 hls-fallback | http://localhost:8888/nvr09_ch6/index.m3u8
+17:31:42 INFO  [12:31:37.757] nvr10_ch11 connect-start | gen=3 failures=2
+17:31:42 INFO  [12:31:37.875] nvr09_ch5 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:31:42 ERROR [12:31:37.878] nvr09_ch8 webrtc-negotiation-failed | whep-timeout-10s
+17:31:42 WARNING [12:31:37.879] nvr09_ch8 webrtc-failed, trying HLS
+17:31:42 INFO  [12:31:37.879] nvr09_ch8 hls-fallback | http://localhost:8888/nvr09_ch8/index.m3u8
+17:31:42 INFO  [12:31:37.879] nvr10_ch14 connect-start | gen=3 failures=2
+17:31:42 ERROR [12:31:38.169] nvr10_ch1 webrtc-negotiation-failed | whep-timeout-10s
+17:31:42 WARNING [12:31:38.169] nvr10_ch1 webrtc-failed, trying HLS
+17:31:42 INFO  [12:31:38.169] nvr10_ch1 hls-fallback | http://localhost:8888/nvr10_ch1/index.m3u8
+17:31:42 INFO  [12:31:38.170] nvr10_ch17 connect-start | gen=3 failures=2
+17:31:42 INFO  [12:31:38.178] nvr09_ch6 schedule-reconnect | failures=3 delay=30s lastErr=hls-playback-failed
+17:31:42 ERROR [12:31:38.502] nvr09_ch9 webrtc-negotiation-failed | whep-timeout-10s
+17:31:42 WARNING [12:31:38.502] nvr09_ch9 webrtc-failed, trying HLS
+17:31:42 INFO  [12:31:38.502] nvr09_ch9 hls-fallback | http://localhost:8888/nvr09_ch9/index.m3u8
+17:31:42 INFO  [12:31:38.502] nvr11_ch6 connect-start | gen=2 failures=1
+17:31:42 INFO  [12:31:38.504] nvr09_ch8 schedule-reconnect | failures=3 delay=26s lastErr=hls-playback-failed
+17:31:42 WARNING [12:31:38.763] nvr02_ch5 ice-error | failed
+17:31:42 INFO  [12:31:38.763] nvr02_ch5 schedule-reconnect | failures=2 delay=17s lastErr=webrtc-ice-failed
+17:31:42 INFO  [12:31:38.820] nvr10_ch1 schedule-reconnect | failures=3 delay=29s lastErr=hls-playback-failed
+17:31:42 ERROR [12:31:38.823] nvr09_ch7 webrtc-negotiation-failed | whep-timeout-10s
+17:31:42 WARNING [12:31:38.823] nvr09_ch7 webrtc-failed, trying HLS
+17:31:42 INFO  [12:31:38.823] nvr09_ch7 hls-fallback | http://localhost:8888/nvr09_ch7/index.m3u8
+17:31:42 INFO  [12:31:38.824] nvr10_ch16 connect-start | gen=3 failures=2
+17:31:42 INFO  [12:31:39.793] nvr07_ch6 webrtc-track-received | streams=1
+17:31:42 INFO  [12:31:39.794] nvr07_ch6 webrtc-negotiation-ok
+17:31:42 INFO  [12:31:39.794] nvr10_ch10 connect-start | gen=3 failures=2
+17:31:42 INFO  [12:31:39.796] nvr07_ch6 ice-connected
+17:31:42 INFO  [12:31:40.498] nvr09_ch9 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:31:42 ERROR [12:31:40.500] nvr10_ch12 webrtc-negotiation-failed | whep-timeout-10s
+17:31:42 WARNING [12:31:40.501] nvr10_ch12 webrtc-failed, trying HLS
+17:31:42 INFO  [12:31:40.501] nvr10_ch12 hls-fallback | http://localhost:8888/nvr10_ch12/index.m3u8
+17:31:42 INFO  [12:31:40.501] nvr10_ch15 connect-start | gen=3 failures=2
+17:31:42 INFO  [12:31:40.919] nvr11_ch6 webrtc-track-received | streams=1
+17:31:42 INFO  [12:31:40.920] nvr11_ch6 webrtc-negotiation-ok
+17:31:42 INFO  [12:31:40.920] nvr10_ch13 connect-start | gen=3 failures=2
+17:31:42 INFO  [12:31:40.922] nvr11_ch6 ice-connected
+127.0.0.1 - - [11/Mar/2026 17:31:42] "POST /api/client-log HTTP/1.1" 200 -
+17:31:49 WARNING [12:31:44.313] nvr07_ch4 ice-error | disconnected
+17:31:49 INFO  [12:31:44.313] nvr07_ch4 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:31:49 WARNING [12:31:45.506] nvr02_ch14 ice-error | disconnected
+17:31:49 INFO  [12:31:45.506] nvr02_ch14 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:31:49 WARNING [12:31:45.691] nvr07_ch8 ice-error | disconnected
+17:31:49 INFO  [12:31:45.691] nvr07_ch8 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:31:49 INFO  [12:31:47.046] nvr09_ch7 schedule-reconnect | failures=3 delay=34s lastErr=hls-playback-failed
+17:31:49 ERROR [12:31:47.048] nvr09_ch4 webrtc-negotiation-failed | whep-timeout-10s
+17:31:49 WARNING [12:31:47.049] nvr09_ch4 webrtc-failed, trying HLS
+17:31:49 INFO  [12:31:47.049] nvr09_ch4 hls-fallback | http://localhost:8888/nvr09_ch4/index.m3u8
+17:31:49 INFO  [12:31:47.049] nvr07_ch1 connect-start | gen=2 failures=1
+17:31:49 INFO  [12:31:47.646] nvr10_ch12 schedule-reconnect | failures=3 delay=31s lastErr=hls-playback-failed
+17:31:49 ERROR [12:31:47.766] nvr10_ch11 webrtc-negotiation-failed | whep-timeout-10s
+17:31:49 WARNING [12:31:47.766] nvr10_ch11 webrtc-failed, trying HLS
+17:31:49 INFO  [12:31:47.766] nvr10_ch11 hls-fallback | http://localhost:8888/nvr10_ch11/index.m3u8
+17:31:49 INFO  [12:31:47.766] nvr07_ch10 connect-start | gen=2 failures=1
+17:31:49 INFO  [12:31:47.768] nvr09_ch4 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:31:49 WARNING [12:31:47.778] nvr07_ch7 ice-error | disconnected
+17:31:49 INFO  [12:31:47.778] nvr07_ch7 schedule-reconnect | failures=1 delay=11s lastErr=webrtc-ice-disconnected
+17:31:49 ERROR [12:31:47.884] nvr10_ch14 webrtc-negotiation-failed | whep-timeout-10s
+17:31:49 WARNING [12:31:47.884] nvr10_ch14 webrtc-failed, trying HLS
+17:31:49 INFO  [12:31:47.884] nvr10_ch14 hls-fallback | http://localhost:8888/nvr10_ch14/index.m3u8
+17:31:49 INFO  [12:31:47.885] nvr11_ch7 connect-start | gen=2 failures=1
+17:31:49 INFO  [12:31:48.175] nvr10_ch11 schedule-reconnect | failures=3 delay=32s lastErr=hls-playback-failed
+17:31:49 ERROR [12:31:48.178] nvr10_ch17 webrtc-negotiation-failed | whep-timeout-10s
+17:31:49 WARNING [12:31:48.178] nvr10_ch17 webrtc-failed, trying HLS
+17:31:49 INFO  [12:31:48.178] nvr10_ch17 hls-fallback | http://localhost:8888/nvr10_ch17/index.m3u8
+17:31:49 INFO  [12:31:48.179] nvr10_ch18 connect-start | gen=3 failures=2
+17:31:49 INFO  [12:31:48.508] nvr10_ch14 schedule-reconnect | failures=3 delay=34s lastErr=hls-playback-failed
+17:31:49 INFO  [12:31:48.829] nvr10_ch17 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:31:49 ERROR [12:31:48.832] nvr10_ch16 webrtc-negotiation-failed | whep-timeout-10s
+17:31:49 WARNING [12:31:48.832] nvr10_ch16 webrtc-failed, trying HLS
+17:31:49 INFO  [12:31:48.832] nvr10_ch16 hls-fallback | http://localhost:8888/nvr10_ch16/index.m3u8
+17:31:49 INFO  [12:31:48.833] nvr10_ch20 connect-start | gen=3 failures=2
+17:31:49 INFO  [12:31:48.947] nvr07_ch10 webrtc-track-received | streams=1
+17:31:49 INFO  [12:31:48.948] nvr07_ch10 webrtc-negotiation-ok
+17:31:49 INFO  [12:31:48.948] nvr10_ch24 connect-start | gen=3 failures=2
+17:31:49 INFO  [12:31:48.950] nvr07_ch10 ice-connected
+127.0.0.1 - - [11/Mar/2026 17:31:49] "POST /api/client-log HTTP/1.1" 200 -
+17:31:54 ERROR [12:31:49.800] nvr10_ch10 webrtc-negotiation-failed | whep-timeout-10s
+17:31:54 WARNING [12:31:49.800] nvr10_ch10 webrtc-failed, trying HLS
+17:31:54 INFO  [12:31:49.800] nvr10_ch10 hls-fallback | http://localhost:8888/nvr10_ch10/index.m3u8
+17:31:54 INFO  [12:31:49.800] nvr10_ch22 connect-start | gen=3 failures=2
+17:31:54 INFO  [12:31:49.901] nvr07_ch1 webrtc-track-received | streams=1
+17:31:54 INFO  [12:31:49.902] nvr07_ch1 webrtc-negotiation-ok
+17:31:54 INFO  [12:31:49.902] nvr10_ch2 connect-start | gen=3 failures=2
+17:31:54 INFO  [12:31:49.904] nvr07_ch1 ice-connected
+17:31:54 INFO  [12:31:49.998] nvr11_ch7 webrtc-track-received | streams=1
+17:31:54 INFO  [12:31:49.998] nvr11_ch7 webrtc-negotiation-ok
+17:31:54 INFO  [12:31:49.998] nvr10_ch19 connect-start | gen=3 failures=2
+17:31:54 INFO  [12:31:50.002] nvr11_ch7 ice-connected
+17:31:54 INFO  [12:31:50.507] nvr10_ch16 schedule-reconnect | failures=3 delay=26s lastErr=hls-playback-failed
+17:31:54 ERROR [12:31:50.508] nvr10_ch15 webrtc-negotiation-failed | whep-timeout-10s
+17:31:54 WARNING [12:31:50.509] nvr10_ch15 webrtc-failed, trying HLS
+17:31:54 INFO  [12:31:50.509] nvr10_ch15 hls-fallback | http://localhost:8888/nvr10_ch15/index.m3u8
+17:31:54 INFO  [12:31:50.509] nvr10_ch21 connect-start | gen=3 failures=2
+17:31:54 INFO  [12:31:50.924] nvr10_ch10 schedule-reconnect | failures=3 delay=28s lastErr=hls-playback-failed
+17:31:54 ERROR [12:31:50.927] nvr10_ch13 webrtc-negotiation-failed | whep-timeout-10s
+17:31:54 WARNING [12:31:50.928] nvr10_ch13 webrtc-failed, trying HLS
+17:31:54 INFO  [12:31:50.928] nvr10_ch13 hls-fallback | http://localhost:8888/nvr10_ch13/index.m3u8
+17:31:54 INFO  [12:31:50.928] nvr02_ch4 connect-start | gen=2 failures=2
+127.0.0.1 - - [11/Mar/2026 17:31:54] "POST /api/client-log HTTP/1.1" 200 -
+17:32:02 INFO  [12:31:57.056] nvr10_ch15 schedule-reconnect | failures=3 delay=33s lastErr=hls-playback-failed
+17:32:02 INFO  [12:31:57.773] nvr10_ch13 schedule-reconnect | failures=3 delay=34s lastErr=hls-playback-failed
+17:32:02 WARNING [12:31:57.786] nvr07_ch7 ice-error | failed
+17:32:02 INFO  [12:31:57.786] nvr07_ch7 schedule-reconnect | failures=2 delay=21s lastErr=webrtc-ice-failed
+17:32:02 ERROR [12:31:58.186] nvr10_ch18 webrtc-negotiation-failed | whep-timeout-10s
+17:32:02 WARNING [12:31:58.186] nvr10_ch18 webrtc-failed, trying HLS
+17:32:02 INFO  [12:31:58.186] nvr10_ch18 hls-fallback | http://localhost:8888/nvr10_ch18/index.m3u8
+17:32:02 INFO  [12:31:58.186] nvr10_ch23 connect-start | gen=3 failures=2
+17:32:02 ERROR [12:31:58.839] nvr10_ch20 webrtc-negotiation-failed | whep-timeout-10s
+17:32:02 WARNING [12:31:58.840] nvr10_ch20 webrtc-failed, trying HLS
+17:32:02 INFO  [12:31:58.840] nvr10_ch20 hls-fallback | http://localhost:8888/nvr10_ch20/index.m3u8
+17:32:02 INFO  [12:31:58.840] nvr10_ch25 connect-start | gen=3 failures=2
+17:32:02 ERROR [12:31:58.955] nvr10_ch24 webrtc-negotiation-failed | whep-timeout-10s
+17:32:02 WARNING [12:31:58.955] nvr10_ch24 webrtc-failed, trying HLS
+17:32:02 INFO  [12:31:58.955] nvr10_ch24 hls-fallback | http://localhost:8888/nvr10_ch24/index.m3u8
+17:32:02 INFO  [12:31:58.955] nvr10_ch29 connect-start | gen=3 failures=2
+17:32:02 INFO  [12:31:58.957] nvr10_ch18 schedule-reconnect | failures=3 delay=26s lastErr=hls-playback-failed
+17:32:02 ERROR [12:31:59.806] nvr10_ch22 webrtc-negotiation-failed | whep-timeout-10s
+17:32:02 WARNING [12:31:59.806] nvr10_ch22 webrtc-failed, trying HLS
+17:32:02 INFO  [12:31:59.806] nvr10_ch22 hls-fallback | http://localhost:8888/nvr10_ch22/index.m3u8
+17:32:02 INFO  [12:31:59.806] nvr10_ch28 connect-start | gen=3 failures=2
+17:32:02 INFO  [12:31:59.811] nvr10_ch20 schedule-reconnect | failures=3 delay=33s lastErr=hls-playback-failed
+17:32:02 INFO  [12:31:59.907] nvr10_ch24 schedule-reconnect | failures=3 delay=32s lastErr=hls-playback-failed
+17:32:02 ERROR [12:31:59.908] nvr10_ch2 webrtc-negotiation-failed | whep-timeout-10s
+17:32:02 WARNING [12:31:59.908] nvr10_ch2 webrtc-failed, trying HLS
+17:32:02 INFO  [12:31:59.908] nvr10_ch2 hls-fallback | http://localhost:8888/nvr10_ch2/index.m3u8
+17:32:02 INFO  [12:31:59.908] nvr02_ch2 connect-start | gen=2 failures=2
+17:32:02 INFO  [12:31:59.950] nvr02_ch4 webrtc-track-received | streams=1
+17:32:02 INFO  [12:31:59.950] nvr02_ch4 webrtc-negotiation-ok
+17:32:02 INFO  [12:31:59.950] nvr10_ch6 connect-start | gen=3 failures=2
+17:32:02 INFO  [12:31:59.953] nvr02_ch4 ice-connected
+17:32:02 INFO  [12:32:00.003] nvr10_ch22 schedule-reconnect | failures=3 delay=30s lastErr=hls-playback-failed
+17:32:02 ERROR [12:32:00.007] nvr10_ch19 webrtc-negotiation-failed | whep-timeout-10s
+17:32:02 WARNING [12:32:00.007] nvr10_ch19 webrtc-failed, trying HLS
+17:32:02 INFO  [12:32:00.007] nvr10_ch19 hls-fallback | http://localhost:8888/nvr10_ch19/index.m3u8
+17:32:02 INFO  [12:32:00.007] nvr10_ch3 connect-start | gen=3 failures=2
+17:32:02 INFO  [12:32:00.193]  status-summary | online=64 connecting=35 error=25 total=124 errs=[nvr06_ch6(hls-playback-failed,f=3), nvr07_ch11(hls-playback-failed,f=3), nvr07_ch13(hls-playback-failed,f=3), nvr07_ch7(webrtc-ice-failed,f=2), nvr09_ch10(hls-playback-failed,f=3), nvr09_ch3(hls-playback-failed,f=3), nvr09_ch4(hls-playback-failed,f=3), nvr09_ch5(hls-playback-failed,f=3), nvr09_ch6(hls-playback-failed,f=3), nvr09_ch7(hls-playback-failed,f=3)]
+17:32:02 ERROR [12:32:00.521] nvr10_ch21 webrtc-negotiation-failed | whep-timeout-10s
+17:32:02 WARNING [12:32:00.521] nvr10_ch21 webrtc-failed, trying HLS
+17:32:02 INFO  [12:32:00.521] nvr10_ch21 hls-fallback | http://localhost:8888/nvr10_ch21/index.m3u8
+17:32:02 INFO  [12:32:00.521] nvr10_ch26 connect-start | gen=3 failures=2
+17:32:02 INFO  [12:32:00.528] nvr10_ch2 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:32:02 INFO  [12:32:00.935] nvr10_ch19 schedule-reconnect | failures=3 delay=34s lastErr=hls-playback-failed
+17:32:02 INFO  [12:32:01.227] nvr02_ch2 webrtc-track-received | streams=1
+17:32:02 INFO  [12:32:01.227] nvr02_ch2 webrtc-negotiation-ok
+17:32:02 INFO  [12:32:01.227] nvr10_ch27 connect-start | gen=3 failures=2
+17:32:02 INFO  [12:32:01.229] nvr02_ch2 ice-connected
+127.0.0.1 - - [11/Mar/2026 17:32:02] "POST /api/client-log HTTP/1.1" 200 -
+17:32:10 WARNING [12:32:05.805] nvr11_ch17 ice-error | disconnected
+17:32:10 INFO  [12:32:05.805] nvr11_ch17 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:32:10 ERROR [12:32:08.194] nvr10_ch23 webrtc-negotiation-failed | whep-timeout-10s
+17:32:10 WARNING [12:32:08.195] nvr10_ch23 webrtc-failed, trying HLS
+17:32:10 INFO  [12:32:08.195] nvr10_ch23 hls-fallback | http://localhost:8888/nvr10_ch23/index.m3u8
+17:32:10 INFO  [12:32:08.195] nvr10_ch30 connect-start | gen=3 failures=2
+17:32:10 INFO  [12:32:08.200] nvr10_ch21 schedule-reconnect | failures=3 delay=32s lastErr=hls-playback-failed
+17:32:10 ERROR [12:32:08.847] nvr10_ch25 webrtc-negotiation-failed | whep-timeout-10s
+17:32:10 WARNING [12:32:08.847] nvr10_ch25 webrtc-failed, trying HLS
+17:32:10 INFO  [12:32:08.847] nvr10_ch25 hls-fallback | http://localhost:8888/nvr10_ch25/index.m3u8
+17:32:10 INFO  [12:32:08.847] nvr11_ch11 connect-start | gen=2 failures=2
+17:32:10 ERROR [12:32:08.962] nvr10_ch29 webrtc-negotiation-failed | whep-timeout-10s
+17:32:10 WARNING [12:32:08.962] nvr10_ch29 webrtc-failed, trying HLS
+17:32:10 INFO  [12:32:08.962] nvr10_ch29 hls-fallback | http://localhost:8888/nvr10_ch29/index.m3u8
+17:32:10 INFO  [12:32:08.962] nvr11_ch14 connect-start | gen=2 failures=2
+17:32:10 INFO  [12:32:08.966] nvr10_ch23 schedule-reconnect | failures=3 delay=29s lastErr=hls-playback-failed
+17:32:10 INFO  [12:32:09.812] nvr10_ch25 schedule-reconnect | failures=3 delay=31s lastErr=hls-playback-failed
+17:32:10 ERROR [12:32:09.816] nvr10_ch28 webrtc-negotiation-failed | whep-timeout-10s
+17:32:10 WARNING [12:32:09.816] nvr10_ch28 webrtc-failed, trying HLS
+17:32:10 INFO  [12:32:09.816] nvr10_ch28 hls-fallback | http://localhost:8888/nvr10_ch28/index.m3u8
+17:32:10 INFO  [12:32:09.816] nvr10_ch4 connect-start | gen=3 failures=2
+17:32:10 INFO  [12:32:09.917] nvr10_ch29 schedule-reconnect | failures=3 delay=32s lastErr=hls-playback-failed
+17:32:10 INFO  [12:32:09.953] nvr10_ch28 schedule-reconnect | failures=3 delay=26s lastErr=hls-playback-failed
+17:32:10 ERROR [12:32:09.961] nvr10_ch6 webrtc-negotiation-failed | whep-timeout-10s
+17:32:10 WARNING [12:32:09.962] nvr10_ch6 webrtc-failed, trying HLS
+17:32:10 INFO  [12:32:09.962] nvr10_ch6 hls-fallback | http://localhost:8888/nvr10_ch6/index.m3u8
+17:32:10 INFO  [12:32:09.962] nvr10_ch7 connect-start | gen=3 failures=2
+17:32:10 ERROR [12:32:10.013] nvr10_ch3 webrtc-negotiation-failed | whep-timeout-10s
+17:32:10 WARNING [12:32:10.013] nvr10_ch3 webrtc-failed, trying HLS
+17:32:10 INFO  [12:32:10.013] nvr10_ch3 hls-fallback | http://localhost:8888/nvr10_ch3/index.m3u8
+17:32:10 INFO  [12:32:10.013] nvr11_ch29 connect-start | gen=3 failures=2
+17:32:10 INFO  [12:32:10.528] nvr10_ch6 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:32:10 ERROR [12:32:10.533] nvr10_ch26 webrtc-negotiation-failed | whep-timeout-10s
+17:32:10 WARNING [12:32:10.534] nvr10_ch26 webrtc-failed, trying HLS
+17:32:10 INFO  [12:32:10.534] nvr10_ch26 hls-fallback | http://localhost:8888/nvr10_ch26/index.m3u8
+17:32:10 INFO  [12:32:10.534] nvr10_ch5 connect-start | gen=3 failures=2
+127.0.0.1 - - [11/Mar/2026 17:32:10] "POST /api/client-log HTTP/1.1" 200 -
+17:32:15 INFO  [12:32:10.878] nvr11_ch11 webrtc-track-received | streams=1
+17:32:15 INFO  [12:32:10.878] nvr11_ch11 webrtc-negotiation-ok
+17:32:15 INFO  [12:32:10.878] nvr10_ch8 connect-start | gen=3 failures=2
+17:32:15 INFO  [12:32:10.881] nvr11_ch11 ice-connected
+17:32:15 INFO  [12:32:11.233] nvr10_ch3 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:32:15 ERROR [12:32:11.234] nvr10_ch27 webrtc-negotiation-failed | whep-timeout-10s
+17:32:15 WARNING [12:32:11.235] nvr10_ch27 webrtc-failed, trying HLS
+17:32:15 INFO  [12:32:11.235] nvr10_ch27 hls-fallback | http://localhost:8888/nvr10_ch27/index.m3u8
+17:32:15 INFO  [12:32:11.235] nvr10_ch9 connect-start | gen=3 failures=2
+17:32:15 INFO  [12:32:11.558] nvr11_ch14 webrtc-track-received | streams=1
+17:32:15 INFO  [12:32:11.558] nvr11_ch14 webrtc-negotiation-ok
+17:32:15 INFO  [12:32:11.558] nvr11_ch28 connect-start | gen=2 failures=1
+17:32:15 INFO  [12:32:11.561] nvr11_ch14 ice-connected
+17:32:15 WARNING [12:32:15.770] nvr11_ch17 ice-error | failed
+17:32:15 INFO  [12:32:15.770] nvr11_ch17 schedule-reconnect | failures=2 delay=18s lastErr=webrtc-ice-failed
+127.0.0.1 - - [11/Mar/2026 17:32:15] "POST /api/client-log HTTP/1.1" 200 -
+17:32:22 WARNING [12:32:17.215] nvr07_ch1 ice-error | disconnected
+17:32:22 INFO  [12:32:17.215] nvr07_ch1 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:32:22 INFO  [12:32:18.201] nvr10_ch26 schedule-reconnect | failures=3 delay=30s lastErr=hls-playback-failed
+17:32:22 ERROR [12:32:18.201] nvr10_ch30 webrtc-negotiation-failed | whep-timeout-10s
+17:32:22 WARNING [12:32:18.202] nvr10_ch30 webrtc-failed, trying HLS
+17:32:22 INFO  [12:32:18.202] nvr10_ch30 hls-fallback | http://localhost:8888/nvr10_ch30/index.m3u8
+17:32:22 INFO  [12:32:18.202] nvr06_ch1 connect-start | gen=4 failures=3
+17:32:22 INFO  [12:32:18.856] nvr10_ch27 schedule-reconnect | failures=3 delay=29s lastErr=hls-playback-failed
+17:32:22 INFO  [12:32:18.967] nvr10_ch30 schedule-reconnect | failures=3 delay=29s lastErr=hls-playback-failed
+17:32:22 ERROR [12:32:19.822] nvr10_ch4 webrtc-negotiation-failed | whep-timeout-10s
+17:32:22 WARNING [12:32:19.822] nvr10_ch4 webrtc-failed, trying HLS
+17:32:22 INFO  [12:32:19.822] nvr10_ch4 hls-fallback | http://localhost:8888/nvr10_ch4/index.m3u8
+17:32:22 INFO  [12:32:19.822] nvr06_ch2 connect-start | gen=4 failures=3
+17:32:22 ERROR [12:32:19.968] nvr10_ch7 webrtc-negotiation-failed | whep-timeout-10s
+17:32:22 WARNING [12:32:19.968] nvr10_ch7 webrtc-failed, trying HLS
+17:32:22 INFO  [12:32:19.968] nvr10_ch7 hls-fallback | http://localhost:8888/nvr10_ch7/index.m3u8
+17:32:22 INFO  [12:32:19.968] nvr02_ch11 connect-start | gen=2 failures=2
+17:32:22 ERROR [12:32:20.021] nvr11_ch29 webrtc-negotiation-failed | whep-timeout-10s
+17:32:22 WARNING [12:32:20.022] nvr11_ch29 webrtc-failed, trying HLS
+17:32:22 INFO  [12:32:20.022] nvr11_ch29 hls-fallback | http://localhost:8888/nvr11_ch29/index.m3u8
+17:32:22 INFO  [12:32:20.022] nvr06_ch5 connect-start | gen=4 failures=3
+17:32:22 INFO  [12:32:20.034] nvr10_ch4 schedule-reconnect | failures=3 delay=31s lastErr=hls-playback-failed
+17:32:22 INFO  [12:32:20.540] nvr10_ch7 schedule-reconnect | failures=3 delay=28s lastErr=hls-playback-failed
+17:32:22 ERROR [12:32:20.540] nvr10_ch5 webrtc-negotiation-failed | whep-timeout-10s
+17:32:22 WARNING [12:32:20.541] nvr10_ch5 webrtc-failed, trying HLS
+17:32:22 INFO  [12:32:20.541] nvr10_ch5 hls-fallback | http://localhost:8888/nvr10_ch5/index.m3u8
+17:32:22 INFO  [12:32:20.541] nvr07_ch4 connect-start | gen=2 failures=1
+17:32:22 INFO  [12:32:20.883] nvr11_ch29 schedule-reconnect | failures=3 delay=31s lastErr=hls-playback-failed
+17:32:22 ERROR [12:32:20.883] nvr10_ch8 webrtc-negotiation-failed | whep-timeout-10s
+17:32:22 WARNING [12:32:20.883] nvr10_ch8 webrtc-failed, trying HLS
+17:32:22 INFO  [12:32:20.883] nvr10_ch8 hls-fallback | http://localhost:8888/nvr10_ch8/index.m3u8
+17:32:22 INFO  [12:32:20.884] nvr07_ch12 connect-start | gen=4 failures=3
+17:32:22 INFO  [12:32:20.909] nvr11_ch28 webrtc-track-received | streams=1
+17:32:22 INFO  [12:32:20.909] nvr11_ch28 webrtc-negotiation-ok
+17:32:22 INFO  [12:32:20.909] nvr09_ch1 connect-start | gen=4 failures=3
+17:32:22 INFO  [12:32:20.911] nvr11_ch28 ice-connected
+17:32:22 ERROR [12:32:21.242] nvr10_ch9 webrtc-negotiation-failed | whep-timeout-10s
+17:32:22 WARNING [12:32:21.242] nvr10_ch9 webrtc-failed, trying HLS
+17:32:22 INFO  [12:32:21.242] nvr10_ch9 hls-fallback | http://localhost:8888/nvr10_ch9/index.m3u8
+17:32:22 INFO  [12:32:21.243] nvr02_ch14 connect-start | gen=2 failures=1
+17:32:22 INFO  [12:32:21.244] nvr10_ch5 schedule-reconnect | failures=3 delay=27s lastErr=hls-playback-failed
+17:32:22 INFO  [12:32:21.564] nvr10_ch8 schedule-reconnect | failures=3 delay=30s lastErr=hls-playback-failed
+17:32:22 INFO  [12:32:21.619] nvr02_ch11 webrtc-track-received | streams=1
+17:32:22 INFO  [12:32:21.619] nvr02_ch11 webrtc-negotiation-ok
+17:32:22 INFO  [12:32:21.619] nvr07_ch8 connect-start | gen=2 failures=1
+17:32:22 INFO  [12:32:21.622] nvr02_ch11 ice-connected
+17:32:22 WARNING [12:32:21.901] nvr07_ch5 ice-error | disconnected
+17:32:22 INFO  [12:32:21.901] nvr07_ch5 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:32:22 INFO  [12:32:21.977] nvr07_ch4 webrtc-track-received | streams=1
+17:32:22 INFO  [12:32:21.977] nvr07_ch4 webrtc-negotiation-ok
+17:32:22 INFO  [12:32:21.977] nvr02_ch5 connect-start | gen=2 failures=2
+17:32:22 INFO  [12:32:21.980] nvr07_ch4 ice-connected
+127.0.0.1 - - [11/Mar/2026 17:32:22] "POST /api/client-log HTTP/1.1" 200 -
+17:32:28 INFO  [12:32:23.238] nvr02_ch14 webrtc-track-received | streams=1
+17:32:28 INFO  [12:32:23.238] nvr02_ch14 webrtc-negotiation-ok
+17:32:28 INFO  [12:32:23.238] nvr09_ch2 connect-start | gen=4 failures=3
+17:32:28 INFO  [12:32:23.240] nvr02_ch14 ice-connected
+17:32:28 INFO  [12:32:24.324] nvr07_ch8 webrtc-track-received | streams=1
+17:32:28 INFO  [12:32:24.325] nvr07_ch8 webrtc-negotiation-ok
+17:32:28 INFO  [12:32:24.325] nvr06_ch4 connect-start | gen=4 failures=3
+17:32:28 INFO  [12:32:24.328] nvr07_ch8 ice-connected
+17:32:28 INFO  [12:32:25.377] nvr02_ch5 webrtc-track-received | streams=1
+17:32:28 INFO  [12:32:25.377] nvr02_ch5 webrtc-negotiation-ok
+17:32:28 INFO  [12:32:25.377] nvr06_ch3 connect-start | gen=4 failures=3
+17:32:28 INFO  [12:32:25.379] nvr02_ch5 ice-connected
+17:32:28 ERROR [12:32:28.208] nvr06_ch1 webrtc-negotiation-failed | whep-timeout-10s
+17:32:28 WARNING [12:32:28.209] nvr06_ch1 webrtc-failed, trying HLS
+17:32:28 INFO  [12:32:28.209] nvr06_ch1 hls-fallback | http://localhost:8888/nvr06_ch1/index.m3u8
+17:32:28 INFO  [12:32:28.209] nvr09_ch3 connect-start | gen=4 failures=3
+17:32:28 INFO  [12:32:28.220] nvr10_ch9 schedule-reconnect | failures=3 delay=30s lastErr=hls-playback-failed
+127.0.0.1 - - [11/Mar/2026 17:32:28] "POST /api/client-log HTTP/1.1" 200 -
+17:32:34 ERROR [12:32:29.829] nvr06_ch2 webrtc-negotiation-failed | whep-timeout-10s
+17:32:34 WARNING [12:32:29.830] nvr06_ch2 webrtc-failed, trying HLS
+17:32:34 INFO  [12:32:29.830] nvr06_ch2 hls-fallback | http://localhost:8888/nvr06_ch2/index.m3u8
+17:32:34 INFO  [12:32:29.830] nvr09_ch8 connect-start | gen=4 failures=3
+17:32:34 WARNING [12:32:29.973] nvr06_ch1 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:34 WARNING [12:32:30.031] nvr06_ch2 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:34 ERROR [12:32:30.034] nvr06_ch5 webrtc-negotiation-failed | whep-timeout-10s
+17:32:34 WARNING [12:32:30.035] nvr06_ch5 webrtc-failed, trying HLS
+17:32:34 INFO  [12:32:30.035] nvr06_ch5 hls-fallback | http://localhost:8888/nvr06_ch5/index.m3u8
+17:32:34 INFO  [12:32:30.035] nvr09_ch10 connect-start | gen=4 failures=3
+17:32:34 INFO  [12:32:30.193]  status-summary | online=70 connecting=29 error=25 total=124 errs=[nvr06_ch1(hls-playback-failed,f=4), nvr06_ch2(hls-playback-failed,f=4), nvr07_ch5(webrtc-ice-disconnected,f=1), nvr10_ch13(hls-playback-failed,f=3), nvr10_ch15(hls-playback-failed,f=3), nvr10_ch19(hls-playback-failed,f=3), nvr10_ch20(hls-playback-failed,f=3), nvr10_ch21(hls-playback-failed,f=3), nvr10_ch23(hls-playback-failed,f=3), nvr10_ch24(hls-playback-failed,f=3)]
+17:32:34 WARNING [12:32:30.213] nvr07_ch4 video-stall-detected | readyState=0 curTime=0 elapsed=8.0s mode=webrtc
+17:32:34 INFO  [12:32:30.213] nvr07_ch4 schedule-reconnect | failures=1 delay=11s lastErr=video-stall
+17:32:34 ERROR [12:32:30.889] nvr07_ch12 webrtc-negotiation-failed | whep-timeout-10s
+17:32:34 WARNING [12:32:30.889] nvr07_ch12 webrtc-failed, trying HLS
+17:32:34 INFO  [12:32:30.889] nvr07_ch12 hls-fallback | http://localhost:8888/nvr07_ch12/index.m3u8
+17:32:34 INFO  [12:32:30.890] nvr09_ch5 connect-start | gen=4 failures=3
+17:32:34 WARNING [12:32:30.897] nvr06_ch5 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:34 ERROR [12:32:30.917] nvr09_ch1 webrtc-negotiation-failed | whep-timeout-10s
+17:32:34 WARNING [12:32:30.917] nvr09_ch1 webrtc-failed, trying HLS
+17:32:34 INFO  [12:32:30.917] nvr09_ch1 hls-fallback | http://localhost:8888/nvr09_ch1/index.m3u8
+17:32:34 INFO  [12:32:30.917] nvr09_ch9 connect-start | gen=4 failures=3
+17:32:34 WARNING [12:32:31.251] nvr07_ch12 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:34 WARNING [12:32:31.624] nvr09_ch1 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:34 ERROR [12:32:33.248] nvr09_ch2 webrtc-negotiation-failed | whep-timeout-10s
+17:32:34 WARNING [12:32:33.248] nvr09_ch2 webrtc-failed, trying HLS
+17:32:34 INFO  [12:32:33.248] nvr09_ch2 hls-fallback | http://localhost:8888/nvr09_ch2/index.m3u8
+17:32:34 INFO  [12:32:33.248] nvr10_ch1 connect-start | gen=4 failures=3
+17:32:34 ERROR [12:32:34.334] nvr06_ch4 webrtc-negotiation-failed | whep-timeout-10s
+17:32:34 WARNING [12:32:34.334] nvr06_ch4 webrtc-failed, trying HLS
+17:32:34 INFO  [12:32:34.334] nvr06_ch4 hls-fallback | http://localhost:8888/nvr06_ch4/index.m3u8
+17:32:34 INFO  [12:32:34.334] nvr09_ch6 connect-start | gen=4 failures=3
+127.0.0.1 - - [11/Mar/2026 17:32:34] "POST /api/client-log HTTP/1.1" 200 -
+17:32:40 WARNING [12:32:35.380] nvr09_ch2 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:40 ERROR [12:32:35.385] nvr06_ch3 webrtc-negotiation-failed | whep-timeout-10s
+17:32:40 WARNING [12:32:35.386] nvr06_ch3 webrtc-failed, trying HLS
+17:32:40 INFO  [12:32:35.386] nvr06_ch3 hls-fallback | http://localhost:8888/nvr06_ch3/index.m3u8
+17:32:40 INFO  [12:32:35.386] nvr07_ch11 connect-start | gen=4 failures=3
+17:32:40 ERROR [12:32:38.220] nvr09_ch3 webrtc-negotiation-failed | whep-timeout-10s
+17:32:40 WARNING [12:32:38.220] nvr09_ch3 webrtc-failed, trying HLS
+17:32:40 INFO  [12:32:38.220] nvr09_ch3 hls-fallback | http://localhost:8888/nvr09_ch3/index.m3u8
+17:32:40 INFO  [12:32:38.220] nvr07_ch13 connect-start | gen=4 failures=3
+17:32:40 WARNING [12:32:38.222] nvr06_ch4 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:40 WARNING [12:32:39.837] nvr06_ch3 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:40 ERROR [12:32:39.837] nvr09_ch8 webrtc-negotiation-failed | whep-timeout-10s
+17:32:40 WARNING [12:32:39.837] nvr09_ch8 webrtc-failed, trying HLS
+17:32:40 INFO  [12:32:39.837] nvr09_ch8 hls-fallback | http://localhost:8888/nvr09_ch8/index.m3u8
+17:32:40 INFO  [12:32:39.838] nvr06_ch6 connect-start | gen=4 failures=3
+17:32:40 ERROR [12:32:40.047] nvr09_ch10 webrtc-negotiation-failed | whep-timeout-10s
+17:32:40 WARNING [12:32:40.048] nvr09_ch10 webrtc-failed, trying HLS
+17:32:40 INFO  [12:32:40.048] nvr09_ch10 hls-fallback | http://localhost:8888/nvr09_ch10/index.m3u8
+17:32:40 INFO  [12:32:40.048] nvr09_ch4 connect-start | gen=4 failures=3
+17:32:40 WARNING [12:32:40.054] nvr09_ch3 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+127.0.0.1 - - [11/Mar/2026 17:32:40] "POST /api/client-log HTTP/1.1" 200 -
+17:32:45 WARNING [12:32:40.679] nvr07_ch3 ice-error | disconnected
+17:32:45 INFO  [12:32:40.679] nvr07_ch3 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:32:45 WARNING [12:32:40.896] nvr09_ch8 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:45 ERROR [12:32:40.896] nvr09_ch5 webrtc-negotiation-failed | whep-timeout-10s
+17:32:45 WARNING [12:32:40.896] nvr09_ch5 webrtc-failed, trying HLS
+17:32:45 INFO  [12:32:40.896] nvr09_ch5 hls-fallback | http://localhost:8888/nvr09_ch5/index.m3u8
+17:32:45 INFO  [12:32:40.896] nvr10_ch17 connect-start | gen=4 failures=3
+17:32:45 ERROR [12:32:40.926] nvr09_ch9 webrtc-negotiation-failed | whep-timeout-10s
+17:32:45 WARNING [12:32:40.926] nvr09_ch9 webrtc-failed, trying HLS
+17:32:45 INFO  [12:32:40.926] nvr09_ch9 hls-fallback | http://localhost:8888/nvr09_ch9/index.m3u8
+17:32:45 INFO  [12:32:40.926] nvr10_ch16 connect-start | gen=4 failures=3
+17:32:45 WARNING [12:32:40.933] nvr09_ch10 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:45 WARNING [12:32:41.301] nvr07_ch10 ice-error | disconnected
+17:32:45 INFO  [12:32:41.301] nvr07_ch10 schedule-reconnect | failures=1 delay=11s lastErr=webrtc-ice-disconnected
+17:32:45 WARNING [12:32:43.254] nvr09_ch5 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:45 ERROR [12:32:43.254] nvr10_ch1 webrtc-negotiation-failed | whep-timeout-10s
+17:32:45 WARNING [12:32:43.255] nvr10_ch1 webrtc-failed, trying HLS
+17:32:45 INFO  [12:32:43.255] nvr10_ch1 hls-fallback | http://localhost:8888/nvr10_ch1/index.m3u8
+17:32:45 INFO  [12:32:43.255] nvr10_ch12 connect-start | gen=4 failures=3
+17:32:45 ERROR [12:32:44.341] nvr09_ch6 webrtc-negotiation-failed | whep-timeout-10s
+17:32:45 WARNING [12:32:44.342] nvr09_ch6 webrtc-failed, trying HLS
+17:32:45 INFO  [12:32:44.342] nvr09_ch6 hls-fallback | http://localhost:8888/nvr09_ch6/index.m3u8
+17:32:45 INFO  [12:32:44.342] nvr07_ch7 connect-start | gen=2 failures=2
+17:32:45 WARNING [12:32:44.346] nvr09_ch9 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:45 WARNING [12:32:45.391] nvr10_ch1 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:45 ERROR [12:32:45.397] nvr07_ch11 webrtc-negotiation-failed | whep-timeout-10s
+17:32:45 WARNING [12:32:45.398] nvr07_ch11 webrtc-failed, trying HLS
+17:32:45 INFO  [12:32:45.398] nvr07_ch11 hls-fallback | http://localhost:8888/nvr07_ch11/index.m3u8
+17:32:45 INFO  [12:32:45.398] nvr10_ch10 connect-start | gen=4 failures=3
+127.0.0.1 - - [11/Mar/2026 17:32:45] "POST /api/client-log HTTP/1.1" 200 -
+17:32:53 WARNING [12:32:48.228] nvr09_ch6 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:53 ERROR [12:32:48.229] nvr07_ch13 webrtc-negotiation-failed | whep-timeout-10s
+17:32:53 WARNING [12:32:48.229] nvr07_ch13 webrtc-failed, trying HLS
+17:32:53 INFO  [12:32:48.229] nvr07_ch13 hls-fallback | http://localhost:8888/nvr07_ch13/index.m3u8
+17:32:53 INFO  [12:32:48.229] nvr10_ch11 connect-start | gen=4 failures=3
+17:32:53 ERROR [12:32:49.845] nvr06_ch6 webrtc-negotiation-failed | whep-timeout-10s
+17:32:53 WARNING [12:32:49.846] nvr06_ch6 webrtc-failed, trying HLS
+17:32:53 INFO  [12:32:49.846] nvr06_ch6 hls-fallback | http://localhost:8888/nvr06_ch6/index.m3u8
+17:32:53 INFO  [12:32:49.846] nvr09_ch7 connect-start | gen=4 failures=3
+17:32:53 WARNING [12:32:49.853] nvr07_ch11 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:53 WARNING [12:32:50.056] nvr07_ch13 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:53 ERROR [12:32:50.057] nvr09_ch4 webrtc-negotiation-failed | whep-timeout-10s
+17:32:53 WARNING [12:32:50.058] nvr09_ch4 webrtc-failed, trying HLS
+17:32:53 INFO  [12:32:50.058] nvr09_ch4 hls-fallback | http://localhost:8888/nvr09_ch4/index.m3u8
+17:32:53 INFO  [12:32:50.058] nvr10_ch14 connect-start | gen=4 failures=3
+17:32:53 INFO  [12:32:50.340] nvr07_ch7 webrtc-track-received | streams=1
+17:32:53 INFO  [12:32:50.340] nvr07_ch7 webrtc-negotiation-ok
+17:32:53 INFO  [12:32:50.340] nvr10_ch18 connect-start | gen=4 failures=3
+17:32:53 INFO  [12:32:50.343] nvr07_ch7 ice-connected
+17:32:53 WARNING [12:32:50.683] nvr07_ch3 ice-error | failed
+17:32:53 INFO  [12:32:50.683] nvr07_ch3 schedule-reconnect | failures=2 delay=19s lastErr=webrtc-ice-failed
+17:32:53 ERROR [12:32:50.902] nvr10_ch17 webrtc-negotiation-failed | whep-timeout-10s
+17:32:53 WARNING [12:32:50.902] nvr10_ch17 webrtc-failed, trying HLS
+17:32:53 INFO  [12:32:50.902] nvr10_ch17 hls-fallback | http://localhost:8888/nvr10_ch17/index.m3u8
+17:32:53 INFO  [12:32:50.902] nvr10_ch2 connect-start | gen=4 failures=3
+17:32:53 WARNING [12:32:50.905] nvr06_ch6 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:53 ERROR [12:32:50.934] nvr10_ch16 webrtc-negotiation-failed | whep-timeout-10s
+17:32:53 WARNING [12:32:50.934] nvr10_ch16 webrtc-failed, trying HLS
+17:32:53 INFO  [12:32:50.934] nvr10_ch16 hls-fallback | http://localhost:8888/nvr10_ch16/index.m3u8
+17:32:53 INFO  [12:32:50.935] nvr07_ch1 connect-start | gen=3 failures=1
+17:32:53 WARNING [12:32:50.939] nvr09_ch4 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:53 WARNING [12:32:51.262] nvr07_ch10 ice-error | failed
+17:32:53 INFO  [12:32:51.262] nvr07_ch10 schedule-reconnect | failures=2 delay=21s lastErr=webrtc-ice-failed
+127.0.0.1 - - [11/Mar/2026 17:32:53] "POST /api/client-log HTTP/1.1" 200 -
+17:32:58 ERROR [12:32:53.262] nvr10_ch12 webrtc-negotiation-failed | whep-timeout-10s
+17:32:58 WARNING [12:32:53.262] nvr10_ch12 webrtc-failed, trying HLS
+17:32:58 INFO  [12:32:53.262] nvr10_ch12 hls-fallback | http://localhost:8888/nvr10_ch12/index.m3u8
+17:32:58 INFO  [12:32:53.263] nvr10_ch22 connect-start | gen=4 failures=3
+17:32:58 WARNING [12:32:53.264] nvr10_ch17 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:58 WARNING [12:32:54.348] nvr10_ch16 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:58 WARNING [12:32:55.404] nvr10_ch12 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:32:58 ERROR [12:32:55.405] nvr10_ch10 webrtc-negotiation-failed | whep-timeout-10s
+17:32:58 WARNING [12:32:55.405] nvr10_ch10 webrtc-failed, trying HLS
+17:32:58 INFO  [12:32:55.405] nvr10_ch10 hls-fallback | http://localhost:8888/nvr10_ch10/index.m3u8
+17:32:58 INFO  [12:32:55.405] nvr10_ch15 connect-start | gen=4 failures=3
+17:32:58 INFO  [12:32:57.848] nvr07_ch1 webrtc-track-received | streams=1
+17:32:58 INFO  [12:32:57.848] nvr07_ch1 webrtc-negotiation-ok
+17:32:58 INFO  [12:32:57.848] nvr10_ch13 connect-start | gen=4 failures=3
+17:32:58 INFO  [12:32:57.850] nvr07_ch1 ice-connected
+17:32:58 ERROR [12:32:58.236] nvr10_ch11 webrtc-negotiation-failed | whep-timeout-10s
+17:32:58 WARNING [12:32:58.236] nvr10_ch11 webrtc-failed, trying HLS
+17:32:58 INFO  [12:32:58.236] nvr10_ch11 hls-fallback | http://localhost:8888/nvr10_ch11/index.m3u8
+17:32:58 INFO  [12:32:58.236] nvr07_ch5 connect-start | gen=2 failures=1
+127.0.0.1 - - [11/Mar/2026 17:32:58] "POST /api/client-log HTTP/1.1" 200 -
+127.0.0.1 - - [11/Mar/2026 17:33:02] "GET /api/inventory HTTP/1.1" 200 -
+17:33:04 WARNING [12:32:59.853] nvr10_ch10 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:33:04 ERROR [12:32:59.854] nvr09_ch7 webrtc-negotiation-failed | whep-timeout-10s
+17:33:04 WARNING [12:32:59.854] nvr09_ch7 webrtc-failed, trying HLS
+17:33:04 INFO  [12:32:59.854] nvr09_ch7 hls-fallback | http://localhost:8888/nvr09_ch7/index.m3u8
+17:33:04 INFO  [12:32:59.854] nvr10_ch24 connect-start | gen=4 failures=3
+17:33:04 ERROR [12:33:00.068] nvr10_ch14 webrtc-negotiation-failed | whep-timeout-10s
+17:33:04 WARNING [12:33:00.068] nvr10_ch14 webrtc-failed, trying HLS
+17:33:04 INFO  [12:33:00.068] nvr10_ch14 hls-fallback | http://localhost:8888/nvr10_ch14/index.m3u8
+17:33:04 INFO  [12:33:00.068] nvr10_ch20 connect-start | gen=4 failures=3
+17:33:04 WARNING [12:33:00.079] nvr10_ch11 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:33:04 INFO  [12:33:00.193]  status-summary | online=69 connecting=29 error=26 total=124 errs=[nvr06_ch1(hls-playback-failed,f=4), nvr06_ch2(hls-playback-failed,f=4), nvr06_ch3(hls-playback-failed,f=4), nvr06_ch4(hls-playback-failed,f=4), nvr06_ch5(hls-playback-failed,f=4), nvr06_ch6(hls-playback-failed,f=4), nvr07_ch10(webrtc-ice-failed,f=2), nvr07_ch11(hls-playback-failed,f=4), nvr07_ch12(hls-playback-failed,f=4), nvr07_ch13(hls-playback-failed,f=4)]
+17:33:04 WARNING [12:33:00.347] nvr09_ch7 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:33:04 ERROR [12:33:00.351] nvr10_ch18 webrtc-negotiation-failed | whep-timeout-10s
+17:33:04 WARNING [12:33:00.351] nvr10_ch18 webrtc-failed, trying HLS
+17:33:04 INFO  [12:33:00.351] nvr10_ch18 hls-fallback | http://localhost:8888/nvr10_ch18/index.m3u8
+17:33:04 INFO  [12:33:00.351] nvr11_ch17 connect-start | gen=2 failures=2
+17:33:04 ERROR [12:33:00.908] nvr10_ch2 webrtc-negotiation-failed | whep-timeout-10s
+17:33:04 WARNING [12:33:00.909] nvr10_ch2 webrtc-failed, trying HLS
+17:33:04 INFO  [12:33:00.909] nvr10_ch2 hls-fallback | http://localhost:8888/nvr10_ch2/index.m3u8
+17:33:04 INFO  [12:33:00.909] nvr10_ch19 connect-start | gen=4 failures=3
+17:33:04 WARNING [12:33:00.914] nvr10_ch14 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:33:04 WARNING [12:33:00.940] nvr10_ch18 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:33:04 INFO  [12:33:01.901] nvr07_ch5 webrtc-track-received | streams=1
+17:33:04 INFO  [12:33:01.901] nvr07_ch5 webrtc-negotiation-ok
+17:33:04 INFO  [12:33:01.901] nvr10_ch28 connect-start | gen=4 failures=3
+17:33:04 INFO  [12:33:01.904] nvr07_ch5 ice-connected
+17:33:04 INFO  [12:33:02.969] nvr11_ch17 webrtc-track-received | streams=1
+17:33:04 INFO  [12:33:02.969] nvr11_ch17 webrtc-negotiation-ok
+17:33:04 INFO  [12:33:02.969] nvr10_ch23 connect-start | gen=4 failures=3
+17:33:04 INFO  [12:33:02.971] nvr11_ch17 ice-connected
+17:33:04 ERROR [12:33:03.269] nvr10_ch22 webrtc-negotiation-failed | whep-timeout-10s
+17:33:04 WARNING [12:33:03.270] nvr10_ch22 webrtc-failed, trying HLS
+17:33:04 INFO  [12:33:03.270] nvr10_ch22 hls-fallback | http://localhost:8888/nvr10_ch22/index.m3u8
+17:33:04 INFO  [12:33:03.270] nvr10_ch6 connect-start | gen=4 failures=3
+17:33:04 WARNING [12:33:03.277] nvr10_ch2 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+127.0.0.1 - - [11/Mar/2026 17:33:04] "POST /api/client-log HTTP/1.1" 200 -
+17:33:10 ERROR [12:33:05.410] nvr10_ch15 webrtc-negotiation-failed | whep-timeout-10s
+17:33:10 WARNING [12:33:05.411] nvr10_ch15 webrtc-failed, trying HLS
+17:33:10 INFO  [12:33:05.411] nvr10_ch15 hls-fallback | http://localhost:8888/nvr10_ch15/index.m3u8
+17:33:10 INFO  [12:33:05.411] nvr10_ch3 connect-start | gen=4 failures=3
+17:33:10 WARNING [12:33:06.459] nvr02_ch11 ice-error | disconnected
+17:33:10 INFO  [12:33:06.459] nvr02_ch11 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:33:10 WARNING [12:33:06.672] nvr07_ch8 ice-error | disconnected
+17:33:10 INFO  [12:33:06.672] nvr07_ch8 schedule-reconnect | failures=1 delay=10s lastErr=webrtc-ice-disconnected
+17:33:10 ERROR [12:33:07.853] nvr10_ch13 webrtc-negotiation-failed | whep-timeout-10s
+17:33:10 WARNING [12:33:07.853] nvr10_ch13 webrtc-failed, trying HLS
+17:33:10 INFO  [12:33:07.853] nvr10_ch13 hls-fallback | http://localhost:8888/nvr10_ch13/index.m3u8
+17:33:10 INFO  [12:33:07.853] nvr10_ch21 connect-start | gen=4 failures=3
+17:33:10 WARNING [12:33:07.854] nvr10_ch22 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:33:10 WARNING [12:33:08.241] nvr10_ch15 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:33:10 ERROR [12:33:09.863] nvr10_ch24 webrtc-negotiation-failed | whep-timeout-10s
+17:33:10 WARNING [12:33:09.863] nvr10_ch24 webrtc-failed, trying HLS
+17:33:10 INFO  [12:33:09.863] nvr10_ch24 hls-fallback | http://localhost:8888/nvr10_ch24/index.m3u8
+17:33:10 INFO  [12:33:09.863] nvr10_ch25 connect-start | gen=4 failures=3
+17:33:10 WARNING [12:33:09.868] nvr10_ch13 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+17:33:10 ERROR [12:33:10.079] nvr10_ch20 webrtc-negotiation-failed | whep-timeout-10s
+17:33:10 WARNING [12:33:10.080] nvr10_ch20 webrtc-failed, trying HLS
+17:33:10 INFO  [12:33:10.080] nvr10_ch20 hls-fallback | http://localhost:8888/nvr10_ch20/index.m3u8
+17:33:10 INFO  [12:33:10.080] nvr07_ch4 connect-start | gen=3 failures=1
+17:33:10 WARNING [12:33:10.216] nvr07_ch5 video-stall-detected | readyState=0 curTime=0 elapsed=8.0s mode=webrtc
+17:33:10 INFO  [12:33:10.216] nvr07_ch5 schedule-reconnect | failures=1 delay=11s lastErr=video-stall
+17:33:10 WARNING [12:33:10.360] nvr10_ch24 max-retries-reached | failures=4 max=3 lastErr=hls-playback-failed
+127.0.0.1 - - [11/Mar/2026 17:33:10] "POST /api/client-log HTTP/1.1" 200 -
+^C
+Shutting down...
+
+ ~/De/P/dss │ on main !8 ?1                                           ✔ │ took 6m 8s │ at 17:33:11 

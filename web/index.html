@@ -98,6 +98,7 @@
     <div id="fs-header">
       <span id="fs-title"></span>
       <div id="fs-controls">
+        <button id="fs-quality-btn" title="Toggle main/sub stream (Q)">HD</button>
         <button id="fs-snapshot-btn" title="Snapshot (S)">&#128247;</button>
         <button id="fs-close-btn" title="Close (Esc)">&times;</button>
       </div>
@@ -137,6 +138,7 @@
           <tr><td><kbd>F</kbd></td><td>Fullscreen focused camera</td></tr>
           <tr><td><kbd>Esc</kbd></td><td>Exit fullscreen / close modal</td></tr>
           <tr><td><kbd>S</kbd></td><td>Snapshot focused camera</td></tr>
+          <tr><td><kbd>Q</kbd></td><td>Toggle HD/SD in fullscreen</td></tr>
           <tr><td><kbd>/</kbd></td><td>Focus search box</td></tr>
           <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
           <tr><td><kbd>G</kbd></td><td>Create new group</td></tr>
@@ -262,6 +264,7 @@
             <div class="settings-health-row">
               <button id="settings-health-btn" class="btn-secondary" title="TCP reachability check (no credentials)">Check Health</button>
               <button id="settings-test-all-btn" class="btn-secondary" title="Test RTSP credentials for all enabled NVRs">Test All</button>
+              <button id="settings-clear-bans-btn" class="btn-secondary" title="Clear all server-side ban timers">Clear Bans</button>
               <button id="settings-import-btn" class="btn-secondary" title="Import NVRs from CSV or JSON">Import</button>
               <span id="settings-health-status"></span>
             </div>

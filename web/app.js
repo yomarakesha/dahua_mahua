@@ -26,6 +26,44 @@ const CONFIG = {
   patrolIntervals: [5, 10, 15, 30, 60],
 };
 
+// ===== DIAGNOSTIC LOGGER ======================================================
+// Buffers log entries and flushes to server every 5s.
+// Captures: WebRTC negotiation, ICE state, WHEP responses, stalls, errors.
+
+const dlog = {
+  _buf: [],
+  _timer: null,
+  _MAX: 200,  // max buffer before forced flush
+
+  _ts() {
+    return new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+  },
+
+  debug(path, msg, detail) { this._push("DEBUG", path, msg, detail); },
+  info(path, msg, detail)  { this._push("INFO",  path, msg, detail); },
+  warn(path, msg, detail)  { this._push("WARNING", path, msg, detail); },
+  error(path, msg, detail) { this._push("ERROR", path, msg, detail); },
+
+  _push(level, path, msg, detail) {
+    this._buf.push({ level, path: path || "", msg, detail: detail || "", ts: this._ts() });
+    if (this._buf.length >= this._MAX) this.flush();
+    if (!this._timer) {
+      this._timer = setTimeout(() => this.flush(), 5000);
+    }
+  },
+
+  flush() {
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    if (this._buf.length === 0) return;
+    const batch = this._buf.splice(0);
+    fetch("/api/client-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(batch),
+    }).catch(() => {}); // best-effort
+  },
+};
+
 // ===== LOCAL STORAGE KEYS =====================================================
 
 const LS = {
@@ -49,12 +87,14 @@ const state = {
   prefs: { gridCols: 4, gridRows: 4, patrolInterval: 10, sidebarOpen: true, lastLayout: "",
            maxRetries: 3, retryDelay: 10, maxConcurrent: 8 },
   customOrder: null,
-  connections: {},       // path -> { pc, status, video, failures, retryTimer, generation }
+  connections: {},       // path -> { pc, status, video, failures, retryTimer, generation, lastTimeUpdate }
+  stallCheckTimer: null,
   patrol: { active: false, timer: null, countdown: 0, paused: false },
   focusedCell: -1,
   fullscreenPath: null,
   fullscreenConn: null,  // { pc } for main-stream in fullscreen
   fullscreenToken: 0,
+  fullscreenIsMain: true, // true = main stream, false = sub stream in fullscreen
   inventory: null,        // fetched NVR inventory (labels, metadata)
   streamHealth: {},       // path -> { ready, source, readers } from MediaMTX API
   autoDisabledNvrs: new Set(), // NVR IDs auto-disabled this session
@@ -140,6 +180,7 @@ const dom = {
   fsTitle:        $("fs-title"),
   fsVideo:        $("fs-video"),
   fsBuffer:       $("fs-buffer"),
+  fsQualityBtn:   $("fs-quality-btn"),
   fsSnapshotBtn:  $("fs-snapshot-btn"),
   fsCloseBtn:     $("fs-close-btn"),
   statusPanel:    $("status-panel"),
@@ -186,6 +227,7 @@ const dom = {
   settingsHealthBtn: $("settings-health-btn"),
   settingsHealthStatus: $("settings-health-status"),
   settingsTestAllBtn: $("settings-test-all-btn"),
+  settingsClearBansBtn: $("settings-clear-bans-btn"),
   settingsImportBtn: $("settings-import-btn"),
   settingsEventsBtn: $("settings-events-btn"),
   settingsCurPw:  $("settings-cur-pw"),
@@ -357,12 +399,14 @@ async function fetchCameras() {
       };
     });
     if (JSON.stringify(paths) !== JSON.stringify(state.allCameras)) {
+      dlog.info("", "camera-list-updated", `count=${paths.length} (was ${state.allCameras.length})`);
       state.allCameras = paths;
       applyFilter();
       renderSidebar();
     }
     showWarning(null);
   } catch (e) {
+    dlog.error("", "mediamtx-api-error", String(e));
     showWarning("Cannot reach MediaMTX — camera list may be stale");
   }
 }
@@ -509,14 +553,18 @@ async function doConnect(path, videoEl) {
   const generation = conn.generation;
   const targetVideo = conn.video || videoEl;
 
+  dlog.info(path, "connect-start", `gen=${generation} failures=${conn.failures}`);
+
   // Try WebRTC first, fall back to HLS on failure
   const webrtcOk = await tryWebRTC(path, targetVideo, conn, generation);
   const active = getActiveConnection(path, generation);
-  if (!active) return;
+  if (!active) { dlog.debug(path, "connect-aborted", "generation mismatch"); return; }
   if (!webrtcOk) {
+    dlog.warn(path, "webrtc-failed, trying HLS");
     // WebRTC failed — try HLS immediately (don't waste a retry)
     const hlsOk = tryHLS(path, active.video || targetVideo, active);
     if (!hlsOk) {
+      dlog.error(path, "hls-also-failed");
       active.status = "error";
       updateCellDot(path, "error");
       scheduleStatusUpdate();
@@ -532,6 +580,7 @@ async function tryWebRTC(path, videoEl, conn, generation) {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
   } catch (e) {
+    dlog.error(path, "RTCPeerConnection create failed", String(e));
     return false;
   }
   conn.pc = pc;
@@ -545,10 +594,14 @@ async function tryWebRTC(path, videoEl, conn, generation) {
   pc.ontrack = (evt) => {
     const active = getActiveConnection(path, generation);
     if (!active || active.pc !== pc) return;
+    dlog.info(path, "webrtc-track-received", `streams=${evt.streams.length}`);
     active.stream = evt.streams[0];
     if (active.video) {
       active.video.srcObject = active.stream;
-      active.video.play().catch(() => {});
+      active._lastCheckTime = undefined;
+      active._lastCheckTs = undefined;
+      const playPromise = active.video.play();
+      if (playPromise) playPromise.catch(() => {});
     }
     active.status = "live";
     active.failures = 0;
@@ -561,18 +614,25 @@ async function tryWebRTC(path, videoEl, conn, generation) {
     const active = getActiveConnection(path, generation);
     if (!active || active.pc !== pc) return;
     const s = pc.iceConnectionState;
-    if (s === "failed" || s === "disconnected") {
+    dlog.debug(path, "ice-state", s);
+    if (s === "failed" || s === "disconnected" || s === "closed") {
+      dlog.warn(path, "ice-error", s);
       active.lastError = "webrtc-ice-" + s;
       active.status = "error";
       updateCellDot(path, "error");
       scheduleStatusUpdate();
       scheduleReconnect(path, active.video || videoEl, generation);
+    } else if (s === "connected" || s === "completed") {
+      dlog.info(path, "ice-connected");
+      active._lastCheckTime = undefined;
+      active._lastCheckTs = undefined;
     }
   };
 
   try {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    dlog.debug(path, "whep-request", `${CONFIG.webrtcBase}/${path}/whep`);
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 10000);
     const res = await fetch(`${CONFIG.webrtcBase}/${path}/whep`, {
@@ -582,11 +642,19 @@ async function tryWebRTC(path, videoEl, conn, generation) {
       signal: abort.signal,
     });
     clearTimeout(timer);
-    if (!res.ok) throw new Error(`WHEP ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      dlog.error(path, "whep-http-error", `status=${res.status} body=${body.slice(0, 200)}`);
+      throw new Error(`WHEP ${res.status}`);
+    }
     const answer = await res.text();
+    dlog.debug(path, "whep-answer-received", `len=${answer.length}`);
     await pc.setRemoteDescription({ type: "answer", sdp: answer });
+    dlog.info(path, "webrtc-negotiation-ok");
     return true;
-  } catch (_) {
+  } catch (e) {
+    const msg = e.name === "AbortError" ? "whep-timeout-10s" : String(e).slice(0, 150);
+    dlog.error(path, "webrtc-negotiation-failed", msg);
     const active = getActiveConnection(path, generation);
     if (active && active.pc === pc) {
       active.pc = null;
@@ -599,6 +667,7 @@ async function tryWebRTC(path, videoEl, conn, generation) {
 
 function tryHLS(path, videoEl, conn) {
   const hlsUrl = `${CONFIG.hlsBase}/${path}/index.m3u8`;
+  dlog.info(path, "hls-fallback", hlsUrl);
   conn.pc = null;
   conn.mode = "hls";
   conn.stream = null;
@@ -631,6 +700,7 @@ function scheduleReconnect(path, videoEl, generation) {
 
   // Stop retrying if max retries reached (0 = no retry, -1 = infinite)
   if (maxRetries >= 0 && conn.failures > maxRetries) {
+    dlog.warn(path, "max-retries-reached", `failures=${conn.failures} max=${maxRetries} lastErr=${conn.lastError}`);
     conn.status = "error";
     updateCellDot(path, "error");
     scheduleStatusUpdate();
@@ -641,6 +711,7 @@ function scheduleReconnect(path, videoEl, generation) {
   const backoff = Math.min(CONFIG.reconnectMax, baseDelay * (2 ** Math.max(0, conn.failures - 1)));
   const jitter = Math.floor(backoff * (Math.random() * 0.3 - 0.15));
   const delay = Math.max(baseDelay, backoff + jitter);
+  dlog.info(path, "schedule-reconnect", `failures=${conn.failures} delay=${Math.round(delay/1000)}s lastErr=${conn.lastError}`);
 
   conn.retryTimer = setTimeout(() => {
     const active = getActiveConnection(path, generation);
@@ -670,6 +741,64 @@ function disconnectCamera(path) {
 function disconnectAllNotVisible(visibleSet, preconnectSet) {
   for (const p in state.connections) {
     if (!visibleSet.has(p) && !(preconnectSet && preconnectSet.has(p))) disconnectCamera(p);
+  }
+}
+
+// ===== STALL DETECTION ========================================================
+// Periodically check video.currentTime — if it hasn't advanced in 8s while
+// status is "live", the frame is frozen. Trigger reconnect.
+
+const STALL_CHECK_INTERVAL = 4000;  // check every 4s
+const STALL_THRESHOLD = 8;          // seconds without timeupdate = stall
+
+function startStallDetection() {
+  if (state.stallCheckTimer) return;
+  state.stallCheckTimer = setInterval(checkForStalls, STALL_CHECK_INTERVAL);
+}
+
+function checkForStalls() {
+  const now = Date.now();
+  for (const path in state.connections) {
+    const conn = state.connections[path];
+    if (conn.status !== "live" || !conn.video) continue;
+
+    const video = conn.video;
+    // Skip preconnected hidden videos
+    if (conn.preconnected) continue;
+
+    const curTime = video.currentTime;
+    const readyState = video.readyState;
+
+    // Initialize tracking
+    if (conn._lastCheckTime === undefined) {
+      conn._lastCheckTime = curTime;
+      conn._lastCheckTs = now;
+      continue;
+    }
+
+    const elapsed = (now - conn._lastCheckTs) / 1000;
+
+    // If video is paused (browser autoplay block), try to resume
+    if (video.paused && video.readyState >= 2) {
+      video.play().catch(() => {});
+    }
+
+    // If currentTime hasn't advanced and readyState < HAVE_CURRENT_DATA, it's stalled
+    if (elapsed >= STALL_THRESHOLD && curTime === conn._lastCheckTime && readyState < 3) {
+      dlog.warn(path, "video-stall-detected", `readyState=${readyState} curTime=${curTime} elapsed=${elapsed.toFixed(1)}s mode=${conn.mode}`);
+      conn.status = "error";
+      conn.lastError = "video-stall";
+      updateCellDot(path, "error");
+      scheduleStatusUpdate();
+      scheduleReconnect(path, video, conn.generation);
+      continue;
+    }
+
+    // If currentTime advanced, reset tracking
+    if (curTime !== conn._lastCheckTime) {
+      conn._lastCheckTime = curTime;
+      conn._lastCheckTs = now;
+    }
   }
 }
 
@@ -1538,6 +1667,12 @@ function setupKeyboard() {
       return;
     }
 
+    if ((e.key === "q" || e.key === "Q") && state.fullscreenPath) {
+      toggleFullscreenQuality();
+      e.preventDefault();
+      return;
+    }
+
     if (e.key === "s" || e.key === "S") {
       if (state.fullscreenPath) {
         takeSnapshot(state.fullscreenPath, dom.fsVideo);
@@ -1581,6 +1716,7 @@ function openFullscreen(path) {
   const conn = state.connections[path];
   const token = ++state.fullscreenToken;
   state.fullscreenPath = path;
+  state.fullscreenIsMain = true; // start by attempting main stream
   dom.fsTitle.textContent = formatName(path);
   resetVideoElement(dom.fsVideo);
 
@@ -1596,9 +1732,43 @@ function openFullscreen(path) {
 
   dom.fsOverlay.classList.remove("hidden");
   dom.fsOverlay.requestFullscreen().catch(() => {});
+  updateQualityBtn();
 
   // Buffer main-stream in hidden video, swap only when frames are ready
   connectFullscreenMain(path, token);
+}
+
+function updateQualityBtn() {
+  dom.fsQualityBtn.textContent = state.fullscreenIsMain ? "HD" : "SD";
+  dom.fsQualityBtn.title = state.fullscreenIsMain
+    ? "Viewing main stream (press Q for sub)"
+    : "Viewing sub stream (press Q for main)";
+  dom.fsQualityBtn.classList.toggle("active", state.fullscreenIsMain);
+}
+
+function toggleFullscreenQuality() {
+  if (!state.fullscreenPath) return;
+  state.fullscreenIsMain = !state.fullscreenIsMain;
+  updateQualityBtn();
+  const token = ++state.fullscreenToken;
+  disconnectFullscreenMain();
+
+  if (state.fullscreenIsMain) {
+    // Switch to main stream
+    connectFullscreenMain(state.fullscreenPath, token);
+  } else {
+    // Switch to sub-stream — reuse the grid connection
+    const conn = state.connections[state.fullscreenPath];
+    resetVideoElement(dom.fsVideo);
+    if (conn && conn.stream) {
+      dom.fsVideo.srcObject = conn.stream;
+      dom.fsVideo.play().catch(() => {});
+    } else if (conn && conn.hlsUrl) {
+      dom.fsVideo.src = conn.hlsUrl;
+      dom.fsVideo.load();
+      dom.fsVideo.play().catch(() => {});
+    }
+  }
 }
 
 async function connectFullscreenMain(path, token) {
@@ -1612,10 +1782,10 @@ async function connectFullscreenMain(path, token) {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
   } catch (_) {
-    tryFullscreenHLS(mainPath, token);
+    tryFullscreenHLS(mainPath, path, token);
     return;
   }
-  state.fullscreenConn = { pc, swapped: false, token };
+  state.fullscreenConn = { pc, swapped: false, token, _swapTimer: null };
 
   pc.addTransceiver("video", { direction: "recvonly" });
 
@@ -1636,18 +1806,18 @@ async function connectFullscreenMain(path, token) {
       }
     };
     dom.fsBuffer.addEventListener("playing", onReady, { once: true });
-    // Fallback: check after 2s in case 'playing' already fired
-    setTimeout(onReady, 2000);
+    // Fallback: check after 3s in case 'playing' already fired
+    state.fullscreenConn._swapTimer = setTimeout(onReady, 3000);
   };
 
   pc.oniceconnectionstatechange = () => {
     if (!state.fullscreenConn || state.fullscreenConn.pc !== pc || state.fullscreenConn.token !== token) return;
     const s = pc.iceConnectionState;
-    if (s === "failed" || s === "disconnected") {
+    if (s === "failed" || s === "disconnected" || s === "closed") {
       if (!state.fullscreenConn.swapped) {
-        // WebRTC main failed before swap — try HLS main
+        // WebRTC main failed — try HLS, then fall back to sub-stream
         try { pc.close(); } catch(_){}
-        tryFullscreenHLS(mainPath, token);
+        tryFullscreenHLS(mainPath, path, token);
       }
     }
   };
@@ -1656,7 +1826,7 @@ async function connectFullscreenMain(path, token) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), 10000);
+    const timer = setTimeout(() => abort.abort(), 15000); // longer timeout for main stream
     const res = await fetch(`${CONFIG.webrtcBase}/${mainPath}/whep`, {
       method: "POST",
       headers: { "Content-Type": "application/sdp" },
@@ -1671,12 +1841,12 @@ async function connectFullscreenMain(path, token) {
     // WebRTC negotiation failed — try HLS as fallback
     try { pc.close(); } catch(_e){}
     if (state.fullscreenConn && !state.fullscreenConn.swapped && state.fullscreenConn.token === token) {
-      tryFullscreenHLS(mainPath, token);
+      tryFullscreenHLS(mainPath, path, token);
     }
   }
 }
 
-function tryFullscreenHLS(mainPath, token) {
+function tryFullscreenHLS(mainPath, subPath, token) {
   // HLS fallback for main stream — sub-stream stays visible until this loads
   const hlsUrl = `${CONFIG.hlsBase}/${mainPath}/index.m3u8`;
   dom.fsBuffer.srcObject = null;
@@ -1684,8 +1854,10 @@ function tryFullscreenHLS(mainPath, token) {
   dom.fsBuffer.load();
   dom.fsBuffer.play().catch(() => {});
 
+  let resolved = false;
   const onReady = () => {
-    if (!state.fullscreenPath || state.fullscreenToken !== token) return;
+    if (resolved || !state.fullscreenPath || state.fullscreenToken !== token) return;
+    resolved = true;
     if (dom.fsBuffer.videoWidth > 0) {
       dom.fsVideo.srcObject = null;
       dom.fsVideo.src = hlsUrl;
@@ -1696,12 +1868,26 @@ function tryFullscreenHLS(mainPath, token) {
     }
   };
   dom.fsBuffer.addEventListener("playing", onReady, { once: true });
-  // Keep showing sub-stream if HLS also fails — no black screen ever
+
+  // If HLS main also fails after 8s, auto-switch to sub quality
+  setTimeout(() => {
+    if (resolved || !state.fullscreenPath || state.fullscreenToken !== token) return;
+    if (dom.fsBuffer.readyState < 2) {
+      // Main stream completely unavailable — stay on sub-stream, update UI
+      state.fullscreenIsMain = false;
+      updateQualityBtn();
+      showToast("Main stream unavailable — showing sub-stream", "warning", 4000);
+      resetVideoElement(dom.fsBuffer);
+    }
+  }, 8000);
 }
 
 function disconnectFullscreenMain() {
   if (state.fullscreenConn) {
-    try { state.fullscreenConn.pc.close(); } catch (_) {}
+    if (state.fullscreenConn._swapTimer) clearTimeout(state.fullscreenConn._swapTimer);
+    if (state.fullscreenConn.pc) {
+      try { state.fullscreenConn.pc.close(); } catch (_) {}
+    }
     state.fullscreenConn = null;
   }
   resetVideoElement(dom.fsBuffer);
@@ -1713,6 +1899,7 @@ function closeFullscreen() {
   dom.fsOverlay.classList.add("hidden");
   resetVideoElement(dom.fsVideo);
   state.fullscreenPath = null;
+  state.fullscreenIsMain = true;
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
   }
@@ -1726,6 +1913,7 @@ document.addEventListener("fullscreenchange", () => {
     dom.fsOverlay.classList.add("hidden");
     resetVideoElement(dom.fsVideo);
     state.fullscreenPath = null;
+    state.fullscreenIsMain = true;
   }
 });
 
@@ -1925,6 +2113,7 @@ function bindEvents() {
 
   dom.shortcutsBtn.addEventListener("click", () => toggleModal(dom.shortcutsModal));
   dom.fsCloseBtn.addEventListener("click", closeFullscreen);
+  dom.fsQualityBtn.addEventListener("click", toggleFullscreenQuality);
   dom.fsSnapshotBtn.addEventListener("click", () => { if (state.fullscreenPath) takeSnapshot(state.fullscreenPath, dom.fsVideo); });
 
   // Settings
@@ -1934,6 +2123,7 @@ function bindEvents() {
   dom.settingsRestartBtn.addEventListener("click", forceRestart);
   dom.settingsHealthBtn.addEventListener("click", checkNvrHealth);
   dom.settingsTestAllBtn.addEventListener("click", testAllNvrs);
+  dom.settingsClearBansBtn.addEventListener("click", clearAllBans);
   dom.settingsImportBtn.addEventListener("click", () => {
     dom.importTextarea.value = "";
     dom.importStatus.textContent = "";
@@ -2238,7 +2428,18 @@ async function saveSettings() {
           "Click OK to save anyway, or Cancel to fix first."
         );
         if (!proceed) {
-          setSettingsStatus("Save cancelled — fix credentials first", true);
+          // Still save passwords to disk (PATCH = no restart, no config regen)
+          // so corrected credentials aren't lost even if NVR is still blocking us
+          try {
+            await fetch("/api/inventory", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(inv),
+            });
+            setSettingsStatus("Passwords saved (no restart — NVRs unchanged)", false);
+          } catch (_) {
+            setSettingsStatus("Save cancelled", true);
+          }
           dom.settingsSaveBtn.disabled = false;
           return;
         }
@@ -2394,6 +2595,30 @@ async function testAllNvrs() {
   } finally {
     dom.settingsTestAllBtn.disabled = false;
     dom.settingsTestAllBtn.textContent = "Test All";
+  }
+}
+
+// ===== CLEAR BANS =============================================================
+
+async function clearAllBans() {
+  dom.settingsClearBansBtn.disabled = true;
+  try {
+    const res = await fetch("/api/lockouts", { method: "DELETE" });
+    const data = await res.json();
+    if (data.ok) {
+      // Clear all ban timers in the UI
+      dom.settingsNvrBody.querySelectorAll(".nvr-ban-timer").forEach(el => {
+        if (el._timer) clearTimeout(el._timer);
+        el.remove();
+      });
+      dom.settingsHealthStatus.textContent = `Cleared ${data.cleared} ban(s)`;
+      dom.settingsHealthStatus.className = "ok";
+    }
+  } catch (e) {
+    dom.settingsHealthStatus.textContent = "Failed to clear bans";
+    dom.settingsHealthStatus.className = "err";
+  } finally {
+    dom.settingsClearBansBtn.disabled = false;
   }
 }
 
@@ -2613,6 +2838,32 @@ async function init() {
   }
 
   setInterval(() => { fetchCameras(); scheduleStatusUpdate(); }, CONFIG.pollInterval);
+  startStallDetection();
+
+  // Periodic connection summary for diagnostics
+  setInterval(() => {
+    let online = 0, connecting = 0, errored = 0, total = 0;
+    const errPaths = [];
+    for (const p in state.connections) {
+      total++;
+      const c = state.connections[p];
+      if (c.status === "live") online++;
+      else if (c.status === "connecting") connecting++;
+      else if (c.status === "error") {
+        errored++;
+        if (errPaths.length < 10) errPaths.push(`${p}(${c.lastError||"?"},f=${c.failures})`);
+      }
+    }
+    if (total > 0) {
+      dlog.info("", "status-summary", `online=${online} connecting=${connecting} error=${errored} total=${total}` +
+        (errPaths.length > 0 ? ` errs=[${errPaths.join(", ")}]` : ""));
+    }
+  }, 30000);
+
+  // Flush logs on page unload
+  window.addEventListener("beforeunload", () => dlog.flush());
+
+  dlog.info("", "init-complete", `cameras=${state.allCameras.length} grid=${state.gridCols}x${state.gridRows}`);
 }
 
 document.addEventListener("DOMContentLoaded", init);

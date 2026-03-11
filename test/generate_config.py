@@ -17,7 +17,9 @@ from pathlib import Path
 from urllib.parse import quote
 
 SOURCE_ON_DEMAND_START_TIMEOUT = "10s"
-SOURCE_ON_DEMAND_CLOSE_AFTER = "20s"
+SOURCE_ON_DEMAND_START_TIMEOUT_MAIN = "20s"  # Main streams need more time to initialize
+SOURCE_ON_DEMAND_CLOSE_AFTER = "30s"
+SOURCE_ON_DEMAND_CLOSE_AFTER_MAIN = "60s"    # Keep main stream alive longer in fullscreen
 
 
 def load_inventory(path: str) -> dict:
@@ -86,7 +88,7 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
         "hlsSegmentDuration: 1s",
         "hlsPartDuration: 200ms",
         "",
-        "# Pull streams on demand — close quickly to avoid RTSP churn across large pages",
+        "# Pull streams on demand — sub-streams close after 30s, main after 60s",
         "",
         "paths:",
     ]
@@ -133,7 +135,7 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
             lines.append(f"    sourceOnDemandStartTimeout: {SOURCE_ON_DEMAND_START_TIMEOUT}")
             lines.append(f"    sourceOnDemandCloseAfter: {SOURCE_ON_DEMAND_CLOSE_AFTER}")
 
-            # Main-stream (used for fullscreen view)
+            # Main-stream (used for fullscreen view — higher resolution, longer timeouts)
             main_path = f"{nvr_id}_ch{ch}_main"
             if use_server_for_nvr:
                 main_url = build_server_rtsp_url(effective_server_url, nvr_id, ch, "_main")
@@ -143,8 +145,8 @@ def generate_config(inventory: dict, subtype_override: int | None = None) -> str
             lines.append(f"    source: {main_url}")
             lines.append(f"    rtspTransport: tcp")
             lines.append(f"    sourceOnDemand: yes")
-            lines.append(f"    sourceOnDemandStartTimeout: {SOURCE_ON_DEMAND_START_TIMEOUT}")
-            lines.append(f"    sourceOnDemandCloseAfter: {SOURCE_ON_DEMAND_CLOSE_AFTER}")
+            lines.append(f"    sourceOnDemandStartTimeout: {SOURCE_ON_DEMAND_START_TIMEOUT_MAIN}")
+            lines.append(f"    sourceOnDemandCloseAfter: {SOURCE_ON_DEMAND_CLOSE_AFTER_MAIN}")
 
             total_channels += 1
 

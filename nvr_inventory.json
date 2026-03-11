@@ -13,21 +13,24 @@
       "label": "NVR 1",
       "ip": "192.168.20.12",
       "channels": 2,
-      "group": "dahua"
+      "group": "dahua",
+      "enabled": true
     },
     {
       "id": "nvr02",
       "label": "NVR 2",
       "ip": "192.168.20.15",
       "channels": 14,
-      "group": "dahua"
+      "group": "dahua",
+      "enabled": true
     },
     {
       "id": "nvr03",
       "label": "NVR 3",
       "ip": "192.168.20.37",
       "channels": 1,
-      "group": "dahua"
+      "group": "dahua",
+      "enabled": true
     },
     {
       "id": "nvr04",
@@ -35,6 +38,7 @@
       "ip": "192.168.20.254",
       "channels": 1,
       "group": "dahua",
+      "enabled": true,
       "password": "post2626..."
     },
     {
@@ -43,6 +47,7 @@
       "ip": "192.168.20.39",
       "channels": 17,
       "group": "dahua",
+      "enabled": true,
       "password": "post2525***"
     },
     {
@@ -51,6 +56,7 @@
       "ip": "192.168.20.30",
       "channels": 6,
       "group": "dahua",
+      "enabled": true,
       "password": "post2025***"
     },
     {
@@ -59,7 +65,8 @@
       "ip": "192.168.20.20",
       "channels": 13,
       "group": "dahua",
-      "password": "post2626..."
+      "enabled": true,
+      "password": "post2525..."
     },
     {
       "id": "nvr08",
@@ -67,6 +74,7 @@
       "ip": "192.168.20.89",
       "channels": 1,
       "group": "dahua",
+      "enabled": true,
       "password": "post2626..."
     },
     {
@@ -75,7 +83,8 @@
       "ip": "192.168.20.31",
       "channels": 10,
       "group": "dahua",
-      "password": "post2626..."
+      "enabled": true,
+      "password": "post2022"
     },
     {
       "id": "nvr10",
@@ -83,6 +92,7 @@
       "ip": "192.168.20.32",
       "channels": 30,
       "group": "dahua",
+      "enabled": true,
       "password": "post2626..."
     },
     {
@@ -91,6 +101,7 @@
       "ip": "192.168.20.58",
       "channels": 29,
       "group": "dahua",
+      "enabled": true,
       "password": "post2626..."
     }
   ]

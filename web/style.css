@@ -467,6 +467,8 @@ body {
 }
 
 #fs-controls button:hover { background: #e94560; }
+#fs-quality-btn { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+#fs-quality-btn.active { background: rgba(76, 175, 80, 0.4); color: #4caf50; }
 
 #fs-video {
   width: 100%;
@@ -802,7 +804,7 @@ kbd {
 }
 
 /* ===== SETTINGS MODAL ===== */
-.modal-xlarge { min-width: 700px; max-width: 950px; }
+.modal-xlarge { min-width: 800px; max-width: 1100px; }
 
 .settings-section { margin-bottom: 16px; }
 
@@ -839,15 +841,15 @@ kbd {
   border-radius: 3px;
   font-size: 12px;
   outline: none;
-  width: 100px;
+  width: 130px;
 }
 
 .settings-global input:focus,
 .settings-global select:focus { border-color: #e94560; }
 
-.settings-global input[type="number"] { width: 70px; }
-.settings-global select { width: auto; min-width: 100px; }
-#settings-server-url { width: 200px; }
+.settings-global input[type="number"] { width: 75px; }
+.settings-global select { width: auto; min-width: 120px; }
+#settings-server-url { width: 240px; }
 
 /* Password visibility toggle */
 .pw-field { position: relative; }
@@ -913,7 +915,7 @@ kbd {
 }
 
 #settings-nvr-table input[type="number"] { width: 50px; }
-#settings-nvr-table input[type="password"] { width: 80px; }
+#settings-nvr-table input[type="password"] { width: 110px; }
 #settings-nvr-table input[type="checkbox"] {
   width: auto;
   accent-color: #e94560;
@@ -933,14 +935,15 @@ kbd {
 /* Column widths: On | ID | Label | IP | CH | Pass | Source | Actions */
 #settings-nvr-table th:first-child,
 #settings-nvr-table td:first-child { width: 30px; text-align: center; }
-#settings-nvr-table td:nth-child(2) input { width: 56px; }
-#settings-nvr-table td:nth-child(3) input { width: 100px; }
-#settings-nvr-table td:nth-child(4) input { width: 100px; }
-#settings-nvr-table td:nth-child(5) input { width: 40px; }
-#settings-nvr-table td:nth-child(6) input { width: 72px; }
-#settings-nvr-table td:nth-child(7) select { width: 70px; }
+#settings-nvr-table td:nth-child(2) input { width: 64px; }
+#settings-nvr-table td:nth-child(3) input { width: 120px; }
+#settings-nvr-table td:nth-child(4) input { width: 115px; }
+#settings-nvr-table td:nth-child(5) input { width: 44px; }
+#settings-nvr-table td:nth-child(6) input[type="password"],
+#settings-nvr-table td:nth-child(6) input[type="text"] { width: 110px; }
+#settings-nvr-table td:nth-child(7) select { width: 74px; }
 #settings-nvr-table th:last-child,
-#settings-nvr-table td:last-child { width: 60px; white-space: nowrap; }
+#settings-nvr-table td:last-child { width: 64px; white-space: nowrap; }
 
 #settings-nvr-table tfoot td {
   border-bottom: none;

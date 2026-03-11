@@ -1,8 +1,9 @@
 ###############################################
 # MediaMTX Configuration - Auto-generated
-# NVRs: 11
-# Total channels: 124
+# NVRs: 11 enabled, 0 disabled
+# Stream source: nvr
 # Grid stream: sub-stream (+ main-stream for fullscreen)
+# Total channels: 124
 ###############################################
 
 # Global settings
@@ -538,157 +539,157 @@ paths:
 
   # --- NVR 7 (192.168.20.20, 13 ch, group: dahua) ---
   nvr07_ch1:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=1&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=1&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch1_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=1&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=1&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch2:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=2&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=2&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch2_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=2&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=2&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch3:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=3&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=3&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch3_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=3&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=3&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch4:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=4&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=4&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch4_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=4&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=4&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch5:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=5&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=5&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch5_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=5&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=5&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch6:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=6&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=6&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch6_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=6&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=6&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch7:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=7&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=7&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch7_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=7&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=7&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch8:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=8&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=8&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch8_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=8&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=8&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch9:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=9&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=9&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch9_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=9&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=9&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch10:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=10&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=10&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch10_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=10&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=10&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch11:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=11&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=11&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch11_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=11&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=11&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch12:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=12&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=12&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch12_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=12&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=12&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch13:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=13&subtype=1
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=13&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr07_ch13_main:
-    source: rtsp://admin:post2626...@192.168.20.20:554/cam/realmonitor?channel=13&subtype=0
+    source: rtsp://admin:post2525...@192.168.20.20:554/cam/realmonitor?channel=13&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
@@ -710,121 +711,121 @@ paths:
 
   # --- NVR 9 (192.168.20.31, 10 ch, group: dahua) ---
   nvr09_ch1:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=1&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=1&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch1_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=1&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=1&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch2:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=2&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=2&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch2_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=2&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=2&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch3:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=3&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=3&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch3_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=3&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=3&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch4:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=4&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=4&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch4_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=4&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=4&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch5:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=5&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=5&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch5_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=5&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=5&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch6:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=6&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=6&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch6_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=6&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=6&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch7:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=7&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=7&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch7_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=7&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=7&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch8:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=8&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=8&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch8_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=8&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=8&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch9:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=9&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=9&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch9_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=9&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=9&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch10:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=10&subtype=1
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=10&subtype=1
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s
     sourceOnDemandCloseAfter: 20s
   nvr09_ch10_main:
-    source: rtsp://admin:post2626...@192.168.20.31:554/cam/realmonitor?channel=10&subtype=0
+    source: rtsp://admin:post2022@192.168.20.31:554/cam/realmonitor?channel=10&subtype=0
     rtspTransport: tcp
     sourceOnDemand: yes
     sourceOnDemandStartTimeout: 10s

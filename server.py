@@ -8,6 +8,8 @@ Provides API endpoints for NVR inventory management and MediaMTX control.
 
 import hashlib
 import json
+import logging
+import logging.handlers
 import os
 import secrets
 import shutil
@@ -29,6 +31,7 @@ MEDIAMTX_BIN = DIR / ("mediamtx.exe" if sys.platform == "win32" else "mediamtx")
 MEDIAMTX_CFG = DIR / "mediamtx.yml"
 GENERATE_SCRIPT = DIR / "test" / "generate_config.py"
 EVENT_LOG = DIR / "nvr_events.jsonl"
+DEBUG_LOG = DIR / "dss_debug.log"
 TLS_CERT = DIR / "cert.pem"
 TLS_KEY = DIR / "key.pem"
 WEB_DIR = DIR / "web"
@@ -38,6 +41,28 @@ mtx_proc = None
 # Active sessions: token -> { username, created }
 sessions = {}
 use_tls = False
+
+# ── Logging setup ───────────────────────────────────────────────────────────
+
+log = logging.getLogger("dss")
+log.setLevel(logging.DEBUG)
+
+# File handler: rotating 5MB x 3 backups → dss_debug.log
+_fh = logging.handlers.RotatingFileHandler(
+    str(DEBUG_LOG), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+)
+_fh.setLevel(logging.DEBUG)
+_fh.setFormatter(logging.Formatter(
+    "%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+))
+log.addHandler(_fh)
+
+# Console handler: INFO+ only
+_ch = logging.StreamHandler()
+_ch.setLevel(logging.INFO)
+_ch.setFormatter(logging.Formatter("%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S"))
+log.addHandler(_ch)
 
 # ── Configuration constants ──────────────────────────────────────────────────
 
@@ -183,6 +208,7 @@ LOGIN_PAGE = """<!DOCTYPE html>
 
 def start_mediamtx():
     global mtx_proc
+    log.info("Starting MediaMTX: %s %s", MEDIAMTX_BIN, MEDIAMTX_CFG)
     mtx_proc = subprocess.Popen(
         [str(MEDIAMTX_BIN), str(MEDIAMTX_CFG)],
         cwd=str(DIR),
@@ -193,8 +219,9 @@ def start_mediamtx():
     if mtx_proc.poll() is not None:
         stderr = mtx_proc.stderr.read().decode(errors="replace")
         mtx_proc = None
+        log.error("MediaMTX exited immediately: %s", stderr)
         raise RuntimeError(f"MediaMTX exited immediately: {stderr}")
-    print(f"  MediaMTX started (PID {mtx_proc.pid})")
+    log.info("MediaMTX started (PID %d)", mtx_proc.pid)
 
 
 def stop_mediamtx():
@@ -292,9 +319,56 @@ def read_events(nvr_id=None, limit=200):
 
 # ── NVR Health ─────────────────────────────────────────────────────────────
 
+def _parse_rtsp_status(response):
+    """Extract status code from RTSP response first line."""
+    if not response:
+        return 0, "No response"
+    first_line = response.split("\r\n")[0]
+    # e.g. "RTSP/1.0 401 Unauthorized"
+    parts = first_line.split(None, 2)
+    if len(parts) >= 2:
+        try:
+            return int(parts[1]), first_line
+        except ValueError:
+            pass
+    return 0, first_line
+
+
+def _parse_digest_challenge(response):
+    """Extract digest auth parameters from a 401 response's WWW-Authenticate header."""
+    for line in response.split("\r\n"):
+        if line.lower().startswith("www-authenticate:"):
+            value = line.split(":", 1)[1].strip()
+            if value.lower().startswith("digest"):
+                params = {}
+                # Parse key="value" pairs
+                for part in value[6:].split(","):
+                    part = part.strip()
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        params[k.strip().lower()] = v.strip().strip('"')
+                return params
+    return None
+
+
+def _compute_digest_response(username, password, realm, nonce, method, uri):
+    """Compute MD5 digest auth response (RFC 2069 / simplified RFC 2617)."""
+    import hashlib
+    ha1 = hashlib.md5(f"{username}:{realm}:{password}".encode()).hexdigest()
+    ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()
+    resp = hashlib.md5(f"{ha1}:{nonce}:{ha2}".encode()).hexdigest()
+    return resp
+
+
 def test_nvr_rtsp(ip, port, username, password, channel=1, timeout=5, nvr_id=None):
-    """Test RTSP connectivity to an NVR by sending an OPTIONS request.
-    Returns (ok: bool, message: str, extra: dict)."""
+    """Test RTSP connectivity using proper digest authentication.
+    Returns (ok: bool, message: str, extra: dict).
+
+    Flow:
+    1. Send OPTIONS without auth — expect 401 with digest challenge
+    2. Compute digest response and resend — expect 200
+    3. Only record lockout on 403 (actual IP ban), NOT on 401
+    """
     extra = {}
 
     # Check lockout first
@@ -307,42 +381,108 @@ def test_nvr_rtsp(ip, port, username, password, channel=1, timeout=5, nvr_id=Non
         msg = f"Locked out — retry in {mins}m {secs}s"
         return False, msg, extra
 
+    uri = f"rtsp://{ip}:{port}/cam/realmonitor?channel={channel}&subtype=1"
+    method = "OPTIONS"
+    tag = f"[{nvr_id or ip}:{port}]"
+
     sock = None
     try:
+        log.debug("%s Connecting TCP...", tag)
         sock = socket.create_connection((ip, port), timeout=timeout)
-        user_enc = quote(username, safe="")
-        pass_enc = quote(password, safe="")
-        url = f"rtsp://{user_enc}:{pass_enc}@{ip}:{port}/cam/realmonitor?channel={channel}&subtype=1"
-        request = f"OPTIONS {url} RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: DSS\r\n\r\n"
-        sock.sendall(request.encode())
-        response = sock.recv(4096).decode(errors="replace")
-        if "RTSP/1.0 200" in response:
+        log.debug("%s TCP connected, sending OPTIONS (no auth)", tag)
+
+        # Step 1: Send OPTIONS without auth
+        req1 = f"{method} {uri} RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: DSS\r\n\r\n"
+        sock.sendall(req1.encode())
+        resp1 = sock.recv(4096).decode(errors="replace")
+        status1, first_line1 = _parse_rtsp_status(resp1)
+        log.debug("%s Step1 response: %d — %s", tag, status1, first_line1)
+
+        if status1 == 200:
+            # No auth required — OK
             clear_lockout(ip)
             if nvr_id:
-                log_nvr_event(nvr_id, ip, "auth_ok", "Credential test passed")
+                log_nvr_event(nvr_id, ip, "auth_ok", "Credential test passed (no auth)")
             return True, "OK", extra
-        elif "401" in response:
-            record_lockout(ip)
-            extra["banned_until"] = time.time() + DEFAULT_BAN_COOLDOWN
-            extra["remaining"] = DEFAULT_BAN_COOLDOWN
-            if nvr_id:
-                log_nvr_event(nvr_id, ip, "auth_fail", "Wrong password (401)")
-            return False, "Authentication failed (wrong password)", extra
-        elif "403" in response:
+
+        if status1 == 403:
+            # IP is banned by the NVR
             record_lockout(ip)
             extra["banned_until"] = time.time() + DEFAULT_BAN_COOLDOWN
             extra["remaining"] = DEFAULT_BAN_COOLDOWN
             if nvr_id:
                 log_nvr_event(nvr_id, ip, "banned", "IP banned by NVR (403)")
             return False, "Forbidden (IP banned — too many failed attempts)", extra
+
+        if status1 != 401:
+            return False, f"Unexpected: {first_line1}", extra
+
+        # Step 2: Parse digest challenge from 401 response
+        digest = _parse_digest_challenge(resp1)
+        log.debug("%s Digest challenge: %s", tag, digest)
+        if not digest or "realm" not in digest or "nonce" not in digest:
+            # NVR doesn't support digest — 401 likely means wrong basic-auth credentials
+            log.warning("%s 401 but no digest challenge in response", tag)
+            if nvr_id:
+                log_nvr_event(nvr_id, ip, "auth_fail", "401 without digest challenge")
+            return False, "Authentication failed (no digest challenge)", extra
+
+        realm = digest["realm"]
+        nonce = digest["nonce"]
+
+        # Compute digest response
+        response_hash = _compute_digest_response(username, password, realm, nonce, method, uri)
+
+        auth_header = (
+            f'Digest username="{username}", realm="{realm}", nonce="{nonce}", '
+            f'uri="{uri}", response="{response_hash}"'
+        )
+
+        log.debug("%s Sending OPTIONS with digest auth (realm=%s)", tag, realm)
+        # Step 3: Resend OPTIONS with digest auth
+        req2 = (
+            f"{method} {uri} RTSP/1.0\r\n"
+            f"CSeq: 2\r\n"
+            f"User-Agent: DSS\r\n"
+            f"Authorization: {auth_header}\r\n"
+            f"\r\n"
+        )
+        sock.sendall(req2.encode())
+        resp2 = sock.recv(4096).decode(errors="replace")
+        status2, first_line2 = _parse_rtsp_status(resp2)
+        log.debug("%s Step2 response: %d — %s", tag, status2, first_line2)
+
+        if status2 == 200:
+            clear_lockout(ip)
+            log.info("%s AUTH OK", tag)
+            if nvr_id:
+                log_nvr_event(nvr_id, ip, "auth_ok", "Credential test passed")
+            return True, "OK", extra
+        elif status2 == 401:
+            log.warning("%s AUTH FAIL — wrong password (digest rejected)", tag)
+            if nvr_id:
+                log_nvr_event(nvr_id, ip, "auth_fail", "Wrong password (digest 401)")
+            return False, "Authentication failed (wrong password)", extra
+        elif status2 == 403:
+            record_lockout(ip)
+            extra["banned_until"] = time.time() + DEFAULT_BAN_COOLDOWN
+            extra["remaining"] = DEFAULT_BAN_COOLDOWN
+            log.warning("%s BANNED by NVR (403)", tag)
+            if nvr_id:
+                log_nvr_event(nvr_id, ip, "banned", "IP banned by NVR (403)")
+            return False, "Forbidden (IP banned — too many failed attempts)", extra
         else:
-            first_line = response.split("\r\n")[0] if response else "No response"
-            return False, f"Unexpected: {first_line}", extra
+            log.warning("%s Unexpected response: %s", tag, first_line2)
+            return False, f"Unexpected: {first_line2}", extra
+
     except socket.timeout:
+        log.warning("%s Connection timeout", tag)
         return False, "Connection timeout (NVR unreachable)", extra
     except ConnectionRefusedError:
+        log.warning("%s Connection refused", tag)
         return False, "Connection refused (RTSP port closed)", extra
     except OSError as e:
+        log.warning("%s Network error: %s", tag, e)
         return False, f"Network error: {e}", extra
     finally:
         if sock:
@@ -431,6 +571,10 @@ class Handler(SimpleHTTPRequestHandler):
             if not self._require_auth():
                 return
             return self._get_lockouts()
+        if parsed.path == "/api/debug-log":
+            if not self._require_auth():
+                return
+            return self._get_debug_log(parsed.query)
         if not self._require_auth():
             return
         super().do_GET()
@@ -440,6 +584,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/inventory":
             return self._put_inventory()
+        self._send(405, {"error": "Method not allowed"})
+
+    def do_DELETE(self):
+        if not self._require_auth():
+            return
+        if self.path == "/api/lockouts":
+            return self._delete_lockouts()
         self._send(405, {"error": "Method not allowed"})
 
     def do_PATCH(self):
@@ -468,6 +619,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._post_health()
         if self.path == "/api/auto-disable-nvr":
             return self._post_auto_disable_nvr()
+        if self.path == "/api/client-log":
+            return self._post_client_log()
         self._send(405, {"error": "Method not allowed"})
 
     # ── Auth handlers ──
@@ -706,6 +859,55 @@ class Handler(SimpleHTTPRequestHandler):
             else:
                 nvr_lockouts.pop(ip, None)
         self._send(200, {"lockouts": result})
+
+    def _delete_lockouts(self):
+        count = len(nvr_lockouts)
+        nvr_lockouts.clear()
+        log.info("Cleared %d lockouts", count)
+        self._send(200, {"ok": True, "cleared": count})
+
+    # ── Client log handler ──
+
+    def _post_client_log(self):
+        """Receive diagnostic log entries from the browser client."""
+        try:
+            body = self._read_body()
+            data = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            self._send(400, {"error": "Invalid JSON"})
+            return
+
+        client_log = logging.getLogger("dss.client")
+        entries = data if isinstance(data, list) else [data]
+        for entry in entries:
+            level = entry.get("level", "info").upper()
+            msg = entry.get("msg", "")
+            path = entry.get("path", "")
+            detail = entry.get("detail", "")
+            ts = entry.get("ts", "")
+            log_msg = f"[{ts}] {path} {msg}"
+            if detail:
+                log_msg += f" | {detail}"
+            lvl = getattr(logging, level, logging.INFO)
+            client_log.log(lvl, log_msg)
+        self._send(200, {"ok": True})
+
+    # ── Debug log viewer ──
+
+    def _get_debug_log(self, query_string):
+        """Return last N lines of dss_debug.log."""
+        params = parse_qs(query_string)
+        lines = int(params.get("lines", [500])[0])
+        lines = min(lines, 5000)
+        try:
+            if not DEBUG_LOG.exists():
+                self._send(200, {"lines": [], "total": 0})
+                return
+            all_lines = DEBUG_LOG.read_text(encoding="utf-8").strip().split("\n")
+            tail = all_lines[-lines:]
+            self._send(200, {"lines": tail, "total": len(all_lines)})
+        except Exception as e:
+            self._send(500, {"error": str(e)})
 
     # ── API handlers ──
 

@@ -1,0 +1,40 @@
+{"ts": 1773223793.788417, "nvr_id": "nvr01", "ip": "192.168.20.12", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223793.800514, "nvr_id": "nvr02", "ip": "192.168.20.15", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223793.816118, "nvr_id": "nvr03", "ip": "192.168.20.37", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223793.821256, "nvr_id": "nvr04", "ip": "192.168.20.254", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223793.833929, "nvr_id": "nvr05", "ip": "192.168.20.39", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223793.841919, "nvr_id": "nvr06", "ip": "192.168.20.30", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223793.859067, "nvr_id": "nvr07", "ip": "192.168.20.20", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223793.8648582, "nvr_id": "nvr08", "ip": "192.168.20.89", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223793.883592, "nvr_id": "nvr09", "ip": "192.168.20.31", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773223798.891938, "nvr_id": "nvr11", "ip": "192.168.20.58", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.2432482, "nvr_id": "nvr01", "ip": "192.168.20.12", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.262916, "nvr_id": "nvr02", "ip": "192.168.20.15", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.276247, "nvr_id": "nvr03", "ip": "192.168.20.37", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.286525, "nvr_id": "nvr04", "ip": "192.168.20.254", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.298523, "nvr_id": "nvr05", "ip": "192.168.20.39", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.3127968, "nvr_id": "nvr06", "ip": "192.168.20.30", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.33406, "nvr_id": "nvr07", "ip": "192.168.20.20", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.345247, "nvr_id": "nvr08", "ip": "192.168.20.89", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225580.37126, "nvr_id": "nvr09", "ip": "192.168.20.31", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225585.39528, "nvr_id": "nvr11", "ip": "192.168.20.58", "event": "auth_fail", "message": "Wrong password (401)"}
+{"ts": 1773225956.44672, "nvr_id": "nvr01", "ip": "192.168.20.12", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225956.463485, "nvr_id": "nvr02", "ip": "192.168.20.15", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225956.5169249, "nvr_id": "nvr03", "ip": "192.168.20.37", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225956.5456169, "nvr_id": "nvr04", "ip": "192.168.20.254", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225956.598322, "nvr_id": "nvr05", "ip": "192.168.20.39", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225956.64012, "nvr_id": "nvr06", "ip": "192.168.20.30", "event": "auth_fail", "message": "Wrong password (digest 401)"}
+{"ts": 1773225956.679588, "nvr_id": "nvr07", "ip": "192.168.20.20", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225956.7091358, "nvr_id": "nvr08", "ip": "192.168.20.89", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225956.7525928, "nvr_id": "nvr09", "ip": "192.168.20.31", "event": "auth_fail", "message": "Wrong password (digest 401)"}
+{"ts": 1773225961.79583, "nvr_id": "nvr11", "ip": "192.168.20.58", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225971.792353, "nvr_id": "nvr01", "ip": "192.168.20.12", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225971.823143, "nvr_id": "nvr02", "ip": "192.168.20.15", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225971.876168, "nvr_id": "nvr03", "ip": "192.168.20.37", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225971.927052, "nvr_id": "nvr04", "ip": "192.168.20.254", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225971.957189, "nvr_id": "nvr05", "ip": "192.168.20.39", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225972.019166, "nvr_id": "nvr06", "ip": "192.168.20.30", "event": "auth_fail", "message": "Wrong password (digest 401)"}
+{"ts": 1773225972.061583, "nvr_id": "nvr07", "ip": "192.168.20.20", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225972.090162, "nvr_id": "nvr08", "ip": "192.168.20.89", "event": "auth_ok", "message": "Credential test passed"}
+{"ts": 1773225972.131089, "nvr_id": "nvr09", "ip": "192.168.20.31", "event": "auth_fail", "message": "Wrong password (digest 401)"}
+{"ts": 1773225977.156076, "nvr_id": "nvr11", "ip": "192.168.20.58", "event": "auth_ok", "message": "Credential test passed"}
