@@ -12,6 +12,7 @@ import time
 from http.cookies import SimpleCookie
 
 from . import config
+from .config import log
 
 
 # Active sessions: token -> { username, created }
@@ -32,12 +33,20 @@ def check_login_rate(client_ip):
     login_attempts[client_ip] = attempts
     if len(attempts) >= config.LOGIN_RATE_MAX:
         retry_after = int(config.LOGIN_RATE_WINDOW - (now - attempts[0]))
+        log.warning(
+            "Login rate-limit hit ip=%s attempts=%d/%d retry_after=%ds",
+            client_ip, len(attempts), config.LOGIN_RATE_MAX, max(1, retry_after),
+        )
         return False, max(1, retry_after)
     return True, 0
 
 
 def record_login_attempt(client_ip):
     login_attempts.setdefault(client_ip, []).append(time.time())
+    log.debug(
+        "Login attempt recorded ip=%s attempts_in_window=%d",
+        client_ip, len(login_attempts[client_ip]),
+    )
 
 
 # ── Credentials ──────────────────────────────────────────────────────────────
@@ -51,12 +60,14 @@ def load_credentials():
         return json.loads(config.CREDENTIALS.read_text())
     creds = {"username": "admin", "password_hash": hash_password("admin")}
     config.CREDENTIALS.write_text(json.dumps(creds, indent=2) + "\n")
+    log.warning("Created default credentials (admin:admin) — please change immediately")
     print("  Created default credentials (admin:admin)")
     return creds
 
 
 def save_credentials(creds):
     config.CREDENTIALS.write_text(json.dumps(creds, indent=2) + "\n")
+    log.info("Credentials updated user=%s", creds.get("username", "?"))
 
 
 def verify_login(username, password):
@@ -69,6 +80,10 @@ def verify_login(username, password):
 def create_session(username):
     token = secrets.token_hex(32)
     sessions[token] = {"username": username, "created": time.time()}
+    log.info(
+        "Session created user=%s token=%s… active_sessions=%d",
+        username, token[:8], len(sessions),
+    )
     return token
 
 
@@ -82,8 +97,13 @@ def get_session(cookie_header):
     token = cookie["dss_session"].value
     session = sessions.get(token)
     if not session:
+        log.debug("Session token not found token=%s…", token[:8])
         return None
     if time.time() - session["created"] > config.SESSION_TTL:
+        log.info(
+            "Session expired user=%s token=%s… age=%.0fs",
+            session["username"], token[:8], time.time() - session["created"],
+        )
         sessions.pop(token, None)
         return None
     return session
@@ -96,7 +116,13 @@ def drop_session(cookie_header):
     cookie = SimpleCookie()
     cookie.load(cookie_header)
     if "dss_session" in cookie:
-        sessions.pop(cookie["dss_session"].value, None)
+        token = cookie["dss_session"].value
+        sess = sessions.pop(token, None)
+        if sess:
+            log.info(
+                "Session dropped user=%s token=%s… active_sessions=%d",
+                sess["username"], token[:8], len(sessions),
+            )
 
 
 # ── Login page ───────────────────────────────────────────────────────────────
