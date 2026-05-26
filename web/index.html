@@ -243,6 +243,7 @@
                   <th>IP</th>
                   <th>CH</th>
                   <th>Pass</th>
+                  <th>Vendor</th>
                   <th>Source</th>
                   <th></th>
                 </tr>
@@ -256,6 +257,13 @@
                   <td><input id="settings-new-ip" type="text" placeholder="192.168.x.x"></td>
                   <td><input id="settings-new-ch" type="number" min="1" value="1"></td>
                   <td><input id="settings-new-pass" type="password" placeholder="(global)"></td>
+                  <td>
+                    <select id="settings-new-vendor">
+                      <option value="dahua">Dahua</option>
+                      <option value="hikvision">Hikvision</option>
+                      <option value="generic">Generic</option>
+                    </select>
+                  </td>
                   <td></td>
                   <td><button id="settings-add-btn" class="settings-row-btn add" title="Add NVR">+</button></td>
                 </tr>
@@ -297,12 +305,14 @@
         <button class="modal-close">&times;</button>
       </div>
       <div class="modal-body">
-        <p style="font-size:12px;color:#888;margin-bottom:8px">Paste CSV (id,label,ip,channels,password) or JSON array of NVR objects:</p>
-        <textarea id="import-textarea" rows="10" placeholder='id,label,ip,channels,password
-nvr12,NVR 12,192.168.20.100,16,mypass
+        <p style="font-size:12px;color:#888;margin-bottom:8px">Paste CSV (id,label,ip,channels,password,vendor) or JSON array of NVR objects:</p>
+        <textarea id="import-textarea" rows="10" placeholder='id,label,ip,channels,password,vendor
+nvr12,NVR 12,192.168.20.100,16,mypass,dahua
+hik01,HIK Lobby,10.10.5.20,8,pass123,hikvision
 
 or JSON:
-[{"id":"nvr12","label":"NVR 12","ip":"192.168.20.100","channels":16}]'></textarea>
+[{"id":"nvr12","label":"NVR 12","ip":"192.168.20.100","channels":16,"vendor":"dahua"},
+ {"id":"hik01","label":"HIK Lobby","ip":"10.10.5.20","channels":8,"vendor":"hikvision"}]'></textarea>
         <div id="import-status" style="font-size:12px;margin-top:6px;min-height:16px"></div>
         <div class="dialog-actions" style="margin-top:10px">
           <button id="import-apply-btn">Import</button>
@@ -330,6 +340,6 @@ or JSON:
     <div id="context-menu-items"></div>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

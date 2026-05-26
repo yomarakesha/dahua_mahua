@@ -28,15 +28,23 @@ def load_inventory(path: str) -> dict:
 
 
 def build_rtsp_url(nvr: dict, channel: int, defaults: dict, subtype: int) -> str:
-    """Build RTSP URL pointing directly at the NVR."""
+    """Build RTSP URL pointing directly at the NVR (vendor-aware)."""
     username = quote(nvr.get("username", defaults.get("default_username", "admin")), safe="")
     password = quote(nvr.get("password", defaults.get("default_password", "admin")), safe="")
     ip = nvr["ip"]
     port = nvr.get("port", defaults.get("default_port", 554))
-    return (
-        f"rtsp://{username}:{password}@{ip}:{port}"
-        f"/cam/realmonitor?channel={channel}&subtype={subtype}"
-    )
+    vendor = nvr.get("vendor", defaults.get("default_vendor", "dahua")).lower()
+
+    if vendor == "hikvision":
+        # Hikvision: /Streaming/Channels/{channel*100 + stream}
+        # stream 1 = main, stream 2 = sub
+        stream = 1 if subtype == 0 else 2
+        path = f"/Streaming/Channels/{channel * 100 + stream}"
+    else:
+        # Dahua (default): /cam/realmonitor?channel=N&subtype=S
+        path = f"/cam/realmonitor?channel={channel}&subtype={subtype}"
+
+    return f"rtsp://{username}:{password}@{ip}:{port}{path}"
 
 
 def build_server_rtsp_url(server_url: str, nvr_id: str, channel: int, suffix: str = "") -> str:

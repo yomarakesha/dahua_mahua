@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -v \"^d.*\\\\.git$\")",
+      "Bash(python -m py_compile server.py dss/__init__.py dss/config.py dss/auth.py dss/mediamtx.py dss/nvr.py dss/handler.py scripts/generate_config.py)",
+      "Bash(which python3 *)",
+      "Bash(py -3 -m py_compile server.py dss/__init__.py dss/config.py dss/auth.py dss/mediamtx.py dss/nvr.py dss/handler.py scripts/generate_config.py)",
+      "Bash(py -3 -c \"from dss import auth, config, mediamtx, nvr; from dss.handler import Handler, DSSHTTPServer; print\\('imports OK'\\)\")",
+      "Bash(xargs rm -rf)",
+      "PowerShell(py *)"
+    ]
+  }
+}

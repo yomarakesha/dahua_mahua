@@ -932,7 +932,7 @@ kbd {
 }
 #settings-nvr-table select:focus { border-color: #e94560; }
 
-/* Column widths: On | ID | Label | IP | CH | Pass | Source | Actions */
+/* Column widths: On | ID | Label | IP | CH | Pass | Vendor | Source | Actions */
 #settings-nvr-table th:first-child,
 #settings-nvr-table td:first-child { width: 30px; text-align: center; }
 #settings-nvr-table td:nth-child(2) input { width: 64px; }
@@ -941,9 +941,29 @@ kbd {
 #settings-nvr-table td:nth-child(5) input { width: 44px; }
 #settings-nvr-table td:nth-child(6) input[type="password"],
 #settings-nvr-table td:nth-child(6) input[type="text"] { width: 110px; }
-#settings-nvr-table td:nth-child(7) select { width: 74px; }
+#settings-nvr-table td:nth-child(7) select { width: 92px; }
+#settings-nvr-table td:nth-child(8) select { width: 80px; }
 #settings-nvr-table th:last-child,
 #settings-nvr-table td:last-child { width: 64px; white-space: nowrap; }
+
+/* Vendor badge in sidebar NVR tree */
+.tree-nvr-vendor {
+  display: inline-block;
+  font-size: 9px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  border-radius: 3px;
+  background: #2a2a40;
+  color: #888;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.tree-nvr-vendor.dahua     { background: #1a3a4a; color: #4dd0e1; }
+.tree-nvr-vendor.hikvision { background: #3a1a4a; color: #ce93d8; }
+.tree-nvr-vendor.generic   { background: #2a2a40; color: #aaa; }
 
 #settings-nvr-table tfoot td {
   border-bottom: none;
@@ -1085,6 +1105,28 @@ kbd {
 #import-textarea:focus { border-color: #e94560; }
 #import-status.ok { color: #4caf50; }
 #import-status.err { color: #f44336; }
+
+/* Status panel grouped by NVR */
+.status-nvr-section {
+  border-bottom: 1px solid #1a1a28;
+  margin-bottom: 4px;
+}
+.status-nvr-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #16162a;
+  cursor: pointer;
+  user-select: none;
+}
+.status-nvr-header:hover { background: #1c1c32; }
+.status-nvr-counts { display: flex; gap: 8px; font-size: 11px; }
+.status-nvr-counts .ok   { color: #4caf50; }
+.status-nvr-counts .warn { color: #ff9800; }
+.status-nvr-counts .err  { color: #f44336; }
+.status-nvr-body { display: none; padding: 2px 0 6px 18px; }
+.status-nvr-body.open { display: block; }
 
 /* Events log */
 .event-item {
