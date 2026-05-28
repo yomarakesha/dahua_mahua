@@ -12,7 +12,7 @@ import socket
 import ssl
 import sys
 
-from dss import auth, config, mediamtx
+from dss import auth, config, mediamtx, nvr
 from dss.handler import Handler, DSSHTTPServer
 
 
@@ -35,6 +35,7 @@ def main():
     )
 
     auth.load_credentials()
+    nvr.load_lockouts()
     mediamtx.start()
 
     server = DSSHTTPServer(("", config.PORT), Handler)

@@ -57,6 +57,18 @@ export async function fetchInventory() {
   } catch (_) {}
 }
 
+// ── Stream tier selection ───────────────────────────────────────────────────
+// Sub-stream for crowded grids (saves bandwidth + decoder CPU); main-stream for
+// 1×1/2×2 layouts where sub looks blurry. The MediaMTX path for main is the
+// sub path + "_main" suffix (see scripts/generate_config.py).
+
+export function streamPathFor(camPath) {
+  const tiles = (state.gridCols || 1) * (state.gridRows || 1);
+  const maxMainTiles = state.prefs && state.prefs.mainStreamMaxTiles
+    ? state.prefs.mainStreamMaxTiles : 4;
+  return tiles <= maxMainTiles ? camPath + "_main" : camPath;
+}
+
 // ── Connection queue ────────────────────────────────────────────────────────
 // Cap concurrent WebRTC negotiations to avoid browser/network flooding.
 
@@ -189,6 +201,7 @@ export function connectCamera(path, videoEl) {
   }
 
   const generation = (existing ? existing.generation || 0 : 0) + 1;
+  const streamPath = streamPathFor(path);
   resetVideoElement(videoEl);
   state.connections[path] = {
     pc: null,
@@ -202,7 +215,9 @@ export function connectCamera(path, videoEl) {
     hlsUrl: "",
     preconnected: false,
     lastError: null,
+    streamPath,
   };
+  dlog.info(path, "stream-tier", `using ${streamPath} (tiles=${state.gridCols}x${state.gridRows})`);
   updateCellDot(path, "connecting");
   scheduleStatusUpdate();
   queueConnection(path, videoEl);
@@ -291,10 +306,11 @@ async function tryWebRTC(path, videoEl, conn, generation) {
   try {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    dlog.debug(path, "whep-request", `${CONFIG.webrtcBase}/${path}/whep`);
+    const wpath = conn.streamPath || path;
+    dlog.debug(path, "whep-request", `${CONFIG.webrtcBase}/${wpath}/whep`);
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 10000);
-    const res = await fetch(`${CONFIG.webrtcBase}/${path}/whep`, {
+    const res = await fetch(`${CONFIG.webrtcBase}/${wpath}/whep`, {
       method: "POST",
       headers: { "Content-Type": "application/sdp" },
       body: pc.localDescription.sdp,
@@ -325,7 +341,8 @@ async function tryWebRTC(path, videoEl, conn, generation) {
 }
 
 function tryHLS(path, videoEl, conn) {
-  const hlsUrl = `${CONFIG.hlsBase}/${path}/index.m3u8`;
+  const hpath = conn.streamPath || path;
+  const hlsUrl = `${CONFIG.hlsBase}/${hpath}/index.m3u8`;
   dlog.info(path, "hls-fallback", hlsUrl);
   conn.pc = null;
   conn.mode = "hls";

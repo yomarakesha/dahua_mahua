@@ -11,7 +11,7 @@ import {
 } from "./utils.js";
 import {
   connectCamera, attachConnectionVideo, disconnectAllNotVisible,
-  flushQueue, updateCellDot,
+  flushQueue, updateCellDot, streamPathFor,
 } from "./streams.js";
 import { showContextMenu, toggleSidebar, toggleModal } from "./ui-common.js";
 import { addToGroup } from "./sidebar.js";
@@ -99,14 +99,20 @@ export function renderGrid() {
       setupDragDrop(cell, path, i);
 
       const existingConn = state.connections[path];
+      const desiredStream = streamPathFor(path);
       if (existingConn) {
-        attachConnectionVideo(path, video);
-        if (existingConn.status === "error") {
-          if (existingConn.retryTimer) {
-            clearTimeout(existingConn.retryTimer);
-            existingConn.retryTimer = null;
-          }
+        // Tier mismatch (sub↔main) — force a reconnect on the right path.
+        if (existingConn.streamPath && existingConn.streamPath !== desiredStream) {
           connectCamera(path, video);
+        } else {
+          attachConnectionVideo(path, video);
+          if (existingConn.status === "error") {
+            if (existingConn.retryTimer) {
+              clearTimeout(existingConn.retryTimer);
+              existingConn.retryTimer = null;
+            }
+            connectCamera(path, video);
+          }
         }
       } else {
         connectCamera(path, video);

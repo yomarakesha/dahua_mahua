@@ -18,6 +18,9 @@ export const state = {
     gridCols: 4, gridRows: 4, patrolInterval: 10,
     sidebarOpen: true, lastLayout: "",
     maxRetries: 3, retryDelay: 10, maxConcurrent: 8,
+    // Up to this many tiles per page use main-stream; bigger grids use sub.
+    // 4 = ≤ 2×2 grids on main, 3×3 and above on sub.
+    mainStreamMaxTiles: 4,
   },
   customOrder: null,
   connections: {},

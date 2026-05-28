@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -372,22 +373,39 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         defaults = inv.get("global", {})
+        targets = []
         results = []
         for n in inv.get("nvrs", []):
             if not n.get("enabled", True):
                 results.append({"id": n["id"], "ok": False, "message": "Disabled"})
                 continue
             port = n.get("port", defaults.get("default_port", 554))
-            ok, msg = nvr.check_nvr_reachable(n["ip"], port)
-            config.log.debug(
-                "Health probe nvr_id=%s %s:%s ok=%s msg=%s",
-                n["id"], n["ip"], port, ok, msg,
-            )
-            results.append({"id": n["id"], "ok": ok, "message": msg})
+            targets.append((n["id"], n["ip"], port))
+
+        # Parallel TCP probes — sequential would be O(N × 3s timeout) on dead NVRs.
+        if targets:
+            t0 = time.monotonic()
+
+            def _probe(t):
+                nvr_id, ip, port = t
+                ok, msg = nvr.check_nvr_reachable(ip, port)
+                config.log.debug(
+                    "Health probe nvr_id=%s %s:%s ok=%s msg=%s",
+                    nvr_id, ip, port, ok, msg,
+                )
+                return {"id": nvr_id, "ok": ok, "message": msg}
+
+            workers = min(32, len(targets))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                results.extend(ex.map(_probe, targets))
+            dur = time.monotonic() - t0
+        else:
+            dur = 0.0
+
         ok_count = sum(1 for r in results if r["ok"])
         config.log.info(
-            "Health check by=%s total=%d ok=%d",
-            client_ip, len(results), ok_count,
+            "Health check by=%s total=%d ok=%d probed=%d in %.2fs",
+            client_ip, len(results), ok_count, len(targets), dur,
         )
         self._send(200, {"results": results})
 
@@ -467,9 +485,13 @@ class Handler(SimpleHTTPRequestHandler):
         self._send(200, {"lockouts": result})
 
     def _delete_lockouts(self):
+        client_ip = self.client_address[0]
+        sess = auth.get_session(self.headers.get("Cookie"))
+        actor = sess["username"] if sess else "?"
         count = len(nvr.nvr_lockouts)
         nvr.nvr_lockouts.clear()
-        config.log.info("Cleared %d lockouts", count)
+        nvr._save_lockouts()
+        config.log.info("Cleared %d lockouts by=%s@%s", count, actor, client_ip)
         self._send(200, {"ok": True, "cleared": count})
 
     # ── Client log handler ──────────────────────────────────────────────────

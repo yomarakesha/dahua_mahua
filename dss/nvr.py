@@ -15,13 +15,46 @@ import json
 import socket
 import time
 
-from .config import EVENT_LOG, EVENT_LOG_MAX_LINES, DEFAULT_BAN_COOLDOWN, log
+from .config import EVENT_LOG, EVENT_LOG_MAX_LINES, DEFAULT_BAN_COOLDOWN, LOCKOUTS_FILE, log
 
 
 # ── Lockout tracking ─────────────────────────────────────────────────────────
 
 # ip -> { "banned_at": float, "cooldown": int }
 nvr_lockouts = {}
+
+
+def _save_lockouts():
+    """Persist lockouts to disk so a server restart doesn't lose active bans."""
+    try:
+        LOCKOUTS_FILE.write_text(json.dumps(nvr_lockouts, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        log.warning("Failed to persist lockouts: %s", e)
+
+
+def load_lockouts():
+    """Load persisted lockouts on startup; drop entries that have already expired."""
+    if not LOCKOUTS_FILE.exists():
+        return
+    try:
+        raw = json.loads(LOCKOUTS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("Failed to load lockouts file: %s", e)
+        return
+    now = time.time()
+    restored = 0
+    for ip, info in raw.items():
+        if not isinstance(info, dict):
+            continue
+        banned_at = info.get("banned_at", 0)
+        cooldown = info.get("cooldown", DEFAULT_BAN_COOLDOWN)
+        if banned_at + cooldown > now:
+            nvr_lockouts[ip] = {"banned_at": banned_at, "cooldown": cooldown}
+            restored += 1
+    if restored:
+        log.info("Restored %d active NVR lockout(s) from disk", restored)
+    if restored != len(raw):
+        _save_lockouts()  # prune expired entries from file
 
 
 def get_lockout_info(ip):
@@ -34,6 +67,7 @@ def get_lockout_info(ip):
     remaining = cooldown - elapsed
     if remaining <= 0:
         nvr_lockouts.pop(ip, None)
+        _save_lockouts()
         return False, 0, 0
     return True, int(remaining), info["banned_at"] + cooldown
 
@@ -43,10 +77,12 @@ def record_lockout(ip, cooldown=None):
         "banned_at": time.time(),
         "cooldown": cooldown or DEFAULT_BAN_COOLDOWN,
     }
+    _save_lockouts()
 
 
 def clear_lockout(ip):
-    nvr_lockouts.pop(ip, None)
+    if nvr_lockouts.pop(ip, None) is not None:
+        _save_lockouts()
 
 
 # ── Event log (JSONL) ────────────────────────────────────────────────────────
