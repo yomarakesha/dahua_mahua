@@ -3,7 +3,12 @@
  */
 
 export const CONFIG = {
-  apiBase:        `${location.protocol}//${location.hostname}:9997/v3`,
+  // Backend FastAPI — all inventory + stream-URL handout goes through here.
+  // Browser never talks to MediaMTX's :9997 control API anymore; that's
+  // backend-only and shouldn't be exposed externally.
+  backendBase:    `${location.protocol}//${location.hostname}:8000/api/v1`,
+  // Browser DOES talk to MediaMTX directly for media (WHEP/HLS) — proxying
+  // those through the backend would defeat the fan-out.
   webrtcBase:     `${location.protocol}//${location.hostname}:8889`,
   hlsBase:        `${location.protocol}//${location.hostname}:8888`,
   pollInterval:   10000,

@@ -1,0 +1,96 @@
+# DSS — centralised VMS stack.
+#
+# Topology:
+#   postgres   — inventory + auth + audit
+#   mediamtx   — media core, fan-out target for operators
+#   backend    — FastAPI: auth, RBAC, inventory CRUD, MediaMTX manager
+#   frontend   — nginx: static SPA + reverse-proxy to backend / MediaMTX
+#
+# Operators reach the system through `frontend` (port 80). Only the frontend
+# is published; backend (8000) and mediamtx control (9997) stay internal.
+# WebRTC and HLS ports (8889 / 8888) ARE published because RTC peers /
+# HLS players connect to them directly — pulling them back through nginx is
+# fine too (see frontend.nginx.conf) if you want a single ingress.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dss}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dss}
+      POSTGRES_DB: ${POSTGRES_DB:-dss}
+    volumes:
+      - dss_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dss} -d ${POSTGRES_DB:-dss}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    restart: unless-stopped
+    # Host networking would simplify WebRTC ICE, but breaks isolation; we
+    # publish the relevant ports explicitly instead. If ICE struggles in
+    # your network, set WEBRTCADDITIONALHOSTS via env to your public IP.
+    ports:
+      - "8554:8554"    # RTSP
+      - "8889:8889"    # WebRTC (WHEP)
+      - "8888:8888"    # HLS
+      - "8189:8189/udp" # WebRTC ICE/UDP (default)
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+    environment:
+      # ── App ──
+      DEBUG: "false"
+      API_PREFIX: "/api/v1"
+      # CORS — when serving the frontend behind nginx on the same origin this
+      # can stay tight; add your dev origin if running `npm start` locally.
+      CORS_ORIGINS: '["http://localhost", "http://localhost:80"]'
+
+      # ── Database ──
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-dss}:${POSTGRES_PASSWORD:-dss}@postgres:5432/${POSTGRES_DB:-dss}"
+
+      # ── Security ──
+      JWT_SECRET: ${JWT_SECRET:?must be set in .env}
+      NVR_SECRET_KEY: ${NVR_SECRET_KEY:?must be set in .env (Fernet base64 key)}
+
+      # ── MediaMTX ──
+      # Internal docker DNS names — backend never tells the operator about these.
+      MEDIAMTX_API_URL:    "http://mediamtx:9997"
+      # These are what the operator's browser connects to. Override to your
+      # public hostname when deploying behind a load balancer.
+      MEDIAMTX_WEBRTC_URL: ${MEDIAMTX_WEBRTC_URL:-http://localhost:8889}
+      MEDIAMTX_HLS_URL:    ${MEDIAMTX_HLS_URL:-http://localhost:8888}
+      MEDIAMTX_RTSP_URL:   ${MEDIAMTX_RTSP_URL:-rtsp://localhost:8554}
+      MEDIAMTX_MANAGED:    "false"
+
+      # ── Bootstrap admin ──
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-admin}
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - mediamtx
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+
+volumes:
+  dss_pgdata:

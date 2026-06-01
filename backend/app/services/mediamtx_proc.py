@@ -1,36 +1,35 @@
-"""
-MediaMTX subprocess management: start, stop, restart.
+"""Optional subprocess wrapper for MediaMTX.
 
-The process handle is module-private. Use `start()`/`stop()`/`restart()`.
+Used when `settings.mediamtx_managed=True` — typically during local dev or
+bare-metal deploys where one process supervisor (us) brings everything up.
+In docker-compose deployments MediaMTX runs in its own container, so this
+module is never imported.
 """
+
+from __future__ import annotations
 
 import logging
 import subprocess
 import threading
 import time
+from pathlib import Path
 
-from .config import MEDIAMTX_BIN, MEDIAMTX_CFG, DIR, log
+from app.settings import get_settings
 
-
-mtx_log = logging.getLogger("dss.mediamtx")
-
-_proc = None
+log = logging.getLogger("dss.mediamtx_proc")
 
 
-def _pump_output(stream, level):
-    """Drain a subprocess stream line-by-line into the logger.
+_proc: subprocess.Popen | None = None
 
-    Without this the PIPE buffers fill up and MediaMTX eventually blocks on
-    its own writes. Logging the output also surfaces every RTSP client
-    connection, publish/read session, and auth failure that MediaMTX emits.
-    """
+
+def _pump_output(stream, level: int) -> None:
     try:
         for raw in iter(stream.readline, b""):
             if not raw:
                 break
             line = raw.decode(errors="replace").rstrip()
             if line:
-                mtx_log.log(level, "%s", line)
+                log.log(level, "%s", line)
     except (OSError, ValueError):
         pass
     finally:
@@ -40,13 +39,21 @@ def _pump_output(stream, level):
             pass
 
 
-def start():
-    """Spawn MediaMTX. Raises RuntimeError if it exits immediately."""
+def start() -> None:
     global _proc
-    log.info("Starting MediaMTX: %s %s", MEDIAMTX_BIN, MEDIAMTX_CFG)
+    if _proc is not None and _proc.poll() is None:
+        return
+
+    settings = get_settings()
+    bin_path = settings.mediamtx_bin
+    cfg_path = Path(settings.mediamtx_config_path)
+    if not cfg_path.is_absolute():
+        cfg_path = settings.project_root / cfg_path
+
+    log.info("Starting MediaMTX: %s %s", bin_path, cfg_path)
     _proc = subprocess.Popen(
-        [str(MEDIAMTX_BIN), str(MEDIAMTX_CFG)],
-        cwd=str(DIR),
+        [str(bin_path), str(cfg_path)],
+        cwd=str(settings.project_root),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         bufsize=1,
@@ -56,8 +63,7 @@ def start():
         stderr = _proc.stderr.read().decode(errors="replace") if _proc.stderr else ""
         rc = _proc.returncode
         _proc = None
-        log.error("MediaMTX exited immediately rc=%s: %s", rc, stderr)
-        raise RuntimeError(f"MediaMTX exited immediately: {stderr}")
+        raise RuntimeError(f"MediaMTX exited immediately rc={rc}: {stderr}")
 
     threading.Thread(
         target=_pump_output, args=(_proc.stdout, logging.INFO),
@@ -71,8 +77,7 @@ def start():
     log.info("MediaMTX started (PID %d)", _proc.pid)
 
 
-def stop():
-    """Terminate MediaMTX gracefully, kill if it doesn't exit within 5s."""
+def stop() -> None:
     global _proc
     if _proc is None:
         return
@@ -81,17 +86,12 @@ def stop():
     try:
         _proc.terminate()
         _proc.wait(timeout=5)
-        log.info("MediaMTX (PID %d) exited rc=%s", pid, _proc.returncode)
     except subprocess.TimeoutExpired:
         log.warning("MediaMTX (PID %d) did not exit in 5s — killing", pid)
         _proc.kill()
         _proc.wait()
-        log.info("MediaMTX (PID %d) killed", pid)
     _proc = None
 
 
-def restart():
-    log.info("Restarting MediaMTX")
-    stop()
-    time.sleep(0.5)
-    start()
+def is_running() -> bool:
+    return _proc is not None and _proc.poll() is None

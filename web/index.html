@@ -340,6 +340,12 @@ or JSON:
     <div id="context-menu-items"></div>
   </div>
 
+  <script type="module">
+    // Gate: bounce to login.html if no JWT in localStorage.
+    if (!localStorage.getItem("dss_token")) {
+      location.href = "/login.html";
+    }
+  </script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

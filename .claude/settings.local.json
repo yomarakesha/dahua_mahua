@@ -7,7 +7,13 @@
       "Bash(py -3 -m py_compile server.py dss/__init__.py dss/config.py dss/auth.py dss/mediamtx.py dss/nvr.py dss/handler.py scripts/generate_config.py)",
       "Bash(py -3 -c \"from dss import auth, config, mediamtx, nvr; from dss.handler import Handler, DSSHTTPServer; print\\('imports OK'\\)\")",
       "Bash(xargs rm -rf)",
-      "PowerShell(py *)"
+      "PowerShell(py *)",
+      "Bash(git reflog *)",
+      "Bash(git config *)",
+      "Bash(git push *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(Out-Null *)",
+      "PowerShell($bytes = [IO.File]::ReadAllBytes\\(\"$pwd\\\\start.ps1\"\\); $nonAscii = @\\(\\); for \\($i=0; $i -lt $bytes.Length; $i++\\) { if \\($bytes[$i] -gt 127\\) { $nonAscii += $i } }; if \\($nonAscii.Count -eq 0\\) { Write-Host \"Pure ASCII OK\" } else { Write-Host \\(\"Non-ASCII bytes at offsets: \" + \\($nonAscii -join \", \"\\)\\) })"
     ]
   }
 }

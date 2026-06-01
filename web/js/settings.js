@@ -590,10 +590,8 @@ export async function openEventsLog() {
 // ── Auth ────────────────────────────────────────────────────────────────────
 
 export async function logout() {
-  try {
-    await fetch("/api/logout", { method: "POST" });
-  } catch (_) {}
-  location.href = "/login";
+  const { logout: apiLogout } = await import("./api.js");
+  await apiLogout();
 }
 
 export async function changePassword() {
@@ -604,29 +602,20 @@ export async function changePassword() {
     dom.settingsChpwStatus.className = "err";
     return;
   }
-  if (newPw.length < 4) {
-    dom.settingsChpwStatus.textContent = "Min 4 characters";
+  if (newPw.length < 8) {
+    dom.settingsChpwStatus.textContent = "Min 8 characters";
     dom.settingsChpwStatus.className = "err";
     return;
   }
   try {
-    const res = await fetch("/api/change-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ current_password: cur, new_password: newPw }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      dom.settingsChpwStatus.textContent = data.error || "Failed";
-      dom.settingsChpwStatus.className = "err";
-      return;
-    }
+    const { changePassword: apiChange } = await import("./api.js");
+    await apiChange(cur, newPw);
     dom.settingsChpwStatus.textContent = "Password changed";
     dom.settingsChpwStatus.className = "ok";
     dom.settingsCurPw.value = "";
     dom.settingsNewPw.value = "";
   } catch (e) {
-    dom.settingsChpwStatus.textContent = "Network error";
+    dom.settingsChpwStatus.textContent = String(e.message || e) || "Network error";
     dom.settingsChpwStatus.className = "err";
   }
 }

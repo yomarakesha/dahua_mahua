@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DSS — Sign in</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #181a20; color: #e6e6e6;
+      font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
+    body { display: flex; align-items: center; justify-content: center; }
+    .card { width: 320px; padding: 24px; border-radius: 8px;
+      background: #20232a; box-shadow: 0 4px 24px rgba(0,0,0,.4); }
+    h1 { margin: 0 0 16px; font-size: 20px; letter-spacing: 1px; }
+    label { display: block; font-size: 12px; color: #9aa0a6; margin: 12px 0 4px; }
+    input { width: 100%; box-sizing: border-box; padding: 8px 10px;
+      background: #15171c; color: #fff; border: 1px solid #2c2f36;
+      border-radius: 4px; font-size: 14px; }
+    button { width: 100%; margin-top: 18px; padding: 10px;
+      background: #4a90e2; color: #fff; border: 0; border-radius: 4px;
+      font-size: 14px; cursor: pointer; }
+    button[disabled] { opacity: .6; cursor: wait; }
+    .err { margin-top: 10px; color: #ff7878; font-size: 12px; min-height: 16px; }
+    .change { margin-top: 8px; font-size: 12px; color: #9aa0a6; }
+  </style>
+</head>
+<body>
+  <form class="card" id="login-form" autocomplete="on">
+    <h1>DSS</h1>
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <div id="change-block" style="display:none">
+      <label for="new-password">New password</label>
+      <input id="new-password" type="password" autocomplete="new-password" minlength="8">
+      <div class="change">Password change required on first login.</div>
+    </div>
+    <button id="submit" type="submit">Sign in</button>
+    <div id="err" class="err"></div>
+  </form>
+
+  <script type="module">
+    import { login, changePassword } from "./js/api.js";
+
+    const form = document.getElementById("login-form");
+    const btn = document.getElementById("submit");
+    const errEl = document.getElementById("err");
+    const changeBlock = document.getElementById("change-block");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errEl.textContent = "";
+      btn.disabled = true;
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      const newPw = document.getElementById("new-password").value;
+
+      try {
+        const { mustChange } = await login(username, password);
+        if (mustChange && !newPw) {
+          changeBlock.style.display = "";
+          btn.textContent = "Set new password & continue";
+          errEl.textContent = "Please choose a new password.";
+          btn.disabled = false;
+          return;
+        }
+        if (mustChange && newPw) {
+          await changePassword(password, newPw);
+        }
+        location.href = "/index.html";
+      } catch (err) {
+        errEl.textContent = String(err.message || err);
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

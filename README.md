@@ -1,156 +1,91 @@
-# DSS — Dahua Surveillance System Dashboard
+# DSS — Centralised Video Management System
 
-Web-based camera dashboard for managing and viewing Dahua NVR camera feeds via WebRTC.
-
-![License](https://img.shields.io/badge/license-MIT-blue)
-
-## Features
-
-- Live WebRTC streaming from Dahua NVRs (low-latency, on-demand)
-- Configurable grid layouts (2x2 up to 64x64)
-- NVR management UI — add, edit, delete NVRs from the browser
-- Patrol mode — auto-cycle through camera pages
-- Custom groups and saved layouts
-- Fullscreen view with snapshot capture
-- Keyboard-driven workflow
-- Dark theme
-
-## Requirements
-
-- **Python 3.8+** (stdlib only, no pip packages)
-- **MediaMTX** binary for your platform
-
-## Quick Start
-
-### macOS / Linux
-
-1. Download the [latest MediaMTX release](https://github.com/bluenviron/mediamtx/releases) for your platform:
-   - macOS ARM: `mediamtx_v1.16.3_darwin_arm64.tar.gz`
-   - macOS Intel: `mediamtx_v1.16.3_darwin_amd64.tar.gz`
-   - Linux: `mediamtx_v1.16.3_linux_amd64.tar.gz`
-
-2. Extract the `mediamtx` binary into this directory.
-
-3. Generate the config and start:
-   ```bash
-   python3 generate_config.py
-   chmod +x run.sh
-   ./run.sh
-   ```
-
-4. Open **http://localhost:8080**
-
-### Windows
-
-1. Download [mediamtx_v1.16.3_windows_amd64.zip](https://github.com/bluenviron/mediamtx/releases/download/v1.16.3/mediamtx_v1.16.3_windows_amd64.zip).
-
-2. Extract `mediamtx.exe` into this directory.
-
-3. Generate the config and start:
-   ```
-   python generate_config.py
-   run.bat
-   ```
-
-4. Open **http://localhost:8080**
-
-## Project Structure
+VMS that fans out a single RTSP pull from each NVR channel to many operator
+browsers. Solves the Dahua NVR connection-cap problem: regardless of how
+many operators are watching, each channel keeps **one** session to the NVR.
 
 ```
-dss/
-├── server.py              # Web server + REST API + MediaMTX process manager
-├── run.sh                 # Start script (macOS/Linux)
-├── run.bat                # Start script (Windows)
-├── generate_config.py     # Generates mediamtx.yml from NVR inventory
-├── nvr_inventory.json     # NVR definitions (IPs, channels, credentials)
-├── mediamtx               # MediaMTX binary (macOS/Linux, not in repo)
-├── mediamtx.exe           # MediaMTX binary (Windows, not in repo)
-├── mediamtx.yml           # Auto-generated MediaMTX config
-├── mediamtx.yml.default   # Default MediaMTX config reference
-├── web/
-│   ├── index.html         # Dashboard HTML
-│   ├── style.css          # Styles
-│   └── app.js             # Dashboard application
-└── LICENSE
+Operators (browser, WebRTC/WHEP + HLS fallback)
+        │
+        ▼
+   nginx (or python -m http.server for local dev)
+        │── /api/*  ─▶  backend  — FastAPI + Postgres
+        │                    │
+        │                    ▼  (HTTP control on :9997)
+        │              mediamtx ── one RTSP pull per active channel ──▶ NVRs
+        │
+        └── WHEP / HLS  ─▶  mediamtx (:8889 / :8888, fans out to N viewers)
 ```
 
-## NVR Management
+Why this works: every MediaMTX path is `sourceOnDemand: yes`. The RTSP
+session to the NVR is opened only when the first viewer subscribes and torn
+down `sourceOnDemandCloseAfter` after the last viewer leaves. Idle channels
+consume zero NVR slots.
 
-Click the gear icon (or press `,`) in the toolbar to open NVR Settings:
+## Layout
 
-- **Global Defaults** — RTSP port, username, password, stream type (main/sub)
-- **NVR Table** — edit IP, channels, per-NVR password overrides
-- **Add / Delete** — add new NVRs or remove existing ones
-- **Save & Apply** — writes config, regenerates `mediamtx.yml`, restarts MediaMTX
-
-All changes are applied live without restarting the server.
-
-## API
-
-The built-in server exposes a simple REST API:
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET`  | `/api/inventory` | Returns `nvr_inventory.json` |
-| `PUT`  | `/api/inventory` | Validates, saves, regenerates config, restarts MediaMTX |
-| `POST` | `/api/restart` | Force restart MediaMTX |
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `1`-`6` | Grid size (2x2 to 64x64) |
-| `Arrow Left/Right` | Previous / next page |
-| `Space` | Toggle patrol mode |
-| `F` | Fullscreen focused camera |
-| `S` | Snapshot |
-| `/` | Focus search |
-| `,` | NVR settings |
-| `G` | Create new group |
-| `Tab` | Toggle sidebar |
-| `?` | Show shortcuts |
-| `Esc` | Close modal / exit fullscreen |
-
-## Configuration
-
-Edit `nvr_inventory.json` directly or use the web UI:
-
-```json
-{
-  "global": {
-    "default_port": 554,
-    "default_username": "admin",
-    "default_password": "yourpassword",
-    "default_subtype": 1
-  },
-  "nvrs": [
-    {
-      "id": "nvr01",
-      "label": "Front Building",
-      "ip": "192.168.1.100",
-      "channels": 16,
-      "group": "dahua"
-    }
-  ]
-}
+```
+backend/        FastAPI + async SQLAlchemy + Alembic (auth, RBAC, inventory, MediaMTX manager)
+web/            Vanilla-JS frontend (login + grid + WebRTC player)
+mediamtx.yml    MediaMTX baseline (paths managed dynamically by backend)
+mediamtx.exe    MediaMTX binary (Windows)
+mediamtx        MediaMTX binary (Linux/macOS)
+nvr_inventory.json   Source of truth for the initial seed
+docker-compose.yml + Dockerfiles + nginx config
+start.ps1       One-shot launcher for local dev (no Docker)
+.env.example    Secrets template
 ```
 
-After manual edits, regenerate the config:
+See `backend/README.md` for the API surface.
+
+## Run locally (no Docker)
+
+Requires Python 3.12 and PostgreSQL 14+ on the host.
+
+```powershell
+# 1. Create DB once (PG must be installed):
+& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -c "CREATE USER dss WITH PASSWORD 'dss';"
+& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -c "CREATE DATABASE dss OWNER dss;"
+
+# 2. Launch everything:
+.\start.ps1
+```
+
+`start.ps1` will:
+- Create `backend/.venv` and install Python deps on first run.
+- Generate `backend/.env` with random `JWT_SECRET` + `NVR_SECRET_KEY` on first run.
+- Run `alembic upgrade head` and seed from `nvr_inventory.json` on first run.
+- Open three PowerShell windows: MediaMTX, FastAPI backend, static frontend.
+
+Then open <http://localhost:8080>. First login: `admin` / `admin` — you'll
+be asked to set a new password immediately.
+
+## Run with docker-compose
 
 ```bash
-python3 generate_config.py
+cp .env.example .env   # then edit JWT_SECRET, NVR_SECRET_KEY
+docker compose up -d --build
+docker compose exec backend python -m app.seed --region-slug central
 ```
 
-## Ports
+Operator URL: `http://<host>/`.
 
-| Port | Service |
-|------|---------|
-| 8080 | Web UI + API |
-| 8554 | RTSP server (MediaMTX) |
-| 8889 | WebRTC server (MediaMTX) |
-| 8888 | HLS server (MediaMTX) |
-| 9997 | MediaMTX API |
+## Verifying the fan-out
 
-## License
+Open the same camera in two browser tabs. Then:
 
-MIT
+```powershell
+curl http://localhost:9997/v3/paths/list | py -m json.tool
+```
+
+Look at the path entry: `readers` will be `2`, but `sourceReady` is `true`
+with a single source — one connection to the NVR, two operator viewers.
+Close both tabs, wait `sourceOnDemandCloseAfter` (30s sub / 60s main),
+`sourceReady` flips to `false` and MediaMTX releases the NVR session.
+
+## Adding Hikvision NVRs
+
+The data model has a `Vendor` enum (`dahua` / `hikvision`); the RTSP URL
+builder emits the Hikvision path form
+(`/Streaming/Channels/{channel*100 + stream}`). Create the NVR via
+`POST /api/v1/nvrs` with `"vendor": "hikvision"`.

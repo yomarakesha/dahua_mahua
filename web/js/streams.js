@@ -10,32 +10,22 @@ import {
   getNvrId, scheduleStatusUpdate, showWarning, showToast,
   getPageCameras,
 } from "./utils.js";
+import { listCameras, listNvrs } from "./api.js";
 
 // ── MediaMTX API ────────────────────────────────────────────────────────────
 
 export async function fetchCameras() {
   try {
-    let allItems = [];
-    let page = 0;
-    while (true) {
-      const res = await fetch(`${CONFIG.apiBase}/paths/list?itemsPerPage=500&page=${page}`);
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
-      const items = data.items || data;
-      if (!Array.isArray(items) || items.length === 0) break;
-      allItems = allItems.concat(items);
-      if (!data.pageCount || page + 1 >= data.pageCount) break;
-      page++;
-    }
-    const paths = allItems.map(i => i.name).filter(n => !n.endsWith("_main")).sort();
-    allItems.forEach(item => {
-      if (!item.name) return;
-      const src = item.source || {};
-      state.streamHealth[item.name] = {
-        ready: item.ready || false,
-        sourceType: src.type || "",
-        readers: (item.readers || []).length,
-      };
+    const cams = await listCameras();
+    // Path name is what MediaMTX speaks; build it the same way the backend
+    // does (mirrors Camera.mediamtx_path / path_sync.path_name).
+    const paths = cams.map(c => `${c.nvr_id}_ch${c.channel}`).sort();
+    // Side-table: path → camera_id, so streamPathFor() and the stream URL
+    // lookup can resolve a player slot back to the DB id.
+    state.cameraByPath = {};
+    cams.forEach(c => {
+      const p = `${c.nvr_id}_ch${c.channel}`;
+      state.cameraByPath[p] = c;
     });
     if (JSON.stringify(paths) !== JSON.stringify(state.allCameras)) {
       dlog.info("", "camera-list-updated", `count=${paths.length} (was ${state.allCameras.length})`);
@@ -44,23 +34,25 @@ export async function fetchCameras() {
     }
     showWarning(null);
   } catch (e) {
-    dlog.error("", "mediamtx-api-error", String(e));
-    showWarning("Cannot reach MediaMTX — camera list may be stale");
+    dlog.error("", "backend-api-error", String(e));
+    showWarning("Cannot reach backend — camera list may be stale");
   }
 }
 
 export async function fetchInventory() {
   try {
-    const res = await fetch("/api/inventory");
-    if (res.status === 401) { location.href = "/login"; return; }
-    if (res.ok) state.inventory = await res.json();
-  } catch (_) {}
+    const nvrs = await listNvrs();
+    // Legacy shape the rest of the UI expects: { nvrs: [...] }.
+    state.inventory = { nvrs };
+  } catch (e) {
+    dlog.error("", "inventory-fetch-failed", String(e));
+  }
 }
 
 // ── Stream tier selection ───────────────────────────────────────────────────
 // Sub-stream for crowded grids (saves bandwidth + decoder CPU); main-stream for
 // 1×1/2×2 layouts where sub looks blurry. The MediaMTX path for main is the
-// sub path + "_main" suffix (see scripts/generate_config.py).
+// sub path + "_main" suffix (backend creates both paths per camera).
 
 export function streamPathFor(camPath) {
   const tiles = (state.gridCols || 1) * (state.gridRows || 1);
@@ -474,18 +466,17 @@ async function autoDisableNvr(nvrId, reason) {
   if (state.autoDisabledNvrs.has(nvrId)) return;
   state.autoDisabledNvrs.add(nvrId);
   try {
-    const res = await fetch("/api/auto-disable-nvr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nvr_id: nvrId, reason }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast(`NVR "${nvrId}" auto-disabled: ${reason}`, "warning", 10000);
-      await fetchInventory();
-      if (state._onInventoryChanged) state._onInventoryChanged();
-    }
-  } catch (_) {}
+    const { updateNvr } = await import("./api.js");
+    await updateNvr(nvrId, { enabled: false });
+    showToast(`NVR "${nvrId}" auto-disabled: ${reason}`, "warning", 10000);
+    await fetchInventory();
+    if (state._onInventoryChanged) state._onInventoryChanged();
+  } catch (e) {
+    // Auto-disable is best-effort: operator may lack admin rights, or the
+    // backend may be unreachable. Don't escalate — the connection will keep
+    // backing off on its own.
+    dlog.warn(nvrId, "auto-disable-failed", String(e));
+  }
 }
 
 function checkAutoDisable(path) {
