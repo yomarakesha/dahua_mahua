@@ -33,6 +33,25 @@ class ProbeResult:
     banned_cooldown: int = 0
 
 
+def _recv_response(sock: socket.socket) -> str:
+    """Read an RTSP response up to the end of its header block (\\r\\n\\r\\n).
+
+    A single recv() can return a partial response — TCP may split the status
+    line and headers across segments. Missing the status line or the
+    WWW-Authenticate header would look like a wrong password / failed auth and
+    wrongly drive a lockout. OPTIONS responses carry no body, so the header
+    terminator is all we need. The socket's timeout bounds the loop."""
+    buf = b""
+    while b"\r\n\r\n" not in buf:
+        chunk = sock.recv(4096)
+        if not chunk:  # peer closed before we saw the terminator
+            break
+        buf += chunk
+        if len(buf) > 65536:  # defensive cap against a misbehaving peer
+            break
+    return buf.decode(errors="replace")
+
+
 def _parse_status(response: str) -> tuple[int, str]:
     first = response.split("\r\n", 1)[0]
     parts = first.split(None, 2)
@@ -141,7 +160,7 @@ def probe_rtsp(
 
         req1 = f"{method} {uri} RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: DSS\r\n\r\n"
         sock.sendall(req1.encode())
-        resp1 = sock.recv(4096).decode(errors="replace")
+        resp1 = _recv_response(sock)
         status1, first1 = _parse_status(resp1)
 
         if status1 == 200:
@@ -192,7 +211,7 @@ def probe_rtsp(
             f"Authorization: {auth_header}\r\n\r\n"
         )
         sock.sendall(req2.encode())
-        resp2 = sock.recv(4096).decode(errors="replace")
+        resp2 = _recv_response(sock)
         status2, first2 = _parse_status(resp2)
 
         if status2 == 200:

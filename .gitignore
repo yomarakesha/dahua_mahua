@@ -9,6 +9,9 @@ venv/
 backend/.env
 backend/.venv/
 
+# SQLite databases (may contain password hashes + encrypted NVR creds)
+*.db
+
 # Logs / runtime artefacts
 *.log
 nvr_events.jsonl
@@ -18,6 +21,11 @@ logs.txt
 # Secrets
 credentials.json
 .env
+# Inventory backups contain (plaintext / masked) NVR passwords
+dss-backup-*.json
+
+# Local Claude Code settings
+.claude/settings.local.json
 
 # TLS certificates
 cert.pem

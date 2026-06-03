@@ -37,7 +37,7 @@ import {
 } from "./ui-common.js";
 import {
   openSettings, addNvr, runHealth, runReconcile, refreshNvrs,
-  addCamera, openEventsLog, changePasswordHandler, logout,
+  addCamera, setChannels, openEventsLog, changePasswordHandler, logout,
 } from "./settings.js";
 
 // ── Wire grid render into sidebar/streams via state hooks (avoid cyclic imports) ─
@@ -130,6 +130,7 @@ function bindEvents() {
   dom.settingsRefreshBtn.addEventListener("click", refreshNvrs);
   dom.settingsEventsBtn.addEventListener("click", openEventsLog);
   dom.camerasAddBtn.addEventListener("click", addCamera);
+  dom.camerasSetBtn.addEventListener("click", setChannels);
   dom.settingsAdvToggle.addEventListener("click", () => {
     const open = dom.settingsAdvPanel.classList.toggle("hidden");
     dom.settingsAdvToggle.setAttribute("aria-expanded", String(!open));

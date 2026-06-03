@@ -114,6 +114,15 @@ class NvrCreate(NvrBase):
     skip_probe: bool = False
 
 
+class SetChannelsRequest(BaseModel):
+    """Bulk-set how many channels an NVR has. Creates cameras for any missing
+    channel in 1..count. With `prune=True`, also deletes channels above
+    `count` (and their MediaMTX paths). Used to populate a multi-channel NVR
+    in one shot instead of adding cameras one at a time."""
+    count: int = Field(ge=1, le=512)
+    prune: bool = False
+
+
 class NvrUpdate(BaseModel):
     label: str | None = None
     ip: str | None = None

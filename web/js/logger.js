@@ -22,17 +22,16 @@ const _state = {
   FLUSH_MS: 3000,
 };
 
-// Console mirroring — handy when the user has DevTools open. Picks the
-// appropriate console method per level. Never throws.
+// Console mirroring — only WARN/ERROR reach the console. INFO/DEBUG still go
+// to the buffer + server POST, but mirroring every one to DevTools is a real
+// perf drag with dozens of cameras each logging connect/ice/stream events.
+// Never throws.
 function _mirror(level, path, msg, detail) {
+  if (level !== "ERROR" && level !== "WARNING") return;
   try {
     const tag = path ? `[${path}]` : "";
     const line = detail ? `${tag} ${msg} | ${detail}` : `${tag} ${msg}`;
-    const fn = level === "ERROR" ? console.error
-             : level === "WARNING" ? console.warn
-             : level === "DEBUG" ? console.debug
-             : console.log;
-    fn.call(console, `dss ${line}`);
+    (level === "ERROR" ? console.error : console.warn).call(console, `dss ${line}`);
   } catch (_) {}
 }
 

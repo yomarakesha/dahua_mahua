@@ -143,18 +143,12 @@ export const createNvr = (body) => request("POST", "/nvrs", { body });
 export const updateNvr = (id, body) => request("PATCH", `/nvrs/${id}`, { body });
 export const deleteNvr = (id) => request("DELETE", `/nvrs/${id}`);
 export const testNvr = (id) => request("POST", `/nvrs/${id}/test`);
-export const healthAllNvrs = () => request("POST", "/nvrs/health");
+export const setNvrChannels = (id, count, prune = false) =>
+  request("POST", `/nvrs/${id}/set-channels`, { body: { count, prune } });
+export const healthAllNvrs = () => request("GET", "/nvrs/health");
 export const createCamera = (body) => request("POST", "/cameras", { body });
 export const updateCamera = (id, body) => request("PATCH", `/cameras/${id}`, { body });
 export const deleteCamera = (id) => request("DELETE", `/cameras/${id}`);
-
-// ── Streams ─────────────────────────────────────────────────────────────────
-/**
- * Backend returns { camera_id, quality, path, webrtc_whep_url, hls_url }.
- * Path name matches what MediaMTX expects on its WHEP/HLS endpoints.
- */
-export const getStreamUrls = (cameraId, quality = "sub") =>
-  request("GET", `/streams/${cameraId}`, { query: { quality } });
 
 // ── MediaMTX (admin) ────────────────────────────────────────────────────────
 

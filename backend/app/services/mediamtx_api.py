@@ -64,6 +64,7 @@ class MediaMTXClient:
         pull everything (~684 entries at full scale — single page is fine)."""
         out: dict[str, dict[str, Any]] = {}
         page = 0
+        seen = 0
         t0 = time.perf_counter()
         while True:
             r = await self._client.get(
@@ -72,13 +73,46 @@ class MediaMTXClient:
             )
             self._raise(r)
             body = r.json()
-            for item in body.get("items", []):
+            items = body.get("items", [])
+            for item in items:
                 out[item["name"]] = item
-            if (page + 1) * body.get("itemsPerPage", 500) >= body.get("itemCount", 0):
+            seen += len(items)
+            # Stop when we've collected everything the server reported, or a
+            # page came back empty (no further pages). Paginating off the
+            # number of items actually returned — not the echoed itemsPerPage
+            # — avoids both early termination and infinite loops.
+            if not items or seen >= body.get("itemCount", 0):
                 break
             page += 1
         log.debug("MediaMTX list_paths → %d entries in %.0fms",
                   len(out), (time.perf_counter() - t0) * 1000)
+        return out
+
+    async def list_active_paths(self) -> dict[str, dict[str, Any]]:
+        """Runtime path states from /v3/paths/list (the *runtime* endpoint,
+        not /v3/config/paths/list). Each item reports `ready`, `readers`,
+        `source`, `bytesReceived` — i.e. whether the source is actually up.
+
+        Used by the source watchdog to spot paths that a viewer is pulling
+        but whose RTSP source can't be established (wrong password / offline).
+        """
+        out: dict[str, dict[str, Any]] = {}
+        page = 0
+        seen = 0
+        while True:
+            r = await self._client.get(
+                "/v3/paths/list",
+                params={"page": page, "itemsPerPage": 500},
+            )
+            self._raise(r)
+            body = r.json()
+            items = body.get("items", [])
+            for item in items:
+                out[item["name"]] = item
+            seen += len(items)
+            if not items or seen >= body.get("itemCount", 0):
+                break
+            page += 1
         return out
 
     async def get_path(self, name: str) -> dict[str, Any]:

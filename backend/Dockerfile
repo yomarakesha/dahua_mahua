@@ -7,8 +7,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# asyncpg speaks the Postgres wire protocol directly, so libpq-dev isn't
+# needed. build-essential covers any sdist that lacks a slim wheel.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libpq-dev curl \
+        build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -17,6 +19,11 @@ RUN pip install -r requirements.txt
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+
+# Drop root — the app needs no elevated privileges at runtime.
+RUN useradd --system --no-create-home --uid 10001 appuser \
+    && chown -R appuser /app
+USER appuser
 
 # Migrations + uvicorn. We run alembic on startup so a fresh database
 # converges to the latest schema without an extra deploy step.

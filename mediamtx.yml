@@ -7,6 +7,18 @@
 # edit. This file only sets server-wide knobs (listeners, log level, perf).
 ###############################################################################
 
+###############################################################################
+# SECURITY NOTE — read/playback is currently ANONYMOUS.
+#
+# The control API (:9997) stays internal (never published by docker-compose),
+# but RTSP (:8554), WebRTC (:8889) and HLS (:8888) are published and accept
+# anonymous reads — anyone who can reach those ports can pull any camera.
+# This is acceptable only on a trusted LAN or behind an authenticating ingress
+# (nginx). To lock playback down, add an `authInternalUsers` block restricting
+# `read` to known users/IPs — note the browser WHEP/HLS players in web/js must
+# then be updated to send matching credentials.
+###############################################################################
+
 logLevel: warn
 logDestinations: [stdout]
 

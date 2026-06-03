@@ -22,7 +22,11 @@ export function labelFor(path) {
   return `${nvr.label} / ${getChannel(path).toUpperCase()}`;
 }
 
-export function esc(s) { return String(s).replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
+export function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[ch]));
+}
 
 // ── Camera grouping & pagination ────────────────────────────────────────────
 

@@ -102,12 +102,20 @@ def _config_diff(current: dict[str, Any], desired: dict[str, Any]) -> dict[str, 
 async def _desired_paths(session: AsyncSession) -> dict[str, dict[str, Any]]:
     """Walk the DB and produce {path_name: config} for every path we want
     MediaMTX to know about right now."""
+    # populate_existing=True is load-bearing: the `cameras` relationship is
+    # lazy="selectin", so a caller that loaded this Nvr earlier in the same
+    # session (e.g. create_camera/update_nvr) already has a *stale* collection
+    # cached. With expire_on_commit=False that cache survives the commit, and
+    # a plain selectinload would NOT overwrite it — so a just-added camera
+    # would be invisible here and never get a MediaMTX path. Forcing
+    # populate_existing reloads the collection from the DB.
     nvrs = list(
         (
             await session.execute(
                 select(Nvr)
                 .where(Nvr.enabled.is_(True))
                 .options(selectinload(Nvr.cameras))
+                .execution_options(populate_existing=True)
             )
         ).scalars()
     )

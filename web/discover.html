@@ -139,7 +139,7 @@
         const regs = await listRegions();
         const sel = $("region");
         sel.innerHTML = '<option value="">— none —</option>' +
-          regs.map(r => `<option value="${r.id}">${r.name}</option>`).join("");
+          regs.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("");
       } catch (e) {
         // Operator without admin won't see this page anyway, but be defensive.
         console.warn("Failed to load regions", e);
@@ -186,13 +186,13 @@
         const ch = c.detected_channels ?? 16;
         const lbl = c.label_hint || c.ip;
         const badges =
-          c.sources.map(s => `<span class="badge ${s}">${s}</span>`).join("") +
+          c.sources.map(s => `<span class="badge ${esc(s)}">${esc(s)}</span>`).join("") +
           (c.already_known ? `<span class="badge known">already added</span>` : "");
         const dim = c.already_known ? "dim" : "";
         return `
           <tr class="${dim}" data-i="${i}">
             <td><input type="checkbox" class="pick" ${c.already_known ? "disabled" : ""}></td>
-            <td>${c.ip}:${c.port}</td>
+            <td>${esc(c.ip)}:${esc(c.port)}</td>
             <td>${badges}</td>
             <td>
               <select class="vendor">
@@ -200,15 +200,23 @@
                 <option value="hikvision" ${c.vendor_guess === "hikvision" ? "selected" : ""}>hikvision</option>
               </select>
             </td>
-            <td><input type="number" class="channels" min="1" max="512" value="${ch}" style="width: 70px"></td>
-            <td><input type="text" class="label" value="${escAttr(lbl)}" style="width: 180px"></td>
+            <td><input type="number" class="channels" min="1" max="512" value="${esc(ch)}" style="width: 70px"></td>
+            <td><input type="text" class="label" value="${esc(lbl)}" style="width: 180px"></td>
             <td><input type="text" class="group" value="" placeholder="optional" style="width: 100px"></td>
             <td class="status"></td>
           </tr>`;
       }).join("");
     }
 
-    function escAttr(s) { return String(s).replace(/"/g, "&quot;"); }
+    // Escape every HTML-significant char. Scan results and import messages can
+    // carry attacker-controlled strings (device banners, RTSP errors) from
+    // hosts on the scanned subnet — without this they'd execute in the admin's
+    // authenticated session.
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, ch => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[ch]));
+    }
 
     function selectAllNew() {
       document.querySelectorAll("#results-body tr").forEach(tr => {
@@ -253,10 +261,10 @@
         $("import-log-card").style.display = "";
         $("import-log").innerHTML = res.map(r => `
           <tr>
-            <td>${r.ip}</td>
-            <td>${r.nvr_id || "—"}</td>
+            <td>${esc(r.ip)}</td>
+            <td>${esc(r.nvr_id || "—")}</td>
             <td class="status ${r.ok ? "ok" : "err"}">${r.ok ? "OK" : "FAIL"}</td>
-            <td>${r.message}</td>
+            <td>${esc(r.message)}</td>
           </tr>
         `).join("");
         // Mark imported rows as dim so the user doesn't double-import.

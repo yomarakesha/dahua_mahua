@@ -16,12 +16,12 @@ import logging
 import re
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.crypto import encrypt_password
 from app.deps import AdminUser, SessionDep
-from app.models import Camera, Nvr, Vendor
+from app.models import Camera, Nvr, Region, Vendor
 from app.schemas import (
     DiscoveryCandidate,
     DiscoveryImportRequest,
@@ -147,6 +147,15 @@ async def import_hosts(
     """
     results: list[DiscoveryImportResult] = []
     created_any = False
+
+    # Validate the shared region_id once up front — a bad value would otherwise
+    # be written to every imported NVR (SQLite won't enforce the FK).
+    if body.region_id is not None:
+        region = (
+            await session.execute(select(Region).where(Region.id == body.region_id))
+        ).scalar_one_or_none()
+        if region is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"region_id '{body.region_id}' does not exist")
 
     # Pre-load known ids/ips to avoid surprise IntegrityErrors mid-loop.
     existing_ids = set((await session.execute(select(Nvr.id))).scalars().all())

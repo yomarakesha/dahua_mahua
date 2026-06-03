@@ -12,6 +12,7 @@ import { esc } from "./utils.js";
 import { dlog } from "./logger.js";
 import {
   listNvrs, createNvr, updateNvr, deleteNvr, testNvr, healthAllNvrs,
+  setNvrChannels,
   listCameras, createCamera, updateCamera, deleteCamera,
   listRegions, listEvents, reconcileMediamtx,
   changePassword as apiChangePassword, logout as apiLogout,
@@ -432,6 +433,36 @@ function renderCameraRow(cam) {
   });
 
   dom.camerasBody.appendChild(tr);
+}
+
+export async function setChannels() {
+  if (!_currentNvrId) return;
+  const count = parseInt(dom.camerasSetCount.value);
+  if (!count || count < 1 || count > 512) {
+    setStatus(dom.camerasSetStatus, "Enter a channel count 1..512", true);
+    return;
+  }
+  const prune = dom.camerasSetPrune.checked;
+  if (prune && !confirm(`Set ${_currentNvrId} to exactly ${count} channels?\nChannels above ${count} will be DELETED.`)) return;
+
+  dom.camerasSetBtn.disabled = true;
+  setStatus(dom.camerasSetStatus, "Applying...");
+  dlog.info(_currentNvrId, "set-channels-start", `count=${count} prune=${prune}`);
+  try {
+    const updated = await setNvrChannels(_currentNvrId, count, prune);
+    dlog.info(_currentNvrId, "set-channels-ok", `cams=${updated.camera_count} notice="${updated.create_notice || ""}"`);
+    setStatus(dom.camerasSetStatus, updated.create_notice || `Now ${updated.camera_count} channels`);
+    await refreshCameras();
+    // Reflect new CH count on the parent NVR row.
+    const parent = dom.settingsNvrBody.querySelector(`tr[data-nvr-id="${CSS.escape(_currentNvrId)}"] .ch-count`);
+    if (parent) parent.textContent = String(updated.camera_count);
+    await fetchCameras();
+  } catch (e) {
+    dlog.error(_currentNvrId, "set-channels-fail", errMsg(e));
+    setStatus(dom.camerasSetStatus, errMsg(e), true);
+  } finally {
+    dom.camerasSetBtn.disabled = false;
+  }
 }
 
 export async function addCamera() {

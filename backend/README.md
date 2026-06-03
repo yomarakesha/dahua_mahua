@@ -59,7 +59,7 @@ GET  /api/v1/cameras                    — list cameras visible to caller
 GET  /api/v1/nvrs                       — list NVRs (RBAC-filtered, no creds)
 POST /api/v1/nvrs                       — admin: register NVR + cameras
 POST /api/v1/nvrs/{id}/test             — admin: RTSP digest probe
-POST /api/v1/nvrs/health                — TCP reachability for all visible NVRs
+GET  /api/v1/nvrs/health                — TCP reachability for all visible NVRs
 
 GET  /api/v1/streams/{camera_id}        — WHEP + HLS URLs for one camera
 POST /api/v1/streams/{camera_id}/end    — best-effort session close (telemetry)

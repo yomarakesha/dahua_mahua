@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.deps import AdminUser, SessionDep
-from app.models import Region, User
+from app.models import Region, Role, User
 from app.schemas import UserCreate, UserRead, UserUpdate
 from app.security import hash_password
 
@@ -73,7 +73,7 @@ async def update_user(
     user_id: uuid.UUID,
     body: UserUpdate,
     session: SessionDep,
-    _: AdminUser,
+    admin: AdminUser,
 ) -> UserRead:
     user = (
         await session.execute(
@@ -83,6 +83,36 @@ async def update_user(
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     data = body.model_dump(exclude_unset=True)
+
+    # Guard 1: don't let an admin lock themselves out mid-session by demoting
+    # or deactivating their own account.
+    if user.id == admin.id:
+        if "role" in data and data["role"] != user.role:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot change your own role")
+        if data.get("is_active") is False:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot deactivate your own account")
+
+    # Guard 2: never remove the last active admin (demote or deactivate).
+    final_role = data.get("role", user.role)
+    final_active = data.get("is_active", user.is_active)
+    losing_admin = (
+        user.role == Role.admin and user.is_active
+        and (final_role != Role.admin or not final_active)
+    )
+    if losing_admin:
+        other_admins = (
+            await session.execute(
+                select(func.count())
+                .select_from(User)
+                .where(User.id != user.id, User.role == Role.admin, User.is_active.is_(True))
+            )
+        ).scalar_one()
+        if other_admins == 0:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Cannot demote or deactivate the last active admin",
+            )
+
     if "new_password" in data:
         pw = data.pop("new_password")
         if pw is not None:

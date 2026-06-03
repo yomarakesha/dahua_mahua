@@ -12,7 +12,7 @@ import uuid
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,8 +33,14 @@ def _extract_bearer(authorization: str | None) -> str:
     return authorization.split(" ", 1)[1].strip()
 
 
+# Endpoints a user flagged `must_change_password` may still reach — enough to
+# read their profile, change the password, and log out, but nothing else.
+_PASSWORD_CHANGE_EXEMPT = ("/auth/change-password", "/auth/logout", "/auth/me")
+
+
 async def get_current_user(
     session: SessionDep,
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> User:
     token = _extract_bearer(authorization)
@@ -42,8 +48,9 @@ async def get_current_user(
         payload = decode_token(token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token expired") from None
-    except jwt.PyJWTError as e:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Invalid token: {e}") from None
+    except jwt.PyJWTError:
+        # Don't leak the PyJWT failure reason to the client.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token") from None
 
     sub = payload.get("sub")
     if not sub:
@@ -56,6 +63,11 @@ async def get_current_user(
     user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+
+    # A user who must change their password can't use the rest of the API until
+    # they do — otherwise the flag is purely cosmetic (frontend-enforced only).
+    if user.must_change_password and not request.url.path.endswith(_PASSWORD_CHANGE_EXEMPT):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Password change required")
     return user
 
 

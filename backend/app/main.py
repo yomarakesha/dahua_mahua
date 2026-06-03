@@ -34,7 +34,7 @@ from app.routers import (
     users,
 )
 from app.security import hash_password
-from app.services import path_sync
+from app.services import path_sync, source_watch
 from app.services.mediamtx_api import get_client, shutdown_client
 from app.settings import get_settings
 
@@ -93,6 +93,14 @@ async def lifespan(app: FastAPI):
         level=logging.DEBUG if settings.debug else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # httpx logs every request at INFO — the source watchdog polls MediaMTX
+    # every few seconds, so that would flood the console. Keep it to warnings.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+    # Refuse to boot with insecure default secrets (prod) and verify the
+    # Fernet key is usable before anything tries to encrypt an NVR password.
+    settings.validate_production()
 
     await _ensure_schema()
     await _ensure_bootstrap_admin()
@@ -102,10 +110,12 @@ async def lifespan(app: FastAPI):
         mediamtx_proc.start()
 
     await _initial_reconcile()
+    source_watch.start()
 
     try:
         yield
     finally:
+        await source_watch.stop()
         await shutdown_client()
         if settings.mediamtx_managed:
             from app.services import mediamtx_proc

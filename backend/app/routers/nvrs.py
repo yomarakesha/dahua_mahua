@@ -17,13 +17,14 @@ from sqlalchemy.orm import selectinload
 
 from app.crypto import decrypt_password, encrypt_password
 from app.deps import AdminUser, CurrentUser, SessionDep, user_can_access_nvr
-from app.models import Camera, Nvr, Role, Vendor
+from app.models import Camera, Nvr, Region, Role, Vendor
 from app.schemas import (
     NvrCreate,
     NvrHealthResult,
     NvrRead,
     NvrTestResult,
     NvrUpdate,
+    SetChannelsRequest,
 )
 from app.services import lockouts, nvr_events, path_sync
 from app.services.discovery import detect_dahua_channels
@@ -91,6 +92,18 @@ def _derive_nvr_id(ip: str) -> str:
 _DEFAULT_FALLBACK_CHANNELS = 1
 
 
+async def _validate_region(session, region_id) -> None:
+    """Reject a region_id that doesn't exist. SQLite won't enforce the FK on
+    its own, and even on Postgres a clear 400 beats an opaque IntegrityError."""
+    if region_id is None:
+        return
+    region = (
+        await session.execute(select(Region).where(Region.id == region_id))
+    ).scalar_one_or_none()
+    if region is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"region_id '{region_id}' does not exist")
+
+
 @router.post("", response_model=NvrRead, status_code=status.HTTP_201_CREATED)
 async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrRead:
     """Create an NVR with safeguards against the classic footgun:
@@ -103,9 +116,11 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
     """
     nvr_id = body.id or _derive_nvr_id(body.ip)
 
+    await _validate_region(session, body.region_id)
+
     # ── Guard 1: don't add NVRs whose IP is currently locked out — any
     #    further auth attempt would just extend the ban.
-    lock = await lockouts.get_active_lockout(session, body.ip)
+    lock = await lockouts.get_active_lockout(body.ip)
     if lock is not None:
         remaining = lockouts.remaining_seconds(lock)
         raise HTTPException(
@@ -134,7 +149,7 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
         )
         if result.banned:
             await lockouts.record_lockout(
-                session, body.ip, cooldown_seconds=result.banned_cooldown,
+                body.ip, cooldown_seconds=result.banned_cooldown,
             )
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -236,6 +251,9 @@ async def update_nvr(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
     data = body.model_dump(exclude_unset=True)
 
+    if "region_id" in data:
+        await _validate_region(session, data["region_id"])
+
     # Compute the post-update target so all guards reason about the same state.
     final_enabled = bool(data.get("enabled", nvr.enabled))
     final_ip = data.get("ip", nvr.ip)
@@ -247,7 +265,7 @@ async def update_nvr(
     # Guard 1: re-enabling an NVR whose IP is in lockout would resume the
     # 401-loop and dig the hole deeper. Refuse with the remaining cooldown.
     if final_enabled and not nvr.enabled:
-        lock = await lockouts.get_active_lockout(session, final_ip)
+        lock = await lockouts.get_active_lockout(final_ip)
         if lock is not None:
             remaining = lockouts.remaining_seconds(lock)
             raise HTTPException(
@@ -273,7 +291,7 @@ async def update_nvr(
         )
         if result.banned:
             await lockouts.record_lockout(
-                session, final_ip, cooldown_seconds=result.banned_cooldown,
+                final_ip, cooldown_seconds=result.banned_cooldown,
             )
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -305,6 +323,67 @@ async def update_nvr(
     return _to_read(nvr)
 
 
+@router.post("/{nvr_id}/set-channels", response_model=NvrRead)
+async def set_channels(
+    nvr_id: str,
+    body: SetChannelsRequest,
+    session: SessionDep,
+    _: AdminUser,
+) -> NvrRead:
+    """Bulk-populate an NVR's channels. Creates a camera for every channel in
+    1..count that doesn't exist yet; with `prune=True` also deletes channels
+    above `count`. One call instead of adding cameras one at a time — the fix
+    for "NVR has 24 cameras but autodetect only created 1".
+    """
+    nvr = (
+        await session.execute(
+            select(Nvr).where(Nvr.id == nvr_id).options(selectinload(Nvr.cameras))
+        )
+    ).scalar_one_or_none()
+    if nvr is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
+
+    existing = {c.channel for c in nvr.cameras}
+    added = 0
+    for ch in range(1, body.count + 1):
+        if ch not in existing:
+            session.add(Camera(nvr_id=nvr_id, channel=ch))
+            added += 1
+
+    removed = 0
+    if body.prune:
+        for cam in nvr.cameras:
+            if cam.channel > body.count:
+                await session.delete(cam)
+                removed += 1
+
+    await session.commit()
+    nvr = (
+        await session.execute(
+            select(Nvr).where(Nvr.id == nvr_id).options(selectinload(Nvr.cameras))
+        )
+    ).scalar_one()
+    log.info("NVR %s set-channels count=%d added=%d removed=%d",
+             nvr_id, body.count, added, removed)
+    # Push the new/removed paths to MediaMTX. delete_orphans=True so pruned
+    # channels' paths are torn down too.
+    try:
+        await path_sync.reconcile(session, delete_orphans=True)
+    except Exception as e:
+        log.warning("NVR %s set-channels saved but MediaMTX reconcile failed: %s", nvr_id, e)
+
+    notice_bits = []
+    if added:
+        notice_bits.append(f"added {added}")
+    if removed:
+        notice_bits.append(f"removed {removed}")
+    notice = (
+        f"Channels set to {body.count} ({', '.join(notice_bits)})."
+        if notice_bits else f"Already at {body.count} channels — nothing to change."
+    )
+    return _to_read(nvr, create_notice=notice)
+
+
 @router.delete("/{nvr_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_nvr(nvr_id: str, session: SessionDep, _: AdminUser) -> None:
     nvr = (await session.execute(select(Nvr).where(Nvr.id == nvr_id))).scalar_one_or_none()
@@ -328,7 +407,7 @@ async def test_nvr(
     if nvr is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
 
-    lock = await lockouts.get_active_lockout(session, nvr.ip)
+    lock = await lockouts.get_active_lockout(nvr.ip)
     if lock is not None:
         remaining = lockouts.remaining_seconds(lock)
         return NvrTestResult(
@@ -358,15 +437,15 @@ async def test_nvr(
     )
 
     if result.banned:
-        await lockouts.record_lockout(session, nvr.ip, cooldown_seconds=result.banned_cooldown)
-        await nvr_events.log_event(session, nvr_id=nvr.id, ip=nvr.ip,
+        await lockouts.record_lockout(nvr.ip, cooldown_seconds=result.banned_cooldown)
+        await nvr_events.log_event(nvr_id=nvr.id, ip=nvr.ip,
                                    event_type="banned", message=result.message)
     elif result.ok:
-        await lockouts.clear_lockout(session, nvr.ip)
-        await nvr_events.log_event(session, nvr_id=nvr.id, ip=nvr.ip,
+        await lockouts.clear_lockout(nvr.ip)
+        await nvr_events.log_event(nvr_id=nvr.id, ip=nvr.ip,
                                    event_type="auth_ok", message=result.message)
     else:
-        await nvr_events.log_event(session, nvr_id=nvr.id, ip=nvr.ip,
+        await nvr_events.log_event(nvr_id=nvr.id, ip=nvr.ip,
                                    event_type="auth_fail", message=result.message)
 
     out = NvrTestResult(ok=result.ok, message=result.message)
@@ -377,7 +456,7 @@ async def test_nvr(
     return out
 
 
-@router.post("/health", response_model=list[NvrHealthResult])
+@router.get("/health", response_model=list[NvrHealthResult])
 async def health_all(session: SessionDep, user: CurrentUser) -> list[NvrHealthResult]:
     """TCP-only reachability probe for every NVR the user can see. Cheap (no auth)."""
     nvrs = list((await session.execute(select(Nvr))).scalars())

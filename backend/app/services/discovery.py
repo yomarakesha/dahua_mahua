@@ -230,6 +230,11 @@ _DAHUA_CHANNEL_RE = re.compile(
     r"(?:maxRemoteInputChannels|MaxChannel|MaxNum|VideoInChannel)\s*=\s*(\d+)",
     re.IGNORECASE,
 )
+# ChannelTitle config lists one entry per channel: `table.ChannelTitle[0].Name=..`
+# up to `table.ChannelTitle[N-1]`. Counting the highest index + 1 is the most
+# reliable channel count on Dahua NVRs (the magicBox keys are camera-only on
+# many recorder firmwares and return 1).
+_DAHUA_CHANNEL_TITLE_RE = re.compile(r"ChannelTitle\[(\d+)\]", re.IGNORECASE)
 
 
 async def detect_dahua_channels(
@@ -238,17 +243,21 @@ async def detect_dahua_channels(
     password: str,
     timeout: float = 3.0,
 ) -> int | None:
-    """Probe Dahua's magicBox CGI for the channel count.
+    """Probe Dahua's HTTP CGI for the channel count.
 
-    Returns None if the device isn't Dahua, creds are wrong, or HTTP isn't
-    reachable on :80. Callers should fall back to a sensible default (16).
+    Tries several CGI endpoints because different firmwares (camera vs NVR,
+    old vs new) expose the count differently. Returns None if the device isn't
+    Dahua, creds are wrong, or HTTP isn't reachable on :80 — callers fall back
+    to a sensible default.
     """
     base = f"http://{ip}"
-    # Two CGI variants — different firmwares expose different keys, so we
-    # try both and union the numbers we find.
+    # Order matters only for logging; we union everything we can parse and
+    # take the max. ChannelTitle is the most reliable for NVRs.
     endpoints = [
+        "/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle",
         "/cgi-bin/magicBox.cgi?action=getProductDefinition",
         "/cgi-bin/devVideoInput.cgi?action=getCaps&channel=0",
+        "/cgi-bin/devVideoInput.cgi?action=getCollect",
     ]
     try:
         async with httpx.AsyncClient(
@@ -264,15 +273,25 @@ async def detect_dahua_channels(
                 try:
                     r = await client.get(base + ep)
                 except httpx.HTTPError as e:
-                    log.debug("Dahua %s %s failed: %s", ip, ep, e)
+                    log.info("Dahua autodetect %s %s → HTTP error: %s", ip, ep, e)
                     continue
                 if r.status_code != 200:
+                    log.info("Dahua autodetect %s %s → status %d", ip, ep, r.status_code)
                     continue
-                channels.extend(int(m.group(1)) for m in _DAHUA_CHANNEL_RE.finditer(r.text))
+                found: list[int] = []
+                # Highest ChannelTitle index + 1 = channel count.
+                title_idx = [int(m.group(1)) for m in _DAHUA_CHANNEL_TITLE_RE.finditer(r.text)]
+                if title_idx:
+                    found.append(max(title_idx) + 1)
+                found.extend(int(m.group(1)) for m in _DAHUA_CHANNEL_RE.finditer(r.text))
+                log.info("Dahua autodetect %s %s → 200, parsed channels=%s (body %dB)",
+                         ip, ep, found or "none", len(r.text))
+                channels.extend(found)
             if channels:
-                # Trust the largest match — when both keys are present we want
-                # `maxRemoteInputChannels`, which is the higher number.
-                return max(channels)
+                detected = max(channels)
+                log.info("Dahua %s channel autodetect → %d", ip, detected)
+                return detected
+            log.info("Dahua %s channel autodetect → nothing parseable from any endpoint", ip)
     except Exception as e:  # noqa: BLE001
         log.debug("Dahua channel probe %s errored: %s", ip, e)
     return None
