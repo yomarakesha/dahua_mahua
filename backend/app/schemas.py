@@ -99,9 +99,19 @@ class NvrBase(BaseModel):
 
 
 class NvrCreate(NvrBase):
-    id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    # id is optional — if omitted the router derives one from the IP address
+    # (e.g. "192.168.20.34" → "nvr-192-168-20-34") so casual users don't have
+    # to invent an identifier.
+    id: str | None = Field(
+        default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9_-]*$"
+    )
     rtsp_password: str = Field(min_length=1)
-    channels: int = Field(ge=1, le=512)
+    # channels: null/missing → backend auto-detects (Dahua magicBox CGI).
+    # Falls back to 1 channel if detection isn't possible.
+    channels: int | None = Field(default=None, ge=1, le=512)
+    # skip_probe: caller can force-skip the credential check (used by the
+    # discovery import flow which already validated creds). Default: probe.
+    skip_probe: bool = False
 
 
 class NvrUpdate(BaseModel):
@@ -122,6 +132,9 @@ class NvrRead(NvrBase):
     created_at: datetime
     updated_at: datetime
     camera_count: int
+    # Populated only on the response to POST /nvrs to tell the UI what
+    # happened during pre-create validation. Always null on GET.
+    create_notice: str | None = None
 
 
 # ── Cameras ─────────────────────────────────────────────────────────────────
@@ -139,6 +152,15 @@ class CameraRead(BaseModel):
     display_name: str
     # Region inherited from NVR.
     region_id: uuid.UUID | None = None
+
+
+class CameraCreate(BaseModel):
+    nvr_id: str
+    channel: int = Field(ge=1, le=512)
+    name: str | None = None
+    enabled: bool = True
+    has_sub: bool = True
+    has_main: bool = True
 
 
 class CameraUpdate(BaseModel):

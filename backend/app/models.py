@@ -26,9 +26,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -59,7 +59,7 @@ class StreamQuality(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[Role] = mapped_column(SAEnum(Role, name="user_role"), nullable=False, default=Role.operator)
@@ -78,7 +78,7 @@ class User(Base):
 class Region(Base):
     __tablename__ = "regions"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     slug: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -96,10 +96,10 @@ class UserRegion(Base):
     __tablename__ = "user_regions"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     region_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("regions.id", ondelete="CASCADE"), primary_key=True
+        Uuid(), ForeignKey("regions.id", ondelete="CASCADE"), primary_key=True
     )
 
 
@@ -123,7 +123,7 @@ class Nvr(Base):
     group: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     region_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("regions.id", ondelete="SET NULL"), nullable=True
+        Uuid(), ForeignKey("regions.id", ondelete="SET NULL"), nullable=True
     )
     region: Mapped[Region | None] = relationship(back_populates="nvrs")
 
@@ -143,7 +143,7 @@ class Camera(Base):
     __tablename__ = "cameras"
     __table_args__ = (UniqueConstraint("nvr_id", "channel", name="uq_camera_nvr_channel"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     nvr_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("nvrs.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -175,7 +175,7 @@ class NvrEvent(Base):
 
     __tablename__ = "nvr_events"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     nvr_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     ip: Mapped[str] = mapped_column(String(64), nullable=False)
     event_type: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
@@ -190,12 +190,12 @@ class StreamSession(Base):
 
     __tablename__ = "stream_sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     camera_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("cameras.id", ondelete="CASCADE"), index=True
+        Uuid(), ForeignKey("cameras.id", ondelete="CASCADE"), index=True
     )
     quality: Mapped[StreamQuality] = mapped_column(SAEnum(StreamQuality, name="stream_quality"))
     client_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)

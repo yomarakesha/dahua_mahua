@@ -5,6 +5,7 @@
 import { CONFIG } from "./config.js";
 import { state, savePrefs } from "./state.js";
 import { dom } from "./dom.js";
+import { dlog } from "./logger.js";
 import {
   labelFor, gridCells, totalPages, getPageCameras, getNextPageCameras,
   getPreconnectLimit, scheduleStatusUpdate,
@@ -18,11 +19,136 @@ import { addToGroup } from "./sidebar.js";
 import { openFullscreen } from "./fullscreen.js";
 
 // ── Grid rendering ──────────────────────────────────────────────────────────
+// Two paths: full rebuild (size change → recreate every cell) and diff-update
+// (same size → reuse cell DIVs and their event listeners; only replace inner
+// contents when the path actually changes). The latter avoids the cost of
+// `innerHTML = ""` + 64 fresh listener bindings on every page-flip / filter.
+
+function attachOrConnect(path, video) {
+  const existingConn = state.connections[path];
+  const desiredStream = streamPathFor(path);
+  if (existingConn) {
+    // Tier mismatch (sub↔main) — force a reconnect on the right path.
+    if (existingConn.streamPath && existingConn.streamPath !== desiredStream) {
+      connectCamera(path, video);
+      return;
+    }
+    attachConnectionVideo(path, video);
+    if (existingConn.status === "error") {
+      if (existingConn.retryTimer) {
+        clearTimeout(existingConn.retryTimer);
+        existingConn.retryTimer = null;
+      }
+      connectCamera(path, video);
+    }
+  } else {
+    connectCamera(path, video);
+  }
+}
+
+// Bound once per cell at creation. Listeners read cell.dataset.path/index live,
+// so they survive the cell being repurposed for a different path on diff-update.
+function bindCellListeners(cell) {
+  cell.addEventListener("click", () => {
+    const idx = parseInt(cell.dataset.index, 10);
+    if (!Number.isNaN(idx)) setFocusedCell(idx);
+  });
+  cell.addEventListener("dblclick", () => {
+    const path = cell.dataset.path;
+    if (path) openFullscreen(path);
+  });
+  cell.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    const path = cell.dataset.path;
+    if (!path) return;
+    const video = cell.querySelector("video");
+    const items = [
+      { label: "Fullscreen", action: () => openFullscreen(path) },
+      { label: "Snapshot", action: () => takeSnapshot(path, video) },
+      { label: "Reconnect", action: () => connectCamera(path, video) },
+      { type: "separator" },
+    ];
+    state.groups.forEach(grp => {
+      const inGroup = grp.cameras.includes(path);
+      items.push({
+        label: (inGroup ? "✓ " : "  ") + grp.name,
+        action: () => { if (!inGroup) addToGroup(grp.name, path); },
+      });
+    });
+    showContextMenu(e, items);
+  });
+
+  cell.addEventListener("dragstart", (e) => {
+    const path = cell.dataset.path;
+    if (!path) return;
+    e.dataTransfer.setData("text/plain", path);
+    e.dataTransfer.effectAllowed = "move";
+    cell.classList.add("dragging");
+  });
+  cell.addEventListener("dragend", () => cell.classList.remove("dragging"));
+  cell.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    cell.classList.add("drag-over");
+  });
+  cell.addEventListener("dragleave", () => cell.classList.remove("drag-over"));
+  cell.addEventListener("drop", (e) => {
+    e.preventDefault();
+    cell.classList.remove("drag-over");
+    const cam = e.dataTransfer.getData("text/plain");
+    const idx = parseInt(cell.dataset.index, 10);
+    if (cam && !Number.isNaN(idx)) handleDrop(cam, idx);
+  });
+}
+
+function populatePathCell(cell, path) {
+  while (cell.firstChild) cell.removeChild(cell.firstChild);
+  cell.dataset.path = path;
+  cell.draggable = true;
+  cell.style.background = "";
+
+  const video = document.createElement("video");
+  video.autoplay = true;
+  video.muted = true;
+  video.playsInline = true;
+
+  const dot = document.createElement("div");
+  dot.className = "status-dot";
+  dot.dataset.dotPath = path;
+
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = labelFor(path);
+
+  const controls = document.createElement("div");
+  controls.className = "cell-controls";
+  const snapBtn = document.createElement("button");
+  snapBtn.className = "cell-btn";
+  snapBtn.innerHTML = "&#128247;";
+  snapBtn.title = "Snapshot";
+  snapBtn.addEventListener("click", (e) => { e.stopPropagation(); takeSnapshot(path, video); });
+  controls.appendChild(snapBtn);
+
+  cell.appendChild(video);
+  cell.appendChild(dot);
+  cell.appendChild(label);
+  cell.appendChild(controls);
+
+  attachOrConnect(path, video);
+}
+
+function populateEmptyCell(cell) {
+  while (cell.firstChild) cell.removeChild(cell.firstChild);
+  delete cell.dataset.path;
+  cell.draggable = false;
+  cell.style.background = "#0a0a0a";
+}
 
 export function renderGrid() {
   const pageCams = getPageCameras();
   const cols = state.gridCols;
   const rows = state.gridRows;
+  const totalSlots = cols * rows;
   const visibleSet = new Set(pageCams);
   const nextCams = getNextPageCameras();
   const preconnectCams = nextCams.slice(0, getPreconnectLimit());
@@ -31,109 +157,63 @@ export function renderGrid() {
   flushQueue();
   disconnectAllNotVisible(visibleSet, preconnectSet);
 
-  dom.cameraGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  dom.cameraGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-  dom.cameraGrid.className = `grid-${Math.max(cols, rows)}`;
+  const colsTpl = `repeat(${cols}, 1fr)`;
+  const rowsTpl = `repeat(${rows}, 1fr)`;
+  const needFullRebuild = (
+    dom.cameraGrid.children.length !== totalSlots ||
+    dom.cameraGrid.style.gridTemplateColumns !== colsTpl ||
+    dom.cameraGrid.style.gridTemplateRows !== rowsTpl
+  );
 
-  const frag = document.createDocumentFragment();
-  const totalSlots = cols * rows;
+  const t0 = performance.now();
+  if (needFullRebuild) {
+    dom.cameraGrid.style.gridTemplateColumns = colsTpl;
+    dom.cameraGrid.style.gridTemplateRows = rowsTpl;
+    dom.cameraGrid.className = `grid-${Math.max(cols, rows)}`;
 
-  for (let i = 0; i < totalSlots; i++) {
-    const path = pageCams[i] || null;
-    const cell = document.createElement("div");
-    cell.className = "cam-cell";
-    cell.dataset.index = i;
-
-    if (path) {
-      cell.dataset.path = path;
-
-      const video = document.createElement("video");
-      video.autoplay = true;
-      video.muted = true;
-      video.playsInline = true;
-
-      const dot = document.createElement("div");
-      dot.className = "status-dot";
-      dot.dataset.dotPath = path;
-
-      const label = document.createElement("div");
-      label.className = "label";
-      label.textContent = labelFor(path);
-
-      const controls = document.createElement("div");
-      controls.className = "cell-controls";
-      const snapBtn = document.createElement("button");
-      snapBtn.className = "cell-btn";
-      snapBtn.innerHTML = "&#128247;";
-      snapBtn.title = "Snapshot";
-      snapBtn.addEventListener("click", (e) => { e.stopPropagation(); takeSnapshot(path, video); });
-      controls.appendChild(snapBtn);
-
-      cell.appendChild(video);
-      cell.appendChild(dot);
-      cell.appendChild(label);
-      cell.appendChild(controls);
-
-      cell.addEventListener("click", () => setFocusedCell(i));
-      cell.addEventListener("dblclick", () => openFullscreen(path));
-
-      cell.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        const items = [
-          { label: "Fullscreen", action: () => openFullscreen(path) },
-          { label: "Snapshot", action: () => takeSnapshot(path, video) },
-          { label: "Reconnect", action: () => connectCamera(path, video) },
-          { type: "separator" },
-        ];
-        state.groups.forEach(grp => {
-          const inGroup = grp.cameras.includes(path);
-          items.push({
-            label: (inGroup ? "✓ " : "  ") + grp.name,
-            action: () => { if (!inGroup) addToGroup(grp.name, path); },
-          });
-        });
-        showContextMenu(e, items);
-      });
-
-      cell.draggable = true;
-      setupDragDrop(cell, path, i);
-
-      const existingConn = state.connections[path];
-      const desiredStream = streamPathFor(path);
-      if (existingConn) {
-        // Tier mismatch (sub↔main) — force a reconnect on the right path.
-        if (existingConn.streamPath && existingConn.streamPath !== desiredStream) {
-          connectCamera(path, video);
-        } else {
-          attachConnectionVideo(path, video);
-          if (existingConn.status === "error") {
-            if (existingConn.retryTimer) {
-              clearTimeout(existingConn.retryTimer);
-              existingConn.retryTimer = null;
-            }
-            connectCamera(path, video);
-          }
-        }
-      } else {
-        connectCamera(path, video);
-      }
-    } else {
-      cell.style.background = "#0a0a0a";
-      cell.addEventListener("dragover", (e) => { e.preventDefault(); cell.classList.add("drag-over"); });
-      cell.addEventListener("dragleave", () => cell.classList.remove("drag-over"));
-      cell.addEventListener("drop", (e) => {
-        e.preventDefault();
-        cell.classList.remove("drag-over");
-        const cam = e.dataTransfer.getData("text/plain");
-        if (cam) handleDrop(cam, i);
-      });
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < totalSlots; i++) {
+      const cell = document.createElement("div");
+      cell.className = "cam-cell";
+      cell.dataset.index = i;
+      bindCellListeners(cell);
+      if (pageCams[i]) populatePathCell(cell, pageCams[i]);
+      else populateEmptyCell(cell);
+      frag.appendChild(cell);
     }
-
-    frag.appendChild(cell);
+    dom.cameraGrid.innerHTML = "";
+    dom.cameraGrid.appendChild(frag);
+    dlog.info("", "grid-render-full",
+      `cells=${totalSlots} cams=${pageCams.filter(Boolean).length} ` +
+      `grid=${cols}x${rows} page=${state.currentPage + 1}/${totalPages()} ` +
+      `dt=${(performance.now() - t0).toFixed(1)}ms`);
+  } else {
+    const cells = dom.cameraGrid.children;
+    let changed = 0, kept = 0;
+    for (let i = 0; i < totalSlots; i++) {
+      const cell = cells[i];
+      const oldPath = cell.dataset.path || null;
+      const newPath = pageCams[i] || null;
+      if (oldPath === newPath) {
+        if (newPath) {
+          const video = cell.querySelector("video");
+          const label = cell.querySelector(".label");
+          const newLabel = labelFor(newPath);
+          if (label && label.textContent !== newLabel) label.textContent = newLabel;
+          if (video) attachOrConnect(newPath, video);
+          kept++;
+        }
+        continue;
+      }
+      if (newPath) populatePathCell(cell, newPath);
+      else populateEmptyCell(cell);
+      changed++;
+    }
+    dlog.info("", "grid-render-diff",
+      `cells=${totalSlots} kept=${kept} changed=${changed} ` +
+      `page=${state.currentPage + 1}/${totalPages()} ` +
+      `dt=${(performance.now() - t0).toFixed(1)}ms`);
   }
-
-  dom.cameraGrid.innerHTML = "";
-  dom.cameraGrid.appendChild(frag);
 
   const tp = totalPages();
   dom.sbPage.textContent = tp > 1 ? `Page ${state.currentPage + 1}/${tp}` : "";
@@ -230,27 +310,6 @@ export function autoFitGrid(cameraCount) {
 }
 
 // ── Drag-and-drop reorder ───────────────────────────────────────────────────
-
-function setupDragDrop(cell, path, index) {
-  cell.addEventListener("dragstart", (e) => {
-    e.dataTransfer.setData("text/plain", path);
-    e.dataTransfer.effectAllowed = "move";
-    cell.classList.add("dragging");
-  });
-  cell.addEventListener("dragend", () => cell.classList.remove("dragging"));
-  cell.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    cell.classList.add("drag-over");
-  });
-  cell.addEventListener("dragleave", () => cell.classList.remove("drag-over"));
-  cell.addEventListener("drop", (e) => {
-    e.preventDefault();
-    cell.classList.remove("drag-over");
-    const cam = e.dataTransfer.getData("text/plain");
-    if (cam) handleDrop(cam, index);
-  });
-}
 
 function handleDrop(draggedPath, targetIndex) {
   if (!draggedPath) return;

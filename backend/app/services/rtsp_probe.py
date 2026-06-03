@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import secrets
 import socket
 from dataclasses import dataclass
 
@@ -58,10 +59,35 @@ def _parse_digest(response: str) -> dict[str, str] | None:
     return None
 
 
-def _digest_response(username: str, password: str, realm: str, nonce: str, method: str, uri: str) -> str:
+def _digest_response(
+    username: str,
+    password: str,
+    realm: str,
+    nonce: str,
+    method: str,
+    uri: str,
+    *,
+    qop: str | None = None,
+    cnonce: str | None = None,
+    nc: str = "00000001",
+) -> tuple[str, str | None]:
+    """Compute the MD5 digest response.
+
+    Returns `(response_hash, cnonce_used)`. cnonce_used is None for the legacy
+    RFC 2069 path (no qop) and a fresh hex string for RFC 2617 qop="auth"
+    — Dahua firmwares since ~2018 advertise qop and reject responses computed
+    without it.
+    """
     ha1 = hashlib.md5(f"{username}:{realm}:{password}".encode()).hexdigest()
     ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()
-    return hashlib.md5(f"{ha1}:{nonce}:{ha2}".encode()).hexdigest()
+    if qop:
+        if cnonce is None:
+            cnonce = secrets.token_hex(8)
+        digest = hashlib.md5(
+            f"{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}".encode()
+        ).hexdigest()
+        return digest, cnonce
+    return hashlib.md5(f"{ha1}:{nonce}:{ha2}".encode()).hexdigest(), None
 
 
 def build_rtsp_url(
@@ -131,13 +157,36 @@ def probe_rtsp(
         if not digest or "realm" not in digest or "nonce" not in digest:
             return ProbeResult(False, "Authentication failed (no digest challenge)")
 
-        response_hash = _digest_response(
-            username, password, digest["realm"], digest["nonce"], method, uri
+        # If the server advertises qop, pick "auth" (RFC 2617). Dahua firmwares
+        # from ~2018 onward require qop and reject the legacy RFC 2069 hash —
+        # which would otherwise look exactly like a wrong password to us.
+        qop_raw = digest.get("qop")
+        qop = None
+        if qop_raw:
+            for opt in (s.strip() for s in qop_raw.split(",")):
+                if opt == "auth":
+                    qop = "auth"
+                    break
+
+        nc = "00000001"
+        response_hash, cnonce = _digest_response(
+            username, password, digest["realm"], digest["nonce"], method, uri,
+            qop=qop, nc=nc,
         )
-        auth_header = (
-            f'Digest username="{username}", realm="{digest["realm"]}", '
-            f'nonce="{digest["nonce"]}", uri="{uri}", response="{response_hash}"'
-        )
+        auth_parts = [
+            f'username="{username}"',
+            f'realm="{digest["realm"]}"',
+            f'nonce="{digest["nonce"]}"',
+            f'uri="{uri}"',
+            f'response="{response_hash}"',
+        ]
+        if digest.get("opaque"):
+            auth_parts.append(f'opaque="{digest["opaque"]}"')
+        if qop:
+            auth_parts.append(f'qop={qop}')
+            auth_parts.append(f'nc={nc}')
+            auth_parts.append(f'cnonce="{cnonce}"')
+        auth_header = "Digest " + ", ".join(auth_parts)
         req2 = (
             f"{method} {uri} RTSP/1.0\r\nCSeq: 2\r\nUser-Agent: DSS\r\n"
             f"Authorization: {auth_header}\r\n\r\n"

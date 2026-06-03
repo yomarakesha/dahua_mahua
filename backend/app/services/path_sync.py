@@ -152,15 +152,19 @@ async def reconcile(
     that may already have paths from an older config — we want to converge,
     not yank live paths out from under operators.
     """
+    import time
     client = client or get_client()
+    t0 = time.perf_counter()
     desired = await _desired_paths(session)
+    log.info("Reconcile start: desired=%d delete_orphans=%s", len(desired), delete_orphans)
 
     try:
         existing = await client.list_paths()
     except MediaMTXError as e:
-        log.error("Failed to list paths from MediaMTX: %s", e)
+        log.error("Reconcile aborted — failed to list paths from MediaMTX: %s", e)
         return SyncReport([], [], [], [("<list>", str(e))])
 
+    log.info("Reconcile: existing=%d on MediaMTX", len(existing))
     report = SyncReport([], [], [], [])
 
     for name, cfg in desired.items():
@@ -170,32 +174,40 @@ async def reconcile(
                 report.added.append(name)
             except PathExists:
                 # Race against another reconciler — patch it instead.
+                log.info("Reconcile: %s appeared mid-flight; patching instead of adding", name)
                 try:
                     await client.patch_path(name, cfg)
                     report.patched.append(name)
                 except MediaMTXError as e:
+                    log.warning("Reconcile patch-after-race failed for %s: %s", name, e)
                     report.errors.append((name, str(e)))
             except MediaMTXError as e:
+                log.warning("Reconcile add failed for %s: %s", name, e)
                 report.errors.append((name, str(e)))
             continue
 
         diff = _config_diff(existing[name].get("conf", existing[name]), cfg)
         if diff:
+            log.debug("Reconcile: %s drift detected fields=%s", name, list(diff.keys()))
             try:
                 await client.patch_path(name, diff)
                 report.patched.append(name)
             except PathNotFound:
+                log.info("Reconcile: %s vanished mid-flight; re-adding", name)
                 try:
                     await client.add_path(name, cfg)
                     report.added.append(name)
                 except MediaMTXError as e:
+                    log.warning("Reconcile re-add failed for %s: %s", name, e)
                     report.errors.append((name, str(e)))
             except MediaMTXError as e:
+                log.warning("Reconcile patch failed for %s: %s", name, e)
                 report.errors.append((name, str(e)))
 
     if delete_orphans:
         for name in existing.keys() - desired.keys():
             if not _is_dss_managed(name):
+                log.debug("Reconcile: skipping orphan %s (not DSS-managed)", name)
                 continue
             try:
                 await client.delete_path(name)
@@ -203,9 +215,11 @@ async def reconcile(
             except PathNotFound:
                 pass
             except MediaMTXError as e:
+                log.warning("Reconcile delete failed for %s: %s", name, e)
                 report.errors.append((name, str(e)))
 
-    log.info("Reconcile complete: %s", report.summary())
+    dt = (time.perf_counter() - t0) * 1000
+    log.info("Reconcile complete in %.0fms: %s", dt, report.summary())
     return report
 
 

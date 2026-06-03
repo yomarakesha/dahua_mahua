@@ -1032,6 +1032,137 @@ kbd {
 
 #settings-health-status { font-size: 12px; color: #888; }
 #settings-health-status.ok { color: #4caf50; }
+
+/* v2 admin layout */
+.settings-add-simple {
+  display: grid;
+  grid-template-columns: 1.5fr 1.2fr 1.2fr 0.6fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+.settings-add-simple label {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: #888;
+  gap: 3px;
+}
+.settings-add-simple input {
+  background: #1a1a2e;
+  border: 1px solid #2a2a40;
+  color: #eee;
+  padding: 6px 8px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.settings-add-simple button {
+  height: 32px;
+  padding: 0 18px;
+  background: #4a90e2;
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  align-self: end;
+}
+.settings-add-simple button:hover { background: #5da3f5; }
+.settings-add-simple button:disabled { opacity: 0.6; cursor: wait; }
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #4a90e2;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 0;
+  margin: 4px 0;
+}
+.link-btn:hover { color: #5da3f5; text-decoration: underline; }
+
+.settings-add-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  align-items: end;
+  margin-top: 6px;
+  padding: 10px;
+  background: #14141e;
+  border-radius: 4px;
+}
+.settings-add-grid label {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: #888;
+  gap: 3px;
+}
+.settings-add-grid label.toggle-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: #ccc;
+}
+.settings-add-grid input,
+.settings-add-grid select {
+  background: #1a1a2e;
+  border: 1px solid #2a2a40;
+  color: #eee;
+  padding: 5px 7px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.settings-add-grid button {
+  height: 28px;
+  align-self: end;
+}
+#settings-add-status,
+#cameras-add-status,
+#cameras-status { display: block; font-size: 12px; margin-top: 6px; min-height: 14px; color: #888; }
+#settings-add-status.ok, #cameras-add-status.ok, #cameras-status.ok { color: #4caf50; }
+#settings-add-status.err, #cameras-add-status.err, #cameras-status.err { color: #f44336; }
+
+.settings-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.settings-actions { display: flex; gap: 6px; }
+
+.row-actions { display: flex; gap: 3px; align-items: center; white-space: nowrap; }
+.row-btn {
+  background: none;
+  border: 1px solid #2a2a40;
+  color: #aaa;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.row-btn:hover { border-color: #e94560; color: #e94560; }
+.row-btn.save { color: #4caf50; }
+.row-btn.save:hover { background: #4caf50; color: #fff; border-color: #4caf50; }
+.row-btn.save:disabled { opacity: 0.35; cursor: default; color: #555; }
+.row-btn.del { color: #f44336; width: 24px; padding: 3px; }
+.row-btn.del:hover { background: #f44336; color: #fff; border-color: #f44336; }
+.row-btn.test { color: #ff9800; }
+.row-btn.test:hover { background: #ff9800; color: #fff; border-color: #ff9800; }
+.row-btn.cams { color: #64b5f6; }
+.row-btn.cams:hover { background: #64b5f6; color: #fff; border-color: #64b5f6; }
+.row-btn.pw { color: #ffca28; }
+
+.nvr-id-cell code {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  background: #1a1a2e;
+  padding: 2px 5px;
+  border-radius: 2px;
+}
+.ch-count { text-align: center; color: #888; }
+
+#cameras-table tr.nvr-disabled { opacity: 0.45; }
 #settings-health-status.err { color: #f44336; }
 
 /* Disabled sidebar NVR */

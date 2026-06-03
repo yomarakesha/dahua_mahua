@@ -36,9 +36,8 @@ import {
   showContextMenu, hideContextMenu, toggleModal, toggleSidebar, initModals,
 } from "./ui-common.js";
 import {
-  openSettings, saveSettings, forceRestart, checkNvrHealth, testAllNvrs,
-  clearAllBans, importNvrs, openEventsLog, addNvrFromFooter,
-  logout, changePassword,
+  openSettings, addNvr, runHealth, runReconcile, refreshNvrs,
+  addCamera, openEventsLog, changePasswordHandler, logout,
 } from "./settings.js";
 
 // ── Wire grid render into sidebar/streams via state hooks (avoid cyclic imports) ─
@@ -123,25 +122,22 @@ function bindEvents() {
     if (state.fullscreenPath) takeSnapshot(state.fullscreenPath, dom.fsVideo);
   });
 
-  // Settings modal
+  // Settings / admin modal
   dom.settingsBtn.addEventListener("click", openSettings);
-  dom.settingsAddBtn.addEventListener("click", addNvrFromFooter);
-  dom.settingsSaveBtn.addEventListener("click", saveSettings);
-  dom.settingsRestartBtn.addEventListener("click", forceRestart);
-  dom.settingsHealthBtn.addEventListener("click", checkNvrHealth);
-  dom.settingsTestAllBtn.addEventListener("click", testAllNvrs);
-  dom.settingsClearBansBtn.addEventListener("click", clearAllBans);
-  dom.settingsImportBtn.addEventListener("click", () => {
-    dom.importTextarea.value = "";
-    dom.importStatus.textContent = "";
-    dom.importDialog.classList.remove("hidden");
-  });
-  dom.importApplyBtn.addEventListener("click", importNvrs);
-  dom.importCancelBtn.addEventListener("click", () => dom.importDialog.classList.add("hidden"));
+  dom.settingsAddBtn.addEventListener("click", addNvr);
+  dom.settingsHealthBtn.addEventListener("click", runHealth);
+  dom.settingsReconcileBtn.addEventListener("click", runReconcile);
+  dom.settingsRefreshBtn.addEventListener("click", refreshNvrs);
   dom.settingsEventsBtn.addEventListener("click", openEventsLog);
+  dom.camerasAddBtn.addEventListener("click", addCamera);
+  dom.settingsAdvToggle.addEventListener("click", () => {
+    const open = dom.settingsAdvPanel.classList.toggle("hidden");
+    dom.settingsAdvToggle.setAttribute("aria-expanded", String(!open));
+    dom.settingsAdvToggle.textContent = open ? "Advanced ▾" : "Advanced ▴";
+  });
 
-  // Global-settings password toggle eyes
-  document.querySelectorAll(".settings-global .pw-toggle").forEach(btn => {
+  // Password-field eyes inside the modal (add-form + change-password section).
+  document.querySelectorAll("#settings-modal .pw-toggle").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       const inp = btn.previousElementSibling;
@@ -151,7 +147,7 @@ function bindEvents() {
 
   // Auth
   dom.logoutBtn.addEventListener("click", logout);
-  dom.settingsChpwBtn.addEventListener("click", changePassword);
+  dom.settingsChpwBtn.addEventListener("click", changePasswordHandler);
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────

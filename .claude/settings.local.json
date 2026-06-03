@@ -13,7 +13,22 @@
       "Bash(git push *)",
       "PowerShell(Get-Command *)",
       "PowerShell(Out-Null *)",
-      "PowerShell($bytes = [IO.File]::ReadAllBytes\\(\"$pwd\\\\start.ps1\"\\); $nonAscii = @\\(\\); for \\($i=0; $i -lt $bytes.Length; $i++\\) { if \\($bytes[$i] -gt 127\\) { $nonAscii += $i } }; if \\($nonAscii.Count -eq 0\\) { Write-Host \"Pure ASCII OK\" } else { Write-Host \\(\"Non-ASCII bytes at offsets: \" + \\($nonAscii -join \", \"\\)\\) })"
+      "PowerShell($bytes = [IO.File]::ReadAllBytes\\(\"$pwd\\\\start.ps1\"\\); $nonAscii = @\\(\\); for \\($i=0; $i -lt $bytes.Length; $i++\\) { if \\($bytes[$i] -gt 127\\) { $nonAscii += $i } }; if \\($nonAscii.Count -eq 0\\) { Write-Host \"Pure ASCII OK\" } else { Write-Host \\(\"Non-ASCII bytes at offsets: \" + \\($nonAscii -join \", \"\\)\\) })",
+      "Bash(backend/.venv/Scripts/python.exe -m pip install --quiet aiosqlite)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":8000 :8080 :9997\")",
+      "Bash(curl *)",
+      "Bash(.venvScriptspython.exe -c 'import asyncio; from sqlalchemy import select; from app.db import SessionLocal; from app.models import User *)",
+      "Bash(sqlite3 *)",
+      "PowerShell($py = \"C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\backend\\\\.venv\\\\Scripts\\\\python.exe\"; & $py -c \"import sqlite3; c = sqlite3.connect\\(r'C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\backend\\\\dss.db'\\); cur = c.cursor\\(\\); cur.execute\\(\\\\\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\\\\\"\\); print\\([r[0] for r in cur.fetchall\\(\\)]\\)\")",
+      "PowerShell($py = \"C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\backend\\\\.venv\\\\Scripts\\\\python.exe\"; $stamp = Get-Date -Format \"yyyyMMdd-HHmmss\"; $out = \"C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\dss-backup-$stamp.json\"; Set-Location \"C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\backend\"; & $py _dump_db.py $out; Write-Host \"BACKUP_PATH=$out\")",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(\"HTTP_PROXY=$env:HTTP_PROXY\"; \"HTTPS_PROXY=$env:HTTPS_PROXY\"; \"NO_PROXY=$env:NO_PROXY\"; \"ALL_PROXY=$env:ALL_PROXY\"; \"---\"; Get-ItemProperty -Path \"HKCU:\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Internet Settings\" | Select-Object ProxyEnable, ProxyServer, ProxyOverride | Format-List)",
+      "PowerShell($py = \"C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\backend\\\\.venv\\\\Scripts\\\\python.exe\"; Set-Location \"C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\backend\"; & $py -c \"from app.routers.nvrs import router; from app.routers.cameras import router as c; from app.schemas import NvrCreate, NvrRead; print\\('imports OK'\\)\")",
+      "PowerShell($py = \"C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\backend\\\\.venv\\\\Scripts\\\\python.exe\"; Set-Location \"C:\\\\Users\\\\yomarakesha\\\\Desktop\\\\projects\\\\dss\\\\backend\"; & $py -c \"from app.main import create_app; app = create_app\\(\\); print\\('app ok, routes:', len\\(app.routes\\)\\)\")",
+      "Bash(dir C:UsersyomarakeshaDesktopprojectsdss *)",
+      "PowerShell(Get-ChildItem web -Recurse -File | Where-Object { $_.Extension -in '.js','.css','.html','.json','.md' } | Select-Object FullName, Length | Format-Table -AutoSize)"
     ]
   }
 }

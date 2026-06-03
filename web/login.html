@@ -41,11 +41,14 @@
 
   <script type="module">
     import { login, changePassword } from "./js/api.js";
+    import { dlog } from "./js/logger.js";
 
     const form = document.getElementById("login-form");
     const btn = document.getElementById("submit");
     const errEl = document.getElementById("err");
     const changeBlock = document.getElementById("change-block");
+
+    dlog.info("", "login-page-loaded", `ua=${navigator.userAgent.slice(0, 120)}`);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -58,6 +61,7 @@
       try {
         const { mustChange } = await login(username, password);
         if (mustChange && !newPw) {
+          dlog.info("", "login-must-change-password", `user=${username}`);
           changeBlock.style.display = "";
           btn.textContent = "Set new password & continue";
           errEl.textContent = "Please choose a new password.";
@@ -65,10 +69,14 @@
           return;
         }
         if (mustChange && newPw) {
+          dlog.info("", "login-changing-password", `user=${username}`);
           await changePassword(password, newPw);
         }
+        dlog.info("", "login-redirect", "→ /index.html");
+        dlog.flush();
         location.href = "/index.html";
       } catch (err) {
+        dlog.error("", "login-submit-fail", `user=${username}: ${String(err.message || err)}`);
         errEl.textContent = String(err.message || err);
         btn.disabled = false;
       }

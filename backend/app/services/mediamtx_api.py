@@ -13,6 +13,7 @@ Errors:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -39,7 +40,12 @@ class MediaMTXClient:
 
     def __init__(self, base_url: str | None = None, timeout: float = 5.0):
         self._base = (base_url or get_settings().mediamtx_api_url).rstrip("/")
-        self._client = httpx.AsyncClient(base_url=self._base, timeout=timeout)
+        # trust_env=False so we don't pick up the user's HTTP(S)_PROXY env vars
+        # — MediaMTX runs on localhost and routing it through a proxy is a
+        # configuration footgun that surfaces as ConnectError mid-request.
+        self._client = httpx.AsyncClient(
+            base_url=self._base, timeout=timeout, trust_env=False,
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -58,6 +64,7 @@ class MediaMTXClient:
         pull everything (~684 entries at full scale — single page is fine)."""
         out: dict[str, dict[str, Any]] = {}
         page = 0
+        t0 = time.perf_counter()
         while True:
             r = await self._client.get(
                 "/v3/config/paths/list",
@@ -70,31 +77,59 @@ class MediaMTXClient:
             if (page + 1) * body.get("itemsPerPage", 500) >= body.get("itemCount", 0):
                 break
             page += 1
+        log.debug("MediaMTX list_paths → %d entries in %.0fms",
+                  len(out), (time.perf_counter() - t0) * 1000)
         return out
 
     async def get_path(self, name: str) -> dict[str, Any]:
+        t0 = time.perf_counter()
         r = await self._client.get(f"/v3/config/paths/get/{name}")
+        dt = (time.perf_counter() - t0) * 1000
         if r.status_code == 404:
+            log.debug("MediaMTX get_path %s → 404 (%.0fms)", name, dt)
             raise PathNotFound(name)
         self._raise(r)
+        log.debug("MediaMTX get_path %s → %d (%.0fms)", name, r.status_code, dt)
         return r.json()
 
     async def add_path(self, name: str, config: dict[str, Any]) -> None:
+        t0 = time.perf_counter()
         r = await self._client.post(f"/v3/config/paths/add/{name}", json=config)
+        dt = (time.perf_counter() - t0) * 1000
         if r.status_code == 400 and "already" in r.text.lower():
+            log.info("MediaMTX add_path %s → already exists (%.0fms)", name, dt)
             raise PathExists(name)
+        if r.status_code >= 400:
+            log.warning("MediaMTX add_path %s → %d %s (%.0fms)", name, r.status_code, r.text[:200], dt)
+        else:
+            log.info("MediaMTX add_path %s → %d (%.0fms)", name, r.status_code, dt)
         self._raise(r)
 
     async def patch_path(self, name: str, config: dict[str, Any]) -> None:
+        t0 = time.perf_counter()
         r = await self._client.patch(f"/v3/config/paths/patch/{name}", json=config)
+        dt = (time.perf_counter() - t0) * 1000
         if r.status_code == 404:
+            log.info("MediaMTX patch_path %s → 404 not found (%.0fms)", name, dt)
             raise PathNotFound(name)
+        if r.status_code >= 400:
+            log.warning("MediaMTX patch_path %s → %d %s (%.0fms)", name, r.status_code, r.text[:200], dt)
+        else:
+            log.info("MediaMTX patch_path %s fields=%s → %d (%.0fms)",
+                     name, list(config.keys()), r.status_code, dt)
         self._raise(r)
 
     async def delete_path(self, name: str) -> None:
+        t0 = time.perf_counter()
         r = await self._client.delete(f"/v3/config/paths/delete/{name}")
+        dt = (time.perf_counter() - t0) * 1000
         if r.status_code == 404:
+            log.info("MediaMTX delete_path %s → 404 (already gone, %.0fms)", name, dt)
             raise PathNotFound(name)
+        if r.status_code >= 400:
+            log.warning("MediaMTX delete_path %s → %d %s (%.0fms)", name, r.status_code, r.text[:200], dt)
+        else:
+            log.info("MediaMTX delete_path %s → %d (%.0fms)", name, r.status_code, dt)
         self._raise(r)
 
     @staticmethod

@@ -254,6 +254,10 @@ async def detect_dahua_channels(
         async with httpx.AsyncClient(
             timeout=timeout,
             auth=httpx.DigestAuth(username, password),
+            # NVRs live on the LAN. Don't route requests through the user's
+            # HTTP_PROXY (Windows system proxy bites us in `mediamtx_api.py`
+            # the same way — see trust_env=False there).
+            trust_env=False,
         ) as client:
             channels: list[int] = []
             for ep in endpoints:

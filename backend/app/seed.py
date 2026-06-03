@@ -21,10 +21,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crypto import encrypt_password
-from app.db import SessionLocal
+from app.db import Base, SessionLocal, engine
 from app.models import Camera, Nvr, Region, User, Role, Vendor
 from app.security import hash_password
 from app.settings import get_settings
+
+
+async def _ensure_schema_sqlite() -> None:
+    """Mirror the lifespan helper in app.main so `python -m app.seed`
+    works against an empty SQLite DB without first booting the backend."""
+    if engine.dialect.name != "sqlite":
+        return
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 async def _ensure_region(session: AsyncSession, slug: str, name: str | None = None) -> Region:
@@ -129,6 +138,7 @@ async def seed(inventory_path: Path, region_slug: str | None) -> None:
     nvrs = raw.get("nvrs", [])
 
     print(f"Seeding from {inventory_path} ({len(nvrs)} NVRs)")
+    await _ensure_schema_sqlite()
     async with SessionLocal() as session:
         async with session.begin():
             await _ensure_bootstrap_admin(session)

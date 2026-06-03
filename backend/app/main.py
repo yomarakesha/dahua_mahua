@@ -19,11 +19,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
-from app.db import SessionLocal
-from app.models import User, Role
+from app.db import Base, SessionLocal, engine
+from app.models import User, Role  # noqa: F401  (ensure mappers register before create_all)
 from app.routers import (
     auth,
     cameras,
+    client_log,
     discovery,
     events,
     mediamtx as mediamtx_router,
@@ -38,6 +39,17 @@ from app.services.mediamtx_api import get_client, shutdown_client
 from app.settings import get_settings
 
 log = logging.getLogger("dss.main")
+
+
+async def _ensure_schema() -> None:
+    """For SQLite (local dev) we create tables on startup instead of running
+    Alembic. Postgres always goes through `alembic upgrade head` — never
+    autocreate against it, or future migrations will drift."""
+    if engine.dialect.name != "sqlite":
+        return
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    log.info("SQLite schema ensured via create_all")
 
 
 async def _ensure_bootstrap_admin() -> None:
@@ -82,6 +94,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    await _ensure_schema()
     await _ensure_bootstrap_admin()
 
     if settings.mediamtx_managed:
@@ -116,7 +129,7 @@ def create_app() -> FastAPI:
     )
 
     prefix = settings.api_prefix
-    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery):
+    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery, client_log):
         app.include_router(r.router, prefix=prefix)
 
     @app.get("/healthz", tags=["meta"])

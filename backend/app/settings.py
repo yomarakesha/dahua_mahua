@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
 
     # ── Database ─────────────────────────────────────────────────────────────
-    database_url: str = "postgresql+asyncpg://dss:dss@localhost:5432/dss"
+    # SQLite is the default so local dev works without installing Postgres.
+    # For prod set DATABASE_URL=postgresql+asyncpg://dss:dss@host:5432/dss
+    database_url: str = "sqlite+aiosqlite:///./dss.db"
 
     # ── Security ─────────────────────────────────────────────────────────────
     # Override JWT_SECRET in production. The default is intentionally insecure

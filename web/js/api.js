@@ -11,6 +11,7 @@
  * The backend only hands out the URLs; the player connects to them itself.
  */
 import { CONFIG } from "./config.js";
+import { dlog } from "./logger.js";
 
 const TOKEN_KEY = "dss_token";
 const ME_KEY = "dss_me";
@@ -55,8 +56,18 @@ async function request(method, path, { body, query } = {}) {
   };
   if (body) init.body = JSON.stringify(body);
 
-  const res = await fetch(url.toString(), init);
+  const t0 = performance.now();
+  let res;
+  try {
+    res = await fetch(url.toString(), init);
+  } catch (e) {
+    dlog.error("", "api-network-error", `${method} ${path} ${(performance.now() - t0).toFixed(0)}ms: ${String(e)}`);
+    throw e;
+  }
+  const dt = (performance.now() - t0).toFixed(0);
+
   if (res.status === 401) {
+    dlog.warn("", "api-401", `${method} ${path} ${dt}ms — bouncing to login`);
     setToken(null);
     setMe(null);
     if (!location.pathname.endsWith("/login.html")) {
@@ -67,8 +78,10 @@ async function request(method, path, { body, query } = {}) {
   if (!res.ok) {
     let detail = res.statusText;
     try { const j = await res.json(); detail = j.detail || detail; } catch (_) {}
+    dlog.error("", "api-error", `${method} ${path} → ${res.status} ${dt}ms: ${String(detail).slice(0, 300)}`);
     throw new Error(`${method} ${path} → ${res.status}: ${detail}`);
   }
+  dlog.debug("", "api-ok", `${method} ${path} → ${res.status} ${dt}ms`);
   if (res.status === 204) return null;
   return res.json();
 }
@@ -76,15 +89,24 @@ async function request(method, path, { body, query } = {}) {
 // ── Auth ────────────────────────────────────────────────────────────────────
 
 export async function login(username, password) {
-  // Public endpoint — no auth header. Browser will set Content-Type.
-  const res = await fetch(CONFIG.backendBase + "/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
+  dlog.info("", "login-attempt", `user=${username}`);
+  const t0 = performance.now();
+  let res;
+  try {
+    // Public endpoint — no auth header. Browser will set Content-Type.
+    res = await fetch(CONFIG.backendBase + "/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch (e) {
+    dlog.error("", "login-network-error", `user=${username} ${(performance.now() - t0).toFixed(0)}ms: ${String(e)}`);
+    throw e;
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch (_) {}
+    dlog.warn("", "login-fail", `user=${username} status=${res.status} detail=${String(detail).slice(0, 200)}`);
     throw new Error(detail);
   }
   const data = await res.json();
@@ -92,6 +114,8 @@ export async function login(username, password) {
   // Pull profile so we know admin vs operator without re-decoding the JWT.
   const me = await request("GET", "/auth/me");
   setMe(me);
+  dlog.info("", "login-ok",
+    `user=${me.username} role=${me.role} mustChange=${data.must_change_password} dt=${(performance.now() - t0).toFixed(0)}ms`);
   return { token: data, me, mustChange: data.must_change_password };
 }
 
@@ -110,7 +134,7 @@ export async function changePassword(currentPassword, newPassword) {
 
 // ── Inventory ───────────────────────────────────────────────────────────────
 
-export const listCameras = () => request("GET", "/cameras");
+export const listCameras = (opts) => request("GET", "/cameras", { query: opts });
 export const listNvrs = () => request("GET", "/nvrs");
 export const listRegions = () => request("GET", "/regions");
 export const listEvents = (params) => request("GET", "/events", { query: params });
@@ -120,7 +144,9 @@ export const updateNvr = (id, body) => request("PATCH", `/nvrs/${id}`, { body })
 export const deleteNvr = (id) => request("DELETE", `/nvrs/${id}`);
 export const testNvr = (id) => request("POST", `/nvrs/${id}/test`);
 export const healthAllNvrs = () => request("POST", "/nvrs/health");
+export const createCamera = (body) => request("POST", "/cameras", { body });
 export const updateCamera = (id, body) => request("PATCH", `/cameras/${id}`, { body });
+export const deleteCamera = (id) => request("DELETE", `/cameras/${id}`);
 
 // ── Streams ─────────────────────────────────────────────────────────────────
 /**

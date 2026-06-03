@@ -193,46 +193,49 @@
     </div>
   </div>
 
-  <!-- Settings Modal -->
+  <!-- Settings Modal: NVR + Camera CRUD -->
   <div id="settings-modal" class="modal hidden">
     <div class="modal-content modal-xlarge">
       <div class="modal-header">
-        <h2>NVR Settings</h2>
+        <h2>NVR Management</h2>
         <button class="modal-close">&times;</button>
       </div>
       <div class="modal-body">
         <div class="settings-section">
-          <h3 class="settings-label">Global Defaults</h3>
-          <div class="settings-global">
-            <label>Port <input id="settings-port" type="number" min="1" max="65535"></label>
-            <label>User <input id="settings-user" type="text" autocomplete="off"></label>
-            <label class="pw-field">Pass <input id="settings-pass" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></label>
-            <label>Subtype
-              <select id="settings-subtype">
-                <option value="0">Main</option>
-                <option value="1">Sub</option>
+          <h3 class="settings-label">Add NVR</h3>
+          <div class="settings-add-simple">
+            <label>Name <input id="settings-new-label" type="text" placeholder="Lobby NVR" autocomplete="off"></label>
+            <label>IP <input id="settings-new-ip" type="text" placeholder="192.168.1.10" autocomplete="off"></label>
+            <label class="pw-field">Password <input id="settings-new-pass" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></label>
+            <label>Channels <input id="settings-new-ch" type="number" min="0" max="512" value="" placeholder="auto" title="Leave blank for auto-detect (Dahua magicBox CGI)"></label>
+            <button id="settings-add-btn">Add</button>
+          </div>
+          <button id="settings-adv-toggle" type="button" class="link-btn" aria-expanded="false">Advanced ▾</button>
+          <div id="settings-adv-panel" class="settings-add-grid hidden">
+            <label>ID <input id="settings-new-id" type="text" placeholder="(auto from IP)" autocomplete="off"></label>
+            <label>Port <input id="settings-new-port" type="number" min="1" max="65535" value="554"></label>
+            <label>User <input id="settings-new-user" type="text" value="admin" autocomplete="off"></label>
+            <label>Vendor
+              <select id="settings-new-vendor">
+                <option value="dahua">Dahua</option>
+                <option value="hikvision">Hikvision</option>
               </select>
             </label>
+            <label>Region <select id="settings-new-region"></select></label>
+            <label class="toggle-label">Enabled <input id="settings-new-enabled" type="checkbox" checked></label>
           </div>
-          <h3 class="settings-label" style="margin-top:12px">Stream Source</h3>
-          <div class="settings-global">
-            <label>Source
-              <select id="settings-stream-source">
-                <option value="nvr">Direct NVR (default)</option>
-                <option value="server">Centralized Server</option>
-              </select>
-            </label>
-            <label>Server URL <input id="settings-server-url" type="text" placeholder="rtsp://server:8554" autocomplete="off" title="RTSP URL of centralized MediaMTX server"></label>
-          </div>
-          <h3 class="settings-label" style="margin-top:12px">Connection</h3>
-          <div class="settings-global">
-            <label>Max retries <input id="settings-max-retries" type="number" min="0" max="100" title="0 = no retry, -1 = infinite"></label>
-            <label>Retry delay (s) <input id="settings-retry-delay" type="number" min="1" max="300"></label>
-            <label>Concurrent <input id="settings-max-concurrent" type="number" min="1" max="32"></label>
-          </div>
+          <span id="settings-add-status"></span>
         </div>
         <div class="settings-section">
-          <h3 class="settings-label">NVRs (<span id="settings-nvr-count">0</span>)</h3>
+          <div class="settings-section-head">
+            <h3 class="settings-label">NVRs (<span id="settings-nvr-count">0</span>)</h3>
+            <div class="settings-actions">
+              <button id="settings-health-btn" class="btn-secondary" title="TCP reachability check (no credentials)">Health</button>
+              <button id="settings-reconcile-btn" class="btn-secondary" title="Re-push paths to MediaMTX">Reconcile</button>
+              <button id="settings-events-btn" class="btn-secondary" title="View NVR event log">Events</button>
+              <button id="settings-refresh-btn" class="btn-secondary" title="Reload NVR list">&#8635;</button>
+            </div>
+          </div>
           <div class="settings-table-wrap">
             <table id="settings-nvr-table">
               <thead>
@@ -241,41 +244,17 @@
                   <th>ID</th>
                   <th>Label</th>
                   <th>IP</th>
-                  <th>CH</th>
-                  <th>Pass</th>
+                  <th>Port</th>
+                  <th>User</th>
                   <th>Vendor</th>
-                  <th>Source</th>
+                  <th>CH</th>
+                  <th>Region</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="settings-nvr-body"></tbody>
-              <tfoot>
-                <tr id="settings-add-row">
-                  <td></td>
-                  <td><input id="settings-new-id" type="text" placeholder="nvr__"></td>
-                  <td><input id="settings-new-label" type="text" placeholder="Label"></td>
-                  <td><input id="settings-new-ip" type="text" placeholder="192.168.x.x"></td>
-                  <td><input id="settings-new-ch" type="number" min="1" value="1"></td>
-                  <td><input id="settings-new-pass" type="password" placeholder="(global)"></td>
-                  <td>
-                    <select id="settings-new-vendor">
-                      <option value="dahua">Dahua</option>
-                      <option value="hikvision">Hikvision</option>
-                      <option value="generic">Generic</option>
-                    </select>
-                  </td>
-                  <td></td>
-                  <td><button id="settings-add-btn" class="settings-row-btn add" title="Add NVR">+</button></td>
-                </tr>
-              </tfoot>
             </table>
-            <div class="settings-health-row">
-              <button id="settings-health-btn" class="btn-secondary" title="TCP reachability check (no credentials)">Check Health</button>
-              <button id="settings-test-all-btn" class="btn-secondary" title="Test RTSP credentials for all enabled NVRs">Test All</button>
-              <button id="settings-clear-bans-btn" class="btn-secondary" title="Clear all server-side ban timers">Clear Bans</button>
-              <button id="settings-import-btn" class="btn-secondary" title="Import NVRs from CSV or JSON">Import</button>
-              <span id="settings-health-status"></span>
-            </div>
+            <span id="settings-status"></span>
           </div>
         </div>
         <div class="settings-section">
@@ -287,36 +266,47 @@
             <span id="settings-chpw-status"></span>
           </div>
         </div>
-        <div class="settings-footer">
-          <button id="settings-restart-btn" class="btn-secondary" title="Force restart MediaMTX">&#8635; Force Restart</button>
-          <button id="settings-events-btn" class="btn-secondary" title="View NVR event log">Events</button>
-          <span id="settings-status"></span>
-          <button id="settings-save-btn">Save &amp; Apply</button>
-        </div>
       </div>
     </div>
   </div>
 
-  <!-- Import Dialog -->
-  <div id="import-dialog" class="modal hidden">
+  <!-- Camera CRUD sub-dialog -->
+  <div id="cameras-dialog" class="modal hidden">
     <div class="modal-content modal-large">
       <div class="modal-header">
-        <h2>Import NVRs</h2>
+        <h2>Cameras — <span id="cameras-dialog-nvr"></span></h2>
         <button class="modal-close">&times;</button>
       </div>
       <div class="modal-body">
-        <p style="font-size:12px;color:#888;margin-bottom:8px">Paste CSV (id,label,ip,channels,password,vendor) or JSON array of NVR objects:</p>
-        <textarea id="import-textarea" rows="10" placeholder='id,label,ip,channels,password,vendor
-nvr12,NVR 12,192.168.20.100,16,mypass,dahua
-hik01,HIK Lobby,10.10.5.20,8,pass123,hikvision
-
-or JSON:
-[{"id":"nvr12","label":"NVR 12","ip":"192.168.20.100","channels":16,"vendor":"dahua"},
- {"id":"hik01","label":"HIK Lobby","ip":"10.10.5.20","channels":8,"vendor":"hikvision"}]'></textarea>
-        <div id="import-status" style="font-size:12px;margin-top:6px;min-height:16px"></div>
-        <div class="dialog-actions" style="margin-top:10px">
-          <button id="import-apply-btn">Import</button>
-          <button id="import-cancel-btn" class="btn-secondary">Cancel</button>
+        <div class="settings-section">
+          <h3 class="settings-label">Add channel</h3>
+          <div class="settings-add-grid">
+            <label>Channel <input id="cameras-new-ch" type="number" min="1" max="512" value="1"></label>
+            <label>Name <input id="cameras-new-name" type="text" placeholder="(optional)"></label>
+            <label class="toggle-label">Sub <input id="cameras-new-sub" type="checkbox" checked></label>
+            <label class="toggle-label">Main <input id="cameras-new-main" type="checkbox" checked></label>
+            <label class="toggle-label">Enabled <input id="cameras-new-enabled" type="checkbox" checked></label>
+            <button id="cameras-add-btn">Add</button>
+          </div>
+          <span id="cameras-add-status"></span>
+        </div>
+        <div class="settings-section">
+          <div class="settings-table-wrap">
+            <table id="cameras-table">
+              <thead>
+                <tr>
+                  <th>On</th>
+                  <th>CH</th>
+                  <th>Name</th>
+                  <th>Sub</th>
+                  <th>Main</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="cameras-body"></tbody>
+            </table>
+            <span id="cameras-status"></span>
+          </div>
         </div>
       </div>
     </div>
