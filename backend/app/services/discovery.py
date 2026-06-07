@@ -197,8 +197,14 @@ async def tcp_scan(
     concurrency: int = 128,
 ) -> dict[str, Candidate]:
     """Scan every host in `cidr` (e.g. "192.168.1.0/24") on `ports`. Returns
-    candidates for each IP that answers on at least one port."""
-    ports = ports or [554]
+    candidates for each IP that answers on at least one port.
+
+    Default ports are camera-specific to keep false positives low: 554 (RTSP,
+    the stream port we actually use) and 37777 (Dahua's private SDK/config
+    port). A device answering either is almost certainly an NVR/camera, even
+    with ONVIF disabled. We report it with port 554 since that's the RTSP port
+    the import flow records (the operator can override it)."""
+    ports = ports or [554, 37777]
     network = ipaddress.ip_network(cidr, strict=False)
     if network.num_addresses > 4096:
         raise ValueError(f"CIDR too large ({network.num_addresses} hosts); cap at /20")
@@ -207,9 +213,19 @@ async def tcp_scan(
     found: dict[str, Candidate] = {}
 
     async def _one(ip: str, port: int) -> None:
+        # One open port is enough to flag the host — skip the remaining
+        # port probes once any has answered. Halves the connects for a host
+        # that responds on the first port (e.g. 554) and avoids burning a
+        # semaphore slot on redundant work.
+        if ip in found:
+            return
         async with sem:
+            if ip in found:
+                return
             if await _tcp_probe(ip, port, timeout):
-                c = found.setdefault(ip, Candidate(ip=ip, port=port))
+                # Record the RTSP port (554) regardless of which probe port
+                # answered — that's what the NVR record / import flow uses.
+                c = found.setdefault(ip, Candidate(ip=ip, port=554))
                 if "tcp" not in c.sources:
                     c.sources.append("tcp")
 

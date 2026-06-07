@@ -81,12 +81,18 @@ async def scan(
 
     cidr_used: str | None = None
     if body.tcp:
-        cidr_used = body.cidr or default_cidr()
-        if cidr_used:
-            try:
-                found = _merge(found, await tcp_scan(cidr_used, timeout=0.6))
-            except Exception as e:  # noqa: BLE001
-                log.warning("TCP scan failed: %s", e)
+        raw = body.cidr or default_cidr()
+        if raw:
+            # Accept one or more CIDRs (comma- or semicolon-separated) so the
+            # operator can sweep several subnets — including ones their own host
+            # isn't in but can route to — in a single scan.
+            cidrs = [c.strip() for c in raw.replace(";", ",").split(",") if c.strip()]
+            cidr_used = ", ".join(cidrs)
+            for c in cidrs:
+                try:
+                    found = _merge(found, await tcp_scan(c, timeout=0.6))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("TCP scan failed for %s: %s", c, e)
         else:
             log.warning("TCP scan requested but no CIDR provided and autodetect failed")
 
@@ -99,8 +105,15 @@ async def scan(
     detected: dict[str, int] = {}
     if body.rtsp_username and body.rtsp_password:
         import asyncio
+        # Bound concurrency: each _detect does a digest auth against the host.
+        # Firing one per found IP at once (multi-CIDR can make `found` large)
+        # would hammer many devices with the same creds simultaneously and can
+        # trip Dahua's firmware IP-ban — the exact failure the rest of the code
+        # guards against. 16 keeps it brisk without the stampede.
+        sem = asyncio.Semaphore(16)
         async def _detect(ip: str) -> tuple[str, int | None]:
-            n = await detect_dahua_channels(ip, body.rtsp_username, body.rtsp_password)
+            async with sem:
+                n = await detect_dahua_channels(ip, body.rtsp_username, body.rtsp_password)
             return ip, n
         results = await asyncio.gather(*[_detect(ip) for ip in found])
         for ip, n in results:
@@ -184,9 +197,9 @@ async def import_hosts(
                 item.port,
                 body.rtsp_username,
                 body.rtsp_password,
-                1,
-                item.vendor,
-                f"[{nvr_id}]",
+                channel=1,
+                vendor=item.vendor,
+                tag=f"[{nvr_id}]",
             )
             if not probe.ok:
                 results.append(DiscoveryImportResult(

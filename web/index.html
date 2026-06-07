@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DSS - Camera Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -37,6 +40,7 @@
     </div>
     <div class="toolbar-right">
       <input id="search" type="text" placeholder="Search cameras... (/)" autocomplete="off">
+      <a id="discover-btn" href="/discover.html" title="Discover NVRs on the network"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></a>
       <button id="settings-btn" title="NVR Settings (,)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <button id="status-toggle" title="Connection status">
         <span class="status-dot online"></span>
@@ -206,7 +210,7 @@
           <div class="settings-add-simple">
             <label>Name <input id="settings-new-label" type="text" placeholder="Lobby NVR" autocomplete="off"></label>
             <label>IP <input id="settings-new-ip" type="text" placeholder="192.168.1.10" autocomplete="off"></label>
-            <label class="pw-field">Password <input id="settings-new-pass" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></label>
+            <label>Password <span class="pw-field"><input id="settings-new-pass" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></span></label>
             <label>Channels <input id="settings-new-ch" type="number" min="0" max="512" value="" placeholder="auto" title="Leave blank for auto-detect (Dahua magicBox CGI)"></label>
             <button id="settings-add-btn">Add</button>
           </div>
@@ -260,8 +264,8 @@
         <div class="settings-section">
           <h3 class="settings-label">Change Dashboard Password</h3>
           <div class="settings-global">
-            <label class="pw-field">Current <input id="settings-cur-pw" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></label>
-            <label class="pw-field">New <input id="settings-new-pw" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></label>
+            <label>Current <span class="pw-field"><input id="settings-cur-pw" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></span></label>
+            <label>New <span class="pw-field"><input id="settings-new-pw" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></span></label>
             <button id="settings-chpw-btn" class="btn-secondary">Change</button>
             <span id="settings-chpw-status"></span>
           </div>

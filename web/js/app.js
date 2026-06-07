@@ -12,7 +12,6 @@ import { dlog } from "./logger.js";
 import { scheduleStatusUpdate } from "./utils.js";
 import {
   fetchCameras, fetchInventory, startStallDetection, reconnectAllVisible,
-  connectCamera,
 } from "./streams.js";
 import {
   renderSidebar, applyFilter, bindSidebarHooks,
@@ -108,12 +107,7 @@ function bindEvents() {
   dom.groupSelectAll.addEventListener("click", toggleGroupSelectAll);
 
   dom.statusToggle.addEventListener("click", () => { renderStatusPanel(); toggleModal(dom.statusPanel); });
-  dom.reconnectAllBtn.addEventListener("click", () => {
-    for (const path in state.connections) {
-      const c = state.connections[path];
-      if (c.status === "error" && c.video) connectCamera(path, c.video);
-    }
-  });
+  dom.reconnectAllBtn.addEventListener("click", () => reconnectAllVisible());
 
   dom.shortcutsBtn.addEventListener("click", () => toggleModal(dom.shortcutsModal));
   dom.fsCloseBtn.addEventListener("click", closeFullscreen);

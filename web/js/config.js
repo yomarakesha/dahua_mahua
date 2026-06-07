@@ -11,6 +11,14 @@ export const CONFIG = {
   // those through the backend would defeat the fan-out.
   webrtcBase:     `${location.protocol}//${location.hostname}:8889`,
   hlsBase:        `${location.protocol}//${location.hostname}:8888`,
+  // ICE servers for the browser-side RTCPeerConnection. EMPTY on purpose:
+  // DSS is a LAN fan-out, so the browser and MediaMTX exchange host
+  // candidates directly and connect instantly. A public STUN server here is
+  // pure overhead — ICE would block waiting for a server-reflexive candidate
+  // (and stall for the full timeout when the box has no internet), delaying
+  // first frame. Only add a STUN/TURN entry if operators watch from OUTSIDE
+  // the LAN, e.g. [{ urls: "stun:stun.l.google.com:19302" }].
+  iceServers:     [],
   pollInterval:   10000,
   maxConcurrent:  8,
   reconnectBase:  2000,

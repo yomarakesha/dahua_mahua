@@ -22,12 +22,23 @@ from app.db import SessionLocal
 from app.models import Lockout
 
 
+def _epoch(dt: datetime) -> float:
+    """UTC epoch seconds for `dt`. banned_at is written tz-aware (UTC), but
+    SQLite drops the tzinfo on round-trip and hands back a NAIVE datetime;
+    `naive.timestamp()` would then assume LOCAL time and skew every lockout by
+    the host's UTC offset. Treat a naive value as UTC so the math is correct
+    on both SQLite (dev) and Postgres (prod)."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
 async def get_active_lockout(ip: str) -> Lockout | None:
     async with SessionLocal() as session:
         lock = (await session.execute(select(Lockout).where(Lockout.ip == ip))).scalar_one_or_none()
         if lock is None:
             return None
-        expires_at = lock.banned_at.timestamp() + lock.cooldown_seconds
+        expires_at = _epoch(lock.banned_at) + lock.cooldown_seconds
         if time.time() >= expires_at:
             await session.execute(delete(Lockout).where(Lockout.ip == ip))
             await session.commit()
@@ -56,4 +67,4 @@ async def clear_lockout(ip: str) -> bool:
 
 
 def remaining_seconds(lock: Lockout) -> int:
-    return max(0, int(lock.banned_at.timestamp() + lock.cooldown_seconds - time.time()))
+    return max(0, int(_epoch(lock.banned_at) + lock.cooldown_seconds - time.time()))

@@ -72,6 +72,26 @@ async def list_nvrs(session: SessionDep, user: CurrentUser) -> list[NvrRead]:
     return [_to_read(n) for n in _visible_nvrs(nvrs, user)]
 
 
+@router.get("/health", response_model=list[NvrHealthResult])
+async def health_all(session: SessionDep, user: CurrentUser) -> list[NvrHealthResult]:
+    """TCP-only reachability probe for every NVR the user can see. Cheap (no auth).
+
+    Declared BEFORE the /{nvr_id} route on purpose: FastAPI resolves routes in
+    registration order, so a parameterized /{nvr_id} above this would swallow
+    'health' as an nvr_id and 404.
+    """
+    nvrs = list((await session.execute(select(Nvr))).scalars())
+    nvrs = _visible_nvrs(nvrs, user)
+
+    async def _probe(n: Nvr) -> NvrHealthResult:
+        if not n.enabled:
+            return NvrHealthResult(nvr_id=n.id, ok=False, message="Disabled")
+        ok, msg = await asyncio.to_thread(tcp_reachable, n.ip, n.port)
+        return NvrHealthResult(nvr_id=n.id, ok=ok, message=msg)
+
+    return await asyncio.gather(*[_probe(n) for n in nvrs])
+
+
 @router.get("/{nvr_id}", response_model=NvrRead)
 async def get_nvr(nvr_id: str, session: SessionDep, user: CurrentUser) -> NvrRead:
     nvr = (
@@ -261,6 +281,11 @@ async def update_nvr(
     final_user = data.get("rtsp_username", nvr.rtsp_username)
     cred_fields = {"ip", "port", "rtsp_username", "rtsp_password"}
     cred_changed = bool(cred_fields & data.keys())
+    # A disabled→enabled transition must re-validate creds too, even if they
+    # didn't change: the NVR may have been auto-disabled by the watchdog for a
+    # wrong stored password. Re-enabling without a probe would put MediaMTX
+    # straight back into the 401-loop that triggers the firmware IP-ban.
+    enabling = final_enabled and not nvr.enabled
 
     # Guard 1: re-enabling an NVR whose IP is in lockout would resume the
     # 401-loop and dig the hole deeper. Refuse with the remaining cooldown.
@@ -274,11 +299,12 @@ async def update_nvr(
                 f"{remaining // 60}m {remaining % 60}s.",
             )
 
-    # Guard 2: if the caller is changing RTSP creds (ip/port/user/pass) AND
-    # the NVR will remain (or become) enabled, validate the new creds first.
-    # Saving a typo'd password to an enabled NVR is the exact path that gets
-    # MediaMTX to hammer the NVR with 401s and trigger a firmware-side ban.
-    if final_enabled and cred_changed:
+    # Guard 2: if the caller is changing RTSP creds (ip/port/user/pass) OR
+    # turning a disabled NVR back on, validate the effective creds first.
+    # Saving a typo'd password to an enabled NVR — or re-enabling one that was
+    # auto-disabled for bad creds — is the exact path that gets MediaMTX to
+    # hammer the NVR with 401s and trigger a firmware-side ban.
+    if final_enabled and (cred_changed or enabling):
         final_pw = (
             data["rtsp_password"]
             if "rtsp_password" in data
@@ -454,18 +480,3 @@ async def test_nvr(
         out.banned_until = _t() + result.banned_cooldown
         out.remaining = result.banned_cooldown
     return out
-
-
-@router.get("/health", response_model=list[NvrHealthResult])
-async def health_all(session: SessionDep, user: CurrentUser) -> list[NvrHealthResult]:
-    """TCP-only reachability probe for every NVR the user can see. Cheap (no auth)."""
-    nvrs = list((await session.execute(select(Nvr))).scalars())
-    nvrs = _visible_nvrs(nvrs, user)
-
-    async def _probe(n: Nvr) -> NvrHealthResult:
-        if not n.enabled:
-            return NvrHealthResult(nvr_id=n.id, ok=False, message="Disabled")
-        ok, msg = await asyncio.to_thread(tcp_reachable, n.ip, n.port)
-        return NvrHealthResult(nvr_id=n.id, ok=ok, message=msg)
-
-    return await asyncio.gather(*[_probe(n) for n in nvrs])

@@ -7,8 +7,7 @@ import { CONFIG, STALL_CHECK_INTERVAL, STALL_THRESHOLD } from "./config.js";
 import { state } from "./state.js";
 import { dlog } from "./logger.js";
 import {
-  getNvrId, scheduleStatusUpdate, showWarning, showToast,
-  getPageCameras,
+  scheduleStatusUpdate, showWarning,
 } from "./utils.js";
 import { listCameras, listNvrs } from "./api.js";
 
@@ -56,8 +55,11 @@ export async function fetchInventory() {
 
 export function streamPathFor(camPath) {
   const tiles = (state.gridCols || 1) * (state.gridRows || 1);
-  const maxMainTiles = state.prefs && state.prefs.mainStreamMaxTiles
-    ? state.prefs.mainStreamMaxTiles : 4;
+  // Default 1 (matches state.prefs.mainStreamMaxTiles): only a single-tile view
+  // pulls the heavy main-stream; any real grid uses the light sub-stream. A
+  // wrong fallback here (the old 4) silently put 2×2 grids on main-stream,
+  // causing the exact RTP loss / lag the default is meant to avoid.
+  const maxMainTiles = (state.prefs && state.prefs.mainStreamMaxTiles) ?? 1;
   return tiles <= maxMainTiles ? camPath + "_main" : camPath;
 }
 
@@ -243,7 +245,7 @@ async function tryWebRTC(path, videoEl, conn, generation) {
   let pc;
   try {
     pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: CONFIG.iceServers || [],
     });
   } catch (e) {
     dlog.error(path, "RTCPeerConnection create failed", String(e));
@@ -360,8 +362,6 @@ function scheduleReconnect(path, videoEl, generation) {
 
   conn.failures = (conn.failures || 0) + 1;
 
-  checkAutoDisable(path);
-
   const maxRetries = state.prefs.maxRetries;
   if (maxRetries >= 0 && conn.failures > maxRetries) {
     dlog.warn(path, "max-retries-reached", `failures=${conn.failures} max=${maxRetries} lastErr=${conn.lastError}`);
@@ -460,48 +460,33 @@ function checkForStalls() {
   }
 }
 
-// ── Auto-disable on repeated auth failure ───────────────────────────────────
-
-async function autoDisableNvr(nvrId, reason) {
-  if (state.autoDisabledNvrs.has(nvrId)) return;
-  state.autoDisabledNvrs.add(nvrId);
-  try {
-    const { updateNvr } = await import("./api.js");
-    await updateNvr(nvrId, { enabled: false });
-    showToast(`NVR "${nvrId}" auto-disabled: ${reason}`, "warning", 10000);
-    await fetchInventory();
-    if (state._onInventoryChanged) state._onInventoryChanged();
-  } catch (e) {
-    // Auto-disable is best-effort: operator may lack admin rights, or the
-    // backend may be unreachable. Don't escalate — the connection will keep
-    // backing off on its own.
-    dlog.warn(nvrId, "auto-disable-failed", String(e));
-  }
-}
-
-function checkAutoDisable(path) {
-  const conn = state.connections[path];
-  if (!conn || conn.failures < 3) return;
-  if (conn.lastError && (
-    conn.lastError.includes("negotiation-failed") ||
-    conn.lastError.includes("ice-failed")
-  )) {
-    const nvrId = getNvrId(path);
-    const nvrMeta = state.inventory && state.inventory.nvrs
-      ? state.inventory.nvrs.find(n => n.id === nvrId) : null;
-    if (nvrMeta && nvrMeta.enabled !== false) {
-      autoDisableNvr(nvrId, `Stream ${path} failed ${conn.failures} times (${conn.lastError})`);
-    }
-  }
-}
+// ── Manual reconnect ────────────────────────────────────────────────────────
+// NOTE: the browser deliberately does NOT auto-disable NVRs. A WebRTC/ICE/HLS
+// failure here is a *transport* problem (MediaMTX restart, network blip), not a
+// credential problem — disabling the NVR from the client would wipe it from the
+// inventory on a transient hiccup and require a manual re-enable. The server-side
+// source watchdog owns disable decisions: it polls MediaMTX's real source state
+// and skips entirely when MediaMTX is unreachable, so a restart never trips it.
 
 export function reconnectAllVisible() {
-  const visible = new Set(getPageCameras().filter(Boolean));
-  for (const path in state.connections) {
-    const c = state.connections[path];
-    c.failures = 0;
-    if (c.retryTimer) { clearTimeout(c.retryTimer); c.retryTimer = null; }
-    if (visible.has(path) && c.video) connectCamera(path, c.video);
-  }
+  // Reconnect every visible grid cell, regardless of its current connection
+  // state — even cells whose connection entry was dropped or is stuck. We read
+  // the live <video> straight from the DOM so a missing state.connections entry
+  // can't make the button a no-op (the old bug).
+  const cells = document.querySelectorAll("#camera-grid .cam-cell[data-path]");
+  let n = 0;
+  cells.forEach(cell => {
+    const path = cell.dataset.path;
+    const video = cell.querySelector("video");
+    if (!path || !video) return;
+    const conn = state.connections[path];
+    if (conn) {
+      conn.failures = 0;
+      if (conn.retryTimer) { clearTimeout(conn.retryTimer); conn.retryTimer = null; }
+    }
+    connectCamera(path, video);
+    n++;
+  });
+  dlog.info("", "reconnect-all", `reconnecting ${n} visible cell(s)`);
   if (state._onGridDirty) state._onGridDirty();
 }

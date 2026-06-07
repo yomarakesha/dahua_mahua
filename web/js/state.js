@@ -37,7 +37,6 @@ export const state = {
   inventory: null,
   cameraByPath: {},
   streamHealth: {},
-  autoDisabledNvrs: new Set(),
   _preconnectTimer: null,
 };
 
