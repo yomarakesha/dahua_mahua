@@ -538,7 +538,7 @@ body {
 
 #fs-controls button:hover { background: #ff5a5f; }
 #fs-quality-btn { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
-#fs-quality-btn.active { background: rgba(76, 175, 80, 0.4); color: #3fb950; }
+#fs-quality-btn.active, #fs-sound-btn.active { background: rgba(76, 175, 80, 0.4); color: #3fb950; }
 
 #fs-video {
   width: 100%;
@@ -967,6 +967,12 @@ kbd {
   overflow-x: auto;
   max-height: 400px;
   overflow-y: auto;
+}
+
+.cams-table-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
 #settings-nvr-table {

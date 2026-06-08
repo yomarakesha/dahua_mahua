@@ -18,6 +18,10 @@ export function openFullscreen(path) {
   state.fullscreenIsMain = true;
   dom.fsTitle.textContent = labelFor(path);
   resetVideoElement(dom.fsVideo);
+  // Always (re)open muted — audio never carries over from a previous camera;
+  // the operator opts in per session by clicking the sound button.
+  dom.fsVideo.muted = true;
+  updateSoundBtn();
 
   // Show sub-stream immediately so user never sees black
   if (conn && conn.video && conn.video.srcObject) {
@@ -42,6 +46,44 @@ export function updateQualityBtn() {
     ? "Viewing main stream (press Q for sub)"
     : "Viewing sub stream (press Q for main)";
   dom.fsQualityBtn.classList.toggle("active", state.fullscreenIsMain);
+}
+
+// Mute/unmute the visible video. The hidden buffer stays muted always, so the
+// swap during HD↔SD transitions never double-plays audio.
+export function toggleFullscreenSound() {
+  if (!state.fullscreenPath) return;
+  const wasUnmuting = dom.fsVideo.muted;
+  dom.fsVideo.muted = !dom.fsVideo.muted;
+  // Unmuting happens inside a click/keypress handler, which is the user gesture
+  // the browser's autoplay-with-sound policy requires — re-issue play() so it
+  // takes effect immediately.
+  dom.fsVideo.play().catch(() => {});
+  updateSoundBtn();
+  // If we just unmuted a WebRTC main stream that carries no audio track, the
+  // button would appear to "do nothing" — say why instead of staying silent.
+  // Only check once the main stream has actually swapped in: before the swap
+  // (and on the SD sub-stream) the visible video is video-only by design, so a
+  // "no audio" warning there would be a false alarm. Also skip the HLS fallback
+  // (srcObject is null but the <video> src may still carry AAC the browser plays).
+  const swappedMain = state.fullscreenConn && state.fullscreenConn.swapped;
+  if (wasUnmuting && swappedMain && dom.fsVideo.srcObject) {
+    const audioTracks = dom.fsVideo.srcObject.getAudioTracks
+      ? dom.fsVideo.srcObject.getAudioTracks() : [];
+    if (audioTracks.length === 0) {
+      showToast(
+        "В этом потоке нет звука — камера не передаёт аудио, или кодек AAC " +
+        "(WebRTC его не переносит). Включите аудио на канале в кодеке G.711.",
+        "warning", 5000,
+      );
+    }
+  }
+}
+
+function updateSoundBtn() {
+  const on = !dom.fsVideo.muted;
+  dom.fsSoundBtn.textContent = on ? "🔊" : "🔇";
+  dom.fsSoundBtn.title = on ? "Mute audio (M)" : "Unmute audio (M)";
+  dom.fsSoundBtn.classList.toggle("active", on);
 }
 
 export function toggleFullscreenQuality() {
@@ -83,6 +125,11 @@ async function connectFullscreenMain(path, token) {
   state.fullscreenConn = { pc, swapped: false, token, _swapTimer: null };
 
   pc.addTransceiver("video", { direction: "recvonly" });
+  // Also request audio. If the camera emits a WebRTC-compatible track (G.711
+  // PCMA/PCMU) it arrives in the same MediaStream and plays once unmuted; if
+  // the source has no audio (or AAC, which WebRTC can't carry) this transceiver
+  // just stays inactive — video is unaffected.
+  pc.addTransceiver("audio", { direction: "recvonly" });
 
   pc.ontrack = (evt) => {
     if (!state.fullscreenConn || state.fullscreenConn.pc !== pc || state.fullscreenConn.token !== token) return;

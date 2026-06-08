@@ -28,12 +28,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 import httpx
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import Nvr
+from app.models import Nvr, NvrEvent
 from app.services import nvr_events, path_sync
 from app.services.mediamtx_api import MediaMTXError, get_client
 from app.settings import get_settings
@@ -122,9 +123,12 @@ async def _disable_nvr(nvr_id: str, reason: str) -> None:
 async def _poll_once(
     nvr_fail: dict[str, int],
     cam_fail: dict[tuple[str, int], int],
+    ch_last_ready: dict[tuple[str, int], float],
     threshold: int,
     cam_threshold: int,
+    recovery_seconds: float,
 ) -> None:
+    now = time.monotonic()
     client = get_client()
     try:
         paths = await client.list_active_paths()
@@ -158,9 +162,11 @@ async def _poll_once(
         elif active:
             ch_active_fail.add((nvr_id, channel))
 
-    # A channel with any ready path is fine — clear its counter.
+    # A channel with any ready path is fine — clear its counter and remember
+    # when it last streamed, so a later blip isn't mistaken for a dead channel.
     for key in ch_ready:
         cam_fail.pop(key, None)
+        ch_last_ready[key] = now
     for nvr_id in ok_nvrs:
         if nvr_fail.pop(nvr_id, None):
             log.info("source-watch: %s recovered, NVR counter cleared", nvr_id)
@@ -179,6 +185,16 @@ async def _poll_once(
             # so it stops hammering the NVR (which would otherwise 403-ban us).
             for channel in channels:
                 key = (nvr_id, channel)
+                last_ok = ch_last_ready.get(key)
+                if last_ok is not None and (now - last_ok) < recovery_seconds:
+                    # This channel streamed fine moments ago, so it's a REAL
+                    # camera having a transient blip (ICE drop, packet loss, or
+                    # an on-demand source restart) — NOT a phantom/offline
+                    # channel. Disabling it here is exactly what made working
+                    # cameras disappear from the grid. Leave it alone; the
+                    # client reconnects on its own.
+                    cam_fail.pop(key, None)
+                    continue
                 cam_fail[key] = cam_fail.get(key, 0) + 1
                 n = cam_fail[key]
                 log.warning("source-watch: %s ch%d failing while NVR healthy (%d/%d)",
@@ -208,22 +224,72 @@ async def _poll_once(
                 nvr_fail.pop(nvr_id, None)
 
 
+async def reenable_auto_disabled() -> None:
+    """On startup, re-enable NVRs that the *watchdog itself* disabled — i.e.
+    those whose most recent audit event is `auto_disabled`. A transient
+    cold-start failure (MediaMTX warming up) shouldn't leave an NVR dark
+    forever; give it a fresh chance each boot. NVRs disabled some other way
+    (e.g. manually unchecked in the UI) are left untouched."""
+    async with SessionLocal() as session:
+        disabled = (
+            await session.execute(select(Nvr).where(Nvr.enabled.is_(False)))
+        ).scalars().all()
+        reenabled = 0
+        for nvr in disabled:
+            last_event = (
+                await session.execute(
+                    select(NvrEvent.event_type)
+                    .where(NvrEvent.nvr_id == nvr.id)
+                    .order_by(NvrEvent.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if last_event != "auto_disabled":
+                continue
+            nvr.enabled = True
+            reenabled += 1
+            await nvr_events.log_event(
+                nvr_id=nvr.id,
+                ip=nvr.ip,
+                event_type="reenabled_on_startup",
+                message="Re-enabled at startup (was auto-disabled); watchdog will re-check.",
+            )
+        if reenabled:
+            await session.commit()
+            log.info("source-watch: re-enabled %d auto-disabled NVR(s) at startup", reenabled)
+
+
 async def _run() -> None:
     settings = get_settings()
     interval = settings.source_watch_interval_seconds
     threshold = settings.source_watch_threshold
     cam_threshold = settings.source_watch_camera_threshold
+    grace = settings.source_watch_startup_grace_seconds
+    recovery = settings.source_watch_camera_recovery_seconds
     nvr_fail: dict[str, int] = {}
     cam_fail: dict[tuple[str, int], int] = {}
+    ch_last_ready: dict[tuple[str, int], float] = {}
     log.info(
-        "Source watchdog running (interval=%.1fs nvr_threshold=%d cam_threshold=%d)",
-        interval, threshold, cam_threshold,
+        "Source watchdog running (interval=%.1fs nvr_threshold=%d cam_threshold=%d grace=%.0fs)",
+        interval, threshold, cam_threshold, grace,
     )
+    started = time.monotonic()
+    policing = False
     try:
         while True:
             await asyncio.sleep(interval)
+            # Warm-up window: poll nothing, disable nothing. On-demand RTSP
+            # sources are still connecting, so failures here are expected.
+            if time.monotonic() - started < grace:
+                continue
+            if not policing:
+                policing = True
+                log.info("source-watch: startup grace elapsed — policing active")
             try:
-                await _poll_once(nvr_fail, cam_fail, threshold, cam_threshold)
+                await _poll_once(
+                    nvr_fail, cam_fail, ch_last_ready,
+                    threshold, cam_threshold, recovery,
+                )
             except Exception as e:  # noqa: BLE001 — watchdog must never die
                 log.exception("source-watch poll error: %s", e)
     except asyncio.CancelledError:

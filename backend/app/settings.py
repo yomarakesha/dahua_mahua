@@ -76,6 +76,19 @@ class Settings(BaseSettings):
     # offline), disable just that channel after this many polls. More lenient
     # than the NVR-wide threshold so a brief blip on a real camera is tolerated.
     source_watch_camera_threshold: int = 4
+    # A channel is only treated as "phantom/offline" (and auto-disabled) if it
+    # has NOT streamed successfully within this window. A real camera that was
+    # working seconds ago and then blips (ICE drop, packet loss, on-demand
+    # source restart) must not be disabled — otherwise transient network loss
+    # makes working cameras vanish from the grid.
+    source_watch_camera_recovery_seconds: float = 180.0
+    # Startup grace period. On a cold start the grid immediately pulls streams
+    # while MediaMTX is still spinning up the on-demand RTSP sources, so for the
+    # first few seconds every path is "active but not ready" — which looks
+    # exactly like an auth failure to the watchdog and made it disable healthy
+    # NVRs on every boot. During this window we poll but never disable, giving
+    # sources time to connect.
+    source_watch_startup_grace_seconds: float = 45.0
 
     # ── Bootstrap ────────────────────────────────────────────────────────────
     # On first startup, create this user if no users exist. Operator must

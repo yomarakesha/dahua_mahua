@@ -432,6 +432,12 @@ export function setupKeyboard(handlers) {
       return;
     }
 
+    if ((e.key === "m" || e.key === "M") && state.fullscreenPath) {
+      handlers.toggleFullscreenSound();
+      e.preventDefault();
+      return;
+    }
+
     if (e.key === "s" || e.key === "S") {
       if (state.fullscreenPath) {
         takeSnapshot(state.fullscreenPath, dom.fsVideo);

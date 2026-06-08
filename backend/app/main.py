@@ -109,6 +109,11 @@ async def lifespan(app: FastAPI):
         from app.services import mediamtx_proc
         mediamtx_proc.start()
 
+    # Recover NVRs the watchdog disabled in a previous session BEFORE the
+    # startup reconcile — so the reconcile recreates their MediaMTX paths.
+    # (Re-enabling after reconcile would leave them enabled but unstreamable:
+    # the paths were removed on auto-disable and nothing would re-add them.)
+    await source_watch.reenable_auto_disabled()
     await _initial_reconcile()
     source_watch.start()
 

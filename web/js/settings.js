@@ -496,6 +496,43 @@ export async function setChannels() {
   }
 }
 
+// Bulk-enable every disabled channel of the current NVR in one click, instead
+// of ticking each row's checkbox by hand. No bulk endpoint exists, so we PATCH
+// each disabled camera; channels already on are skipped.
+export async function enableAllChannels() {
+  if (!_currentNvrId) return;
+  const all = await listCameras({ include_disabled: true });
+  const off = all.filter(c => c.nvr_id === _currentNvrId && !c.enabled);
+  if (off.length === 0) {
+    setStatus(dom.camerasStatus, "Все каналы уже включены");
+    return;
+  }
+  if (!confirm(
+    `Включить все ${off.length} выключенных каналов на ${_currentNvrId}?\n\n` +
+    "Каналы, которых физически нет на регистраторе, сторож снова выключит " +
+    "автоматически в течение ~10–15 секунд (это нормально)."
+  )) return;
+
+  dom.camerasEnableAllBtn.disabled = true;
+  setStatus(dom.camerasStatus, `Включаю ${off.length}...`);
+  dlog.info(_currentNvrId, "enable-all-start", `count=${off.length}`);
+  let ok = 0, fail = 0;
+  for (const c of off) {
+    try {
+      await updateCamera(c.id, { enabled: true });
+      ok++;
+    } catch (e) {
+      fail++;
+      dlog.error(_currentNvrId, "enable-all-item-fail", `ch${c.channel}: ${errMsg(e)}`);
+    }
+  }
+  dlog.info(_currentNvrId, "enable-all-done", `ok=${ok} fail=${fail}`);
+  setStatus(dom.camerasStatus, fail ? `Включено ${ok}, ошибок ${fail}` : `Включено ${ok} каналов`, fail > 0);
+  dom.camerasEnableAllBtn.disabled = false;
+  await refreshCameras();
+  await fetchCameras();
+}
+
 export async function addCamera() {
   if (!_currentNvrId) return;
   const channel = parseInt(dom.camerasNewCh.value);

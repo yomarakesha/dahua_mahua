@@ -24,7 +24,7 @@ import {
   startPatrol, stopPatrol, togglePatrol, takeSnapshot, setupKeyboard,
 } from "./grid.js";
 import {
-  openFullscreen, toggleFullscreenQuality, closeFullscreen,
+  openFullscreen, toggleFullscreenQuality, toggleFullscreenSound, closeFullscreen,
 } from "./fullscreen.js";
 import {
   renderLayoutSelect, showLayoutDialog, hideLayoutDialog,
@@ -36,7 +36,7 @@ import {
 } from "./ui-common.js";
 import {
   openSettings, addNvr, runHealth, runReconcile, refreshNvrs,
-  addCamera, setChannels, openEventsLog, changePasswordHandler, logout,
+  addCamera, setChannels, enableAllChannels, openEventsLog, changePasswordHandler, logout,
   changeMaxConcurrent,
 } from "./settings.js";
 
@@ -113,6 +113,7 @@ function bindEvents() {
   dom.shortcutsBtn.addEventListener("click", () => toggleModal(dom.shortcutsModal));
   dom.fsCloseBtn.addEventListener("click", closeFullscreen);
   dom.fsQualityBtn.addEventListener("click", toggleFullscreenQuality);
+  dom.fsSoundBtn.addEventListener("click", toggleFullscreenSound);
   dom.fsSnapshotBtn.addEventListener("click", () => {
     if (state.fullscreenPath) takeSnapshot(state.fullscreenPath, dom.fsVideo);
   });
@@ -126,6 +127,7 @@ function bindEvents() {
   dom.settingsEventsBtn.addEventListener("click", openEventsLog);
   dom.camerasAddBtn.addEventListener("click", addCamera);
   dom.camerasSetBtn.addEventListener("click", setChannels);
+  dom.camerasEnableAllBtn.addEventListener("click", enableAllChannels);
   dom.settingsMaxConcurrent.addEventListener("change", changeMaxConcurrent);
   dom.settingsAdvToggle.addEventListener("click", () => {
     const open = dom.settingsAdvPanel.classList.toggle("hidden");
@@ -164,6 +166,7 @@ async function init() {
     hideLayoutDialog,
     hideContextMenu,
     toggleFullscreenQuality,
+    toggleFullscreenSound,
     showGroupDialog,
     openSettings,
   });
