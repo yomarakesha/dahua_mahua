@@ -37,6 +37,7 @@ import {
 import {
   openSettings, addNvr, runHealth, runReconcile, refreshNvrs,
   addCamera, setChannels, openEventsLog, changePasswordHandler, logout,
+  changeMaxConcurrent,
 } from "./settings.js";
 
 // ── Wire grid render into sidebar/streams via state hooks (avoid cyclic imports) ─
@@ -125,6 +126,7 @@ function bindEvents() {
   dom.settingsEventsBtn.addEventListener("click", openEventsLog);
   dom.camerasAddBtn.addEventListener("click", addCamera);
   dom.camerasSetBtn.addEventListener("click", setChannels);
+  dom.settingsMaxConcurrent.addEventListener("change", changeMaxConcurrent);
   dom.settingsAdvToggle.addEventListener("click", () => {
     const open = dom.settingsAdvPanel.classList.toggle("hidden");
     dom.settingsAdvToggle.setAttribute("aria-expanded", String(!open));

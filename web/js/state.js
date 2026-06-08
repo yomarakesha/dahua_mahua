@@ -18,12 +18,6 @@ export const state = {
     gridCols: 4, gridRows: 4, patrolInterval: 10,
     sidebarOpen: true, lastLayout: "",
     maxRetries: 3, retryDelay: 10, maxConcurrent: 8,
-    // Up to this many tiles per page use main-stream; bigger grids use sub.
-    // 1 = only a single-tile (1×1) view pulls main; any actual grid (2×2+)
-    // uses the lightweight sub-stream. This keeps multi-camera / multi-viewer
-    // load low and avoids the RTP packet loss seen when several heavy main
-    // streams share a constrained link to the NVR.
-    mainStreamMaxTiles: 1,
   },
   customOrder: null,
   connections: {},
@@ -48,10 +42,9 @@ export function loadState() {
     if (l) state.layouts = JSON.parse(l);
     const p = localStorage.getItem(LS.prefs);
     if (p) Object.assign(state.prefs, JSON.parse(p));
-    // One-time migration: the old default put 2×2 grids on main-stream, which
-    // caused RTP loss / glitching with several viewers. Drop legacy "4" to the
-    // new "1" (single-tile only) so existing installs get the lighter default.
-    if (state.prefs.mainStreamMaxTiles === 4) state.prefs.mainStreamMaxTiles = 1;
+    // Drop the retired mainStreamMaxTiles pref: the grid is always sub-stream
+    // now, main is fullscreen-only, so any saved value is dead weight.
+    delete state.prefs.mainStreamMaxTiles;
     // Migrate old single-axis gridSize pref → gridCols/gridRows
     if (state.prefs.gridSize && !state.prefs.gridCols) {
       state.prefs.gridCols = state.prefs.gridSize;

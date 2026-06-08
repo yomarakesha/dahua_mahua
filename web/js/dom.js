@@ -78,6 +78,8 @@ export const dom = {
   settingsReconcileBtn:$("settings-reconcile-btn"),
   settingsEventsBtn:  $("settings-events-btn"),
   settingsRefreshBtn: $("settings-refresh-btn"),
+  settingsMaxConcurrent:$("settings-max-concurrent"),
+  settingsPerfStatus: $("settings-perf-status"),
   settingsCurPw:      $("settings-cur-pw"),
   settingsNewPw:      $("settings-new-pw"),
   settingsChpwBtn:    $("settings-chpw-btn"),

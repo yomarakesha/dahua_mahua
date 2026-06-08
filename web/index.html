@@ -262,6 +262,15 @@
           </div>
         </div>
         <div class="settings-section">
+          <h3 class="settings-label">Performance</h3>
+          <div class="settings-global">
+            <label title="How many camera connections negotiate at once when a grid loads. Higher fills the grid faster but spikes CPU/network harder.">Concurrent streams
+              <input id="settings-max-concurrent" type="number" min="1" max="32" value="8">
+            </label>
+            <span id="settings-perf-status"></span>
+          </div>
+        </div>
+        <div class="settings-section">
           <h3 class="settings-label">Change Dashboard Password</h3>
           <div class="settings-global">
             <label>Current <span class="pw-field"><input id="settings-cur-pw" type="password" autocomplete="off"><button type="button" class="pw-toggle" title="Show/hide">&#128065;</button></span></label>

@@ -49,18 +49,14 @@ export async function fetchInventory() {
 }
 
 // ── Stream tier selection ───────────────────────────────────────────────────
-// Sub-stream for crowded grids (saves bandwidth + decoder CPU); main-stream for
-// 1×1/2×2 layouts where sub looks blurry. The MediaMTX path for main is the
-// sub path + "_main" suffix (backend creates both paths per camera).
+// The grid ALWAYS uses the light sub-stream, regardless of grid size — it keeps
+// decoder/network load low when many tiles are on screen. The heavy main-stream
+// is pulled only when a single camera is opened fullscreen (see fullscreen.js,
+// which requests camPath + "_main" directly). The "_main" path is created by
+// the backend alongside the sub path for every camera.
 
 export function streamPathFor(camPath) {
-  const tiles = (state.gridCols || 1) * (state.gridRows || 1);
-  // Default 1 (matches state.prefs.mainStreamMaxTiles): only a single-tile view
-  // pulls the heavy main-stream; any real grid uses the light sub-stream. A
-  // wrong fallback here (the old 4) silently put 2×2 grids on main-stream,
-  // causing the exact RTP loss / lag the default is meant to avoid.
-  const maxMainTiles = (state.prefs && state.prefs.mainStreamMaxTiles) ?? 1;
-  return tiles <= maxMainTiles ? camPath + "_main" : camPath;
+  return camPath;
 }
 
 // ── Connection queue ────────────────────────────────────────────────────────

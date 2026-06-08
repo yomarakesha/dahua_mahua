@@ -91,7 +91,15 @@ async def scan(
             for c in cidrs:
                 try:
                     found = _merge(found, await tcp_scan(c, timeout=0.6))
+                except ValueError as e:
+                    # Bad operator input (malformed CIDR, or larger than the /20
+                    # cap). Surface it as a 400 so the UI shows *why* nothing was
+                    # found instead of a silent "No hosts answered" — these are
+                    # fixable by the operator, unlike a transient network error.
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
                 except Exception as e:  # noqa: BLE001
+                    # Genuine runtime/network failure for this subnet — log and
+                    # keep scanning the rest rather than aborting the whole scan.
                     log.warning("TCP scan failed for %s: %s", c, e)
         else:
             log.warning("TCP scan requested but no CIDR provided and autodetect failed")

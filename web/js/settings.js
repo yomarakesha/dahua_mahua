@@ -8,6 +8,7 @@
  */
 
 import { dom } from "./dom.js";
+import { state, savePrefs } from "./state.js";
 import { esc } from "./utils.js";
 import { dlog } from "./logger.js";
 import {
@@ -40,6 +41,8 @@ function errMsg(e) {
 export async function openSettings() {
   setStatus(dom.settingsStatus, "");
   setStatus(dom.settingsAddStatus, "");
+  setStatus(dom.settingsPerfStatus, "");
+  syncPerfControls();
   dom.settingsModal.classList.remove("hidden");
   try {
     if (_regions.length === 0) _regions = await listRegions();
@@ -346,6 +349,29 @@ export async function refreshNvrs() {
   }
 }
 
+// ── Performance prefs ───────────────────────────────────────────────────────
+// One device-tunable knob, persisted in localStorage via state.prefs:
+//   • maxConcurrent — how many WebRTC negotiations run at once (drainQueue).
+// (Stream tier is no longer a setting: the grid is always sub, fullscreen is
+//  always main — see streamPathFor in streams.js.)
+
+// Push current prefs into the form (called every time the modal opens).
+function syncPerfControls() {
+  dom.settingsMaxConcurrent.value = String((state.prefs && state.prefs.maxConcurrent) ?? 8);
+}
+
+export function changeMaxConcurrent() {
+  let v = parseInt(dom.settingsMaxConcurrent.value);
+  if (!Number.isFinite(v)) v = 8;
+  v = Math.min(32, Math.max(1, v));
+  dom.settingsMaxConcurrent.value = String(v);
+  state.prefs.maxConcurrent = v;
+  savePrefs();
+  dlog.info("", "pref-max-concurrent", `maxConcurrent=${v}`);
+  setStatus(dom.settingsPerfStatus, "Saved");
+  setTimeout(() => setStatus(dom.settingsPerfStatus, ""), 1500);
+}
+
 // ── Cameras sub-dialog ──────────────────────────────────────────────────────
 
 async function openCameras(nvr) {
@@ -354,7 +380,12 @@ async function openCameras(nvr) {
   dom.camerasDialog.classList.remove("hidden");
   setStatus(dom.camerasStatus, "");
   setStatus(dom.camerasAddStatus, "");
+  setStatus(dom.camerasSetStatus, "");
   dom.camerasNewName.value = "";
+  // Pre-fill "Set total channels" with the NVR's known channel count so one
+  // click on Apply (re)creates channels 1..N — i.e. "add all cameras" in a
+  // single shot. Blank when nothing is known yet so the placeholder shows.
+  dom.camerasSetCount.value = nvr.camera_count > 0 ? nvr.camera_count : "";
   await refreshCameras();
 }
 
