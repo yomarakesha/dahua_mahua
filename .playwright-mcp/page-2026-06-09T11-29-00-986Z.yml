@@ -1,0 +1,178 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - button "☰" [ref=e4] [cursor=pointer]
+      - generic [ref=e5]: DSS
+      - generic [ref=e6]:
+        - generic [ref=e7]: Grid
+        - textbox "Grid" [ref=e8] [cursor=pointer]: 4x4
+      - generic [ref=e9]:
+        - generic [ref=e10]: Layout
+        - combobox "Layout" [ref=e11] [cursor=pointer]:
+          - option "— Select —" [selected]
+      - button "💾 Save" [ref=e12] [cursor=pointer]
+      - button "▶ Patrol" [ref=e14] [cursor=pointer]
+      - combobox "Patrol interval" [ref=e15] [cursor=pointer]:
+        - option "5s"
+        - option "10s" [selected]
+        - option "15s"
+        - option "30s"
+        - option "60s"
+    - generic [ref=e16]:
+      - textbox "Search cameras... (/)" [ref=e17]
+      - link "Discover NVRs on the network" [ref=e18] [cursor=pointer]:
+        - /url: /discover.html
+        - img [ref=e19]
+      - button "NVR Settings (,)" [active] [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+      - button "0/0" [ref=e26] [cursor=pointer]:
+        - generic [ref=e28]: 0/0
+      - button "?" [ref=e29] [cursor=pointer]
+      - button "⏻" [ref=e30] [cursor=pointer]
+  - generic [ref=e32]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - heading "NVRs" [level=3] [ref=e35]
+        - button "All" [ref=e36] [cursor=pointer]
+      - generic [ref=e52]:
+        - generic [ref=e54] [cursor=pointer]:
+          - generic [ref=e55]: ▶
+          - generic [ref=e56]: kabinet (0) - off
+          - 'generic "Vendor: dahua" [ref=e57]': DAH
+        - generic [ref=e59] [cursor=pointer]:
+          - generic [ref=e60]: ▶
+          - generic [ref=e61]: 20.58 (0) - off
+          - 'generic "Vendor: dahua" [ref=e62]': DAH
+    - generic [ref=e38]:
+      - heading "Groups" [level=3] [ref=e39]
+      - button "+" [ref=e40] [cursor=pointer]
+  - generic [ref=e43]:
+    - generic [ref=e44]: "Online: 0"
+    - generic [ref=e45]: "|"
+    - generic [ref=e46]: "Connecting: 0"
+    - generic [ref=e47]: "|"
+    - generic [ref=e48]: "Error: 0"
+    - generic [ref=e49]: "|"
+    - generic [ref=e50]: "Total: 0"
+    - generic [ref=e51]: All cameras
+  - generic [ref=e80]:
+    - generic [ref=e81]:
+      - heading "NVR Management" [level=2] [ref=e82]
+      - button "×" [ref=e83] [cursor=pointer]
+    - generic [ref=e84]:
+      - generic [ref=e85]:
+        - heading "Add NVR" [level=3] [ref=e86]
+        - generic [ref=e87]:
+          - generic [ref=e88]:
+            - text: Name
+            - textbox "Name" [ref=e89]:
+              - /placeholder: Lobby NVR
+          - generic [ref=e90]:
+            - text: IP
+            - textbox "IP" [ref=e91]:
+              - /placeholder: 192.168.1.10
+          - generic [ref=e92]:
+            - text: Password
+            - generic [ref=e93]:
+              - textbox "Password 👁" [ref=e94]
+              - button "👁" [ref=e95] [cursor=pointer]
+          - generic [ref=e96]:
+            - text: Channels
+            - spinbutton "Channels" [ref=e97]
+          - button "Add" [ref=e98] [cursor=pointer]
+        - button "Advanced ▾" [ref=e99] [cursor=pointer]
+      - generic [ref=e101]:
+        - generic [ref=e102]:
+          - heading "NVRs (2)" [level=3] [ref=e103]
+          - generic [ref=e104]:
+            - button "Health" [ref=e105]
+            - button "Reconcile" [ref=e106]
+            - button "Events" [ref=e107]
+            - button "↻" [ref=e108]
+        - table [ref=e110]:
+          - rowgroup [ref=e111]:
+            - row "On ID Label IP Port User Vendor CH Region" [ref=e112]:
+              - columnheader "On" [ref=e113]
+              - columnheader "ID" [ref=e114]
+              - columnheader "Label" [ref=e115]
+              - columnheader "IP" [ref=e116]
+              - columnheader "Port" [ref=e117]
+              - columnheader "User" [ref=e118]
+              - columnheader "Vendor" [ref=e119]
+              - columnheader "CH" [ref=e120]
+              - columnheader "Region" [ref=e121]
+              - columnheader [ref=e122]
+          - rowgroup [ref=e123]:
+            - row "nvr-192-168-20-34 kabinet 192.168.20.34 554 admin Dahua 39 — 🔒 Test Cams Save ×" [ref=e189]:
+              - cell [ref=e190]:
+                - checkbox [ref=e191] [cursor=pointer]
+              - cell "nvr-192-168-20-34" [ref=e192]:
+                - code [ref=e193]: nvr-192-168-20-34
+              - cell "kabinet" [ref=e194]:
+                - textbox [ref=e195]: kabinet
+              - cell "192.168.20.34" [ref=e196]:
+                - textbox [ref=e197]: 192.168.20.34
+              - cell "554" [ref=e198]:
+                - spinbutton [ref=e199]: "554"
+              - cell "admin" [ref=e200]:
+                - textbox [ref=e201]: admin
+              - cell "Dahua" [ref=e202]:
+                - combobox [ref=e203]:
+                  - option "Dahua" [selected]
+                  - option "Hikvision"
+              - cell "39" [ref=e204]
+              - cell "—" [ref=e205]:
+                - combobox [ref=e206]:
+                  - option "—" [selected]
+              - cell "🔒 Test Cams Save ×" [ref=e207]:
+                - button "🔒" [ref=e208] [cursor=pointer]
+                - button "Test" [ref=e209] [cursor=pointer]
+                - button "Cams" [ref=e210] [cursor=pointer]
+                - button "Save" [disabled] [ref=e211]
+                - button "×" [ref=e212] [cursor=pointer]
+            - row "nvr-192-168-20-58 20.58 192.168.20.58 554 admin Dahua 33 — 🔒 Test Cams Save ×" [ref=e213]:
+              - cell [ref=e214]:
+                - checkbox [ref=e215] [cursor=pointer]
+              - cell "nvr-192-168-20-58" [ref=e216]:
+                - code [ref=e217]: nvr-192-168-20-58
+              - cell "20.58" [ref=e218]:
+                - textbox [ref=e219]: "20.58"
+              - cell "192.168.20.58" [ref=e220]:
+                - textbox [ref=e221]: 192.168.20.58
+              - cell "554" [ref=e222]:
+                - spinbutton [ref=e223]: "554"
+              - cell "admin" [ref=e224]:
+                - textbox [ref=e225]: admin
+              - cell "Dahua" [ref=e226]:
+                - combobox [ref=e227]:
+                  - option "Dahua" [selected]
+                  - option "Hikvision"
+              - cell "33" [ref=e228]
+              - cell "—" [ref=e229]:
+                - combobox [ref=e230]:
+                  - option "—" [selected]
+              - cell "🔒 Test Cams Save ×" [ref=e231]:
+                - button "🔒" [ref=e232] [cursor=pointer]
+                - button "Test" [ref=e233] [cursor=pointer]
+                - button "Cams" [ref=e234] [cursor=pointer]
+                - button "Save" [disabled] [ref=e235]
+                - button "×" [ref=e236] [cursor=pointer]
+      - generic [ref=e172]:
+        - heading "Performance" [level=3] [ref=e173]
+        - generic "How many camera connections negotiate at once when a grid loads. Higher fills the grid faster but spikes CPU/network harder." [ref=e175]:
+          - text: Concurrent streams
+          - spinbutton "Concurrent streams" [ref=e176]: "8"
+      - generic [ref=e177]:
+        - heading "Change Dashboard Password" [level=3] [ref=e178]
+        - generic [ref=e179]:
+          - generic [ref=e180]:
+            - text: Current
+            - generic [ref=e181]:
+              - textbox "Current 👁" [ref=e182]
+              - button "👁" [ref=e183] [cursor=pointer]
+          - generic [ref=e184]:
+            - text: New
+            - generic [ref=e185]:
+              - textbox "New 👁" [ref=e186]
+              - button "👁" [ref=e187] [cursor=pointer]
+          - button "Change" [ref=e188]

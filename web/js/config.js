@@ -35,3 +35,10 @@ export const LS = {
 
 export const STALL_CHECK_INTERVAL = 4000;
 export const STALL_THRESHOLD = 8;
+
+// How long to wait for a transient ICE `disconnected` to self-recover before
+// treating it as an error and reconnecting. `disconnected` (unlike `failed`)
+// routinely heals on its own when the main thread is briefly starved; an
+// immediate reconnect tears down a connection that would have recovered and
+// re-opens the NVR RTSP source, snowballing into a reconnect storm.
+export const ICE_DISCONNECT_GRACE = 4000;

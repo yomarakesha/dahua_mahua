@@ -1,0 +1,57 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - button "☰" [ref=e4] [cursor=pointer]
+      - generic [ref=e5]: DSS
+      - generic [ref=e6]:
+        - generic [ref=e7]: Grid
+        - textbox "Grid" [ref=e8] [cursor=pointer]: 4x4
+      - generic [ref=e9]:
+        - generic [ref=e10]: Layout
+        - combobox "Layout" [ref=e11] [cursor=pointer]:
+          - option "— Select —" [selected]
+      - button "💾 Save" [ref=e12] [cursor=pointer]
+      - button "▶ Patrol" [ref=e14] [cursor=pointer]
+      - combobox "Patrol interval" [ref=e15] [cursor=pointer]:
+        - option "5s"
+        - option "10s" [selected]
+        - option "15s"
+        - option "30s"
+        - option "60s"
+    - generic [ref=e16]:
+      - textbox "Search cameras... (/)" [ref=e17]
+      - link "Discover NVRs on the network" [ref=e18] [cursor=pointer]:
+        - /url: /discover.html
+        - img [ref=e19]
+      - button "NVR Settings (,)" [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+      - button "0/0" [ref=e26] [cursor=pointer]:
+        - generic [ref=e28]: 0/0
+      - button "?" [ref=e29] [cursor=pointer]
+      - button "⏻" [ref=e30] [cursor=pointer]
+  - generic [ref=e32]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - heading "NVRs" [level=3] [ref=e35]
+        - button "All" [ref=e36] [cursor=pointer]
+      - generic [ref=e52]:
+        - generic [ref=e54] [cursor=pointer]:
+          - generic [ref=e55]: ▶
+          - generic [ref=e56]: kabinet (0) - off
+          - 'generic "Vendor: dahua" [ref=e57]': DAH
+        - generic [ref=e59] [cursor=pointer]:
+          - generic [ref=e60]: ▶
+          - generic [ref=e61]: 20.58 (0) - off
+          - 'generic "Vendor: dahua" [ref=e62]': DAH
+    - generic [ref=e38]:
+      - heading "Groups" [level=3] [ref=e39]
+      - button "+" [ref=e40] [cursor=pointer]
+  - generic [ref=e43]:
+    - generic [ref=e44]: "Online: 0"
+    - generic [ref=e45]: "|"
+    - generic [ref=e46]: "Connecting: 0"
+    - generic [ref=e47]: "|"
+    - generic [ref=e48]: "Error: 0"
+    - generic [ref=e49]: "|"
+    - generic [ref=e50]: "Total: 0"
+    - generic [ref=e51]: All cameras

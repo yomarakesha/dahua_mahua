@@ -3,9 +3,10 @@
  * and auto-disable handling for repeatedly failing NVRs.
  */
 
-import { CONFIG, STALL_CHECK_INTERVAL, STALL_THRESHOLD } from "./config.js";
+import { CONFIG, STALL_CHECK_INTERVAL, STALL_THRESHOLD, ICE_DISCONNECT_GRACE } from "./config.js";
 import { state } from "./state.js";
 import { dlog } from "./logger.js";
+import { decideIceAction } from "./ice.js";
 import {
   scheduleStatusUpdate, showWarning,
 } from "./utils.js";
@@ -187,6 +188,7 @@ export function connectCamera(path, videoEl) {
   const existing = state.connections[path];
   if (existing) {
     if (existing.retryTimer) clearTimeout(existing.retryTimer);
+    if (existing._iceGraceTimer) clearTimeout(existing._iceGraceTimer);
     if (existing.pc) { try { existing.pc.close(); } catch(_){} }
   }
 
@@ -274,22 +276,46 @@ async function tryWebRTC(path, videoEl, conn, generation) {
     scheduleStatusUpdate();
   };
 
+  const reconnectFromIce = (active, s) => {
+    if (active._iceGraceTimer) { clearTimeout(active._iceGraceTimer); active._iceGraceTimer = null; }
+    dlog.warn(path, "ice-error", s);
+    active.lastError = "webrtc-ice-" + s;
+    active.status = "error";
+    updateCellDot(path, "error");
+    scheduleStatusUpdate();
+    scheduleReconnect(path, active.video || videoEl, generation);
+  };
+
   pc.oniceconnectionstatechange = () => {
     const active = getActiveConnection(path, generation);
     if (!active || active.pc !== pc) return;
     const s = pc.iceConnectionState;
     dlog.debug(path, "ice-state", s);
-    if (s === "failed" || s === "disconnected" || s === "closed") {
-      dlog.warn(path, "ice-error", s);
-      active.lastError = "webrtc-ice-" + s;
-      active.status = "error";
-      updateCellDot(path, "error");
-      scheduleStatusUpdate();
-      scheduleReconnect(path, active.video || videoEl, generation);
-    } else if (s === "connected" || s === "completed") {
-      dlog.info(path, "ice-connected");
-      active._lastCheckTime = undefined;
-      active._lastCheckTs = undefined;
+    switch (decideIceAction(s, !!active._iceGraceTimer)) {
+      case "reconnect":
+        reconnectFromIce(active, s);
+        break;
+      case "start-grace":
+        // `disconnected` often self-heals — wait before tearing down. If it
+        // recovers, oniceconnectionstatechange fires again with `connected`
+        // and cancels this timer; otherwise we reconnect when it expires.
+        dlog.info(path, "ice-disconnected-grace", `waiting ${ICE_DISCONNECT_GRACE}ms`);
+        active._iceGraceTimer = setTimeout(() => {
+          const cur = getActiveConnection(path, generation);
+          if (!cur || cur.pc !== pc) return;
+          cur._iceGraceTimer = null;
+          const st = pc.iceConnectionState;
+          if (st === "connected" || st === "completed") return; // recovered
+          reconnectFromIce(cur, st);
+        }, ICE_DISCONNECT_GRACE);
+        break;
+      case "cancel-grace":
+        if (active._iceGraceTimer) { clearTimeout(active._iceGraceTimer); active._iceGraceTimer = null; }
+        dlog.info(path, "ice-connected");
+        active._lastCheckTime = undefined;
+        active._lastCheckTs = undefined;
+        break;
+      // "ignore": intermediate states (checking/new) — nothing to do.
     }
   };
 
@@ -386,6 +412,7 @@ export function disconnectCamera(path) {
   const entry = state.connections[path];
   if (entry) {
     if (entry.retryTimer) clearTimeout(entry.retryTimer);
+    if (entry._iceGraceTimer) clearTimeout(entry._iceGraceTimer);
     if (entry.pc) { try { entry.pc.close(); } catch(_){} }
     if (entry.video) {
       resetVideoElement(entry.video);
