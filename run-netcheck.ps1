@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Unattended NVR / network packet-loss measurement. RUN WITH THE VPN OFF.
 
