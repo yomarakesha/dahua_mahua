@@ -36,7 +36,7 @@ import {
 } from "./ui-common.js";
 import {
   openSettings, addNvr, runHealth, runReconcile, refreshNvrs,
-  addCamera, setChannels, enableAllChannels, openEventsLog, changePasswordHandler, logout,
+  addCamera, setChannels, enableAllChannels, importIps, openEventsLog, changePasswordHandler, logout,
   changeMaxConcurrent,
 } from "./settings.js";
 
@@ -128,6 +128,7 @@ function bindEvents() {
   dom.camerasAddBtn.addEventListener("click", addCamera);
   dom.camerasSetBtn.addEventListener("click", setChannels);
   dom.camerasEnableAllBtn.addEventListener("click", enableAllChannels);
+  dom.camerasImportIpsBtn.addEventListener("click", importIps);
   dom.settingsMaxConcurrent.addEventListener("change", changeMaxConcurrent);
   dom.settingsAdvToggle.addEventListener("click", () => {
     const open = dom.settingsAdvPanel.classList.toggle("hidden");

@@ -64,15 +64,30 @@ def _build_path_config(nvr: Nvr, camera: Camera, quality: StreamQuality) -> dict
     settings = get_settings()
     password = decrypt_password(nvr.rtsp_password_encrypted)
     subtype = 0 if quality == StreamQuality.main else 1
-    source = build_rtsp_url(
-        ip=nvr.ip,
-        port=nvr.port,
-        channel=camera.channel,
-        vendor=nvr.vendor,
-        subtype=subtype,
-        username=nvr.rtsp_username,
-        password=password,
-    )
+    if quality == StreamQuality.main and camera.ip:
+        # Main goes straight to the camera: the NVR's RTSP relay drops packets
+        # on main streams even at trivial load (measured: 7815 lost vs 0 direct
+        # — docs/audit-plan.md §9). A standalone IP camera serves its own
+        # stream as channel 1; camera creds mirror the NVR's on this fleet.
+        source = build_rtsp_url(
+            ip=camera.ip,
+            port=554,
+            channel=1,
+            vendor=nvr.vendor,
+            subtype=subtype,
+            username=nvr.rtsp_username,
+            password=password,
+        )
+    else:
+        source = build_rtsp_url(
+            ip=nvr.ip,
+            port=nvr.port,
+            channel=camera.channel,
+            vendor=nvr.vendor,
+            subtype=subtype,
+            username=nvr.rtsp_username,
+            password=password,
+        )
     if quality == StreamQuality.main:
         start_timeout = settings.main_start_timeout
         close_after = settings.main_close_after

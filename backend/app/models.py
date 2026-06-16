@@ -149,6 +149,10 @@ class Camera(Base):
     )
     channel: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Camera's own LAN IP. When set, the main-stream MediaMTX path pulls
+    # straight from the camera (the NVR's RTSP relay drops packets on main —
+    # see docs/audit-plan.md §9); NULL keeps the legacy via-NVR source.
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     has_sub: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     has_main: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

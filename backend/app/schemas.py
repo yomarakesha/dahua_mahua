@@ -155,6 +155,9 @@ class CameraRead(BaseModel):
     nvr_id: str
     channel: int
     name: str | None
+    # Camera's own IP — when set, the main stream is pulled straight from the
+    # camera instead of the NVR relay. Null = main via NVR (legacy).
+    ip: str | None = None
     enabled: bool
     has_sub: bool
     has_main: bool
@@ -174,9 +177,19 @@ class CameraCreate(BaseModel):
 
 class CameraUpdate(BaseModel):
     name: str | None = None
+    # Empty string clears the IP (camera's main falls back to the NVR relay).
+    ip: str | None = None
     enabled: bool | None = None
     has_sub: bool | None = None
     has_main: bool | None = None
+
+
+class CameraIpImportResult(BaseModel):
+    """Outcome of pulling the camera-IP list from an NVR (RemoteDevice CGI)."""
+    nvr_id: str
+    found: int      # channels the NVR reported with a real camera IP
+    updated: int    # cameras whose stored IP actually changed
+    message: str
 
 
 # ── Streams ─────────────────────────────────────────────────────────────────

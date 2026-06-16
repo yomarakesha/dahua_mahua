@@ -23,6 +23,12 @@ if engine.dialect.name == "sqlite":
     def _set_sqlite_pragma(dbapi_connection, _connection_record):  # noqa: ANN001
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # WAL lets a reader and a writer coexist; busy_timeout makes a blocked
+        # writer wait instead of failing instantly with "database is locked"
+        # (default timeout is 0). Together they keep the separate-session audit
+        # writes (nvr_events.log_event, watchdog) from colliding under SQLite.
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
 SessionLocal = async_sessionmaker(

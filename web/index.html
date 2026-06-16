@@ -316,6 +316,7 @@
         <div class="settings-section">
           <div class="cams-table-actions">
             <button id="cameras-enable-all-btn" title="Включить все каналы этого регистратора одним кликом">Включить все каналы</button>
+            <button id="cameras-import-ips-btn" title="Спросить у регистратора IP-адреса его камер: main-потоки этих каналов пойдут напрямую с камер (без потерь на ретрансляторе NVR)">Обновить IP камер</button>
           </div>
           <div class="settings-table-wrap">
             <table id="cameras-table">
@@ -324,6 +325,7 @@
                   <th>On</th>
                   <th>CH</th>
                   <th>Name</th>
+                  <th title="IP самой камеры: задан — main идёт напрямую с камеры; пуст — main через NVR">Camera IP</th>
                   <th>Sub</th>
                   <th>Main</th>
                   <th></th>

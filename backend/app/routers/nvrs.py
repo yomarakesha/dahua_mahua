@@ -19,6 +19,7 @@ from app.crypto import decrypt_password, encrypt_password
 from app.deps import AdminUser, CurrentUser, SessionDep, user_can_access_nvr
 from app.models import Camera, Nvr, Region, Role, Vendor
 from app.schemas import (
+    CameraIpImportResult,
     NvrCreate,
     NvrHealthResult,
     NvrRead,
@@ -26,7 +27,7 @@ from app.schemas import (
     NvrUpdate,
     SetChannelsRequest,
 )
-from app.services import lockouts, nvr_events, path_sync
+from app.services import camera_import, lockouts, nvr_events, path_sync
 from app.services.discovery import detect_dahua_channels
 from app.services.rtsp_probe import probe_rtsp, tcp_reachable
 
@@ -244,6 +245,20 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
     ).scalar_one()
     log.info("NVR created id=%s label=%s channels=%d enabled=%s",
              nvr.id, nvr.label, channels, nvr.enabled)
+    # Best-effort camera-IP import so main streams pull straight from the
+    # cameras from day one (the NVR relay drops packets on main — audit §9).
+    # Failure is non-fatal: the operator can run it later via
+    # POST /nvrs/{id}/import-camera-ips.
+    if body.vendor == Vendor.dahua and not body.skip_probe:
+        try:
+            _, imported = await camera_import.apply_camera_ips(session, nvr)
+            if imported:
+                notice = (notice + " " if notice else "") + (
+                    f"Imported camera IPs for {imported} channel(s) — "
+                    "their main streams will pull straight from the cameras."
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("NVR %s: camera IP import failed (non-fatal): %s", nvr.id, e)
     # Push paths to MediaMTX so the new cameras are immediately playable.
     # Best-effort: if MediaMTX is unreachable we still return 201 so the DB
     # row stays. Reconcile is idempotent and the operator can retry via
@@ -336,6 +351,13 @@ async def update_nvr(
     for field, value in data.items():
         setattr(nvr, field, value)
     nvr.updated_at = datetime.now(timezone.utc)
+    # Turning a registrar back on should bring its whole grid back, not a
+    # half-dark one: re-enable channels the watchdog had individually disabled.
+    if enabling:
+        from app.services.source_watch import reenable_cameras_for_nvr
+        revived = await reenable_cameras_for_nvr(session, nvr_id)
+        if revived:
+            log.info("NVR %s enable revived %d auto-disabled camera(s)", nvr_id, revived)
     await session.commit()
     await session.refresh(nvr, attribute_names=["cameras"])
     log.info("NVR updated id=%s fields=%s", nvr_id, list(data.keys()))
@@ -408,6 +430,55 @@ async def set_channels(
         if notice_bits else f"Already at {body.count} channels — nothing to change."
     )
     return _to_read(nvr, create_notice=notice)
+
+
+@router.post("/{nvr_id}/import-camera-ips", response_model=CameraIpImportResult)
+async def import_camera_ips(
+    nvr_id: str,
+    session: SessionDep,
+    _: AdminUser,
+) -> CameraIpImportResult:
+    """Pull the NVR's connected-camera list (Dahua RemoteDevice CGI) and fill
+    each channel's `Camera.ip`, then reconcile so main streams flip to pulling
+    straight from the cameras. Manual IPs for channels the NVR doesn't report
+    are left untouched."""
+    nvr = (
+        await session.execute(
+            select(Nvr).where(Nvr.id == nvr_id).options(selectinload(Nvr.cameras))
+        )
+    ).scalar_one_or_none()
+    if nvr is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
+    if nvr.vendor != Vendor.dahua:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Camera IP import is only implemented for Dahua NVRs.",
+        )
+
+    try:
+        found, updated = await camera_import.apply_camera_ips(session, nvr)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"NVR did not return its camera list: {e}",
+        ) from e
+
+    if updated:
+        try:
+            await path_sync.reconcile(session, delete_orphans=False)
+        except Exception as e:  # noqa: BLE001
+            log.warning("NVR %s: IPs saved but MediaMTX reconcile failed: %s", nvr_id, e)
+
+    return CameraIpImportResult(
+        nvr_id=nvr_id,
+        found=found,
+        updated=updated,
+        message=(
+            f"NVR reported {found} camera(s); updated {updated}. "
+            + ("Main streams now pull straight from the cameras." if updated
+               else "Nothing changed — IPs already up to date.")
+        ),
+    )
 
 
 @router.delete("/{nvr_id}", status_code=status.HTTP_204_NO_CONTENT)

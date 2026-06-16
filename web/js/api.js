@@ -145,6 +145,8 @@ export const deleteNvr = (id) => request("DELETE", `/nvrs/${id}`);
 export const testNvr = (id) => request("POST", `/nvrs/${id}/test`);
 export const setNvrChannels = (id, count, prune = false) =>
   request("POST", `/nvrs/${id}/set-channels`, { body: { count, prune } });
+export const importCameraIps = (id) =>
+  request("POST", `/nvrs/${id}/import-camera-ips`);
 export const healthAllNvrs = () => request("GET", "/nvrs/health");
 export const createCamera = (body) => request("POST", "/cameras", { body });
 export const updateCamera = (id, body) => request("PATCH", `/cameras/${id}`, { body });

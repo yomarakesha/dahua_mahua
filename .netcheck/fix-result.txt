@@ -1,0 +1,9 @@
+=== secondary IP fix 2026-06-11T10:10:50 ===
+admin=True
+adapter: ifIndex=13 Intel(R) Ethernet Connection (18) I219-V Up 100 Mbps
+removing stale 192.168.20.50 state=Duplicate
+192.168.20.240 -> Preferred
+OK secondary IP: 192.168.20.240
+ping 192.168.20.58 replies: 4/4
+egress now: ifIndex=13 src=192.168.20.240
+DONE

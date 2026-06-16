@@ -95,6 +95,29 @@ async def _disable_camera(nvr_id: str, channel: int, reason: str) -> None:
     log.warning("Auto-disabled camera %s ch%d — %s", nvr_id, channel, reason)
 
 
+async def reenable_cameras_for_nvr(session, nvr_id: str) -> int:
+    """Flip every disabled channel of `nvr_id` back to enabled and return how
+    many changed. Does NOT commit — the caller owns the transaction.
+
+    Used when a registrar is turned back on (manual PATCH or the startup
+    recovery sweep): the watchdog disables individual phantom/offline channels
+    over time, so without this a re-enabled NVR returns with half its grid dark
+    and the operator re-adds cameras by hand. Genuine phantom channels the
+    watchdog will simply disable again on the next failing polls — bounded
+    churn, and real cameras come straight back.
+    """
+    from app.models import Camera
+
+    cams = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.enabled.is_(False))
+        )
+    ).scalars().all()
+    for cam in cams:
+        cam.enabled = True
+    return len(cams)
+
+
 async def _disable_nvr(nvr_id: str, reason: str) -> None:
     """Set enabled=False, log an audit event, and remove the NVR's MediaMTX
     paths so the retry loop stops immediately. Best-effort on the MediaMTX
@@ -248,11 +271,21 @@ async def reenable_auto_disabled() -> None:
                 continue
             nvr.enabled = True
             reenabled += 1
-            await nvr_events.log_event(
-                nvr_id=nvr.id,
-                ip=nvr.ip,
-                event_type="reenabled_on_startup",
-                message="Re-enabled at startup (was auto-disabled); watchdog will re-check.",
+            # Bring its watchdog-disabled channels back too, so the grid isn't
+            # left half-dark after a cold start.
+            await reenable_cameras_for_nvr(session, nvr.id)
+            # Write the audit row in THIS session — NOT nvr_events.log_event,
+            # which opens a second connection. On file-backed SQLite a second
+            # writer, while this session already holds a pending write txn,
+            # deadlocks instantly as "database is locked". Keeping it in
+            # session A also makes re-enable + camera revive + audit atomic.
+            session.add(
+                NvrEvent(
+                    nvr_id=nvr.id,
+                    ip=nvr.ip,
+                    event_type="reenabled_on_startup",
+                    message="Re-enabled at startup (was auto-disabled); watchdog will re-check.",
+                )
             )
         if reenabled:
             await session.commit()

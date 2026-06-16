@@ -101,6 +101,7 @@ export const dom = {
   camerasSetBtn:      $("cameras-set-btn"),
   camerasSetStatus:   $("cameras-set-status"),
   camerasEnableAllBtn:$("cameras-enable-all-btn"),
+  camerasImportIpsBtn:$("cameras-import-ips-btn"),
   eventsDialog:       $("events-dialog"),
   eventsList:         $("events-list"),
   toastContainer: $("toast-container"),

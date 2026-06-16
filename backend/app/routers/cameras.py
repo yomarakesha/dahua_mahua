@@ -38,6 +38,7 @@ def _to_read(cam: Camera, nvr: Nvr) -> CameraRead:
         nvr_id=cam.nvr_id,
         channel=cam.channel,
         name=cam.name,
+        ip=cam.ip,
         enabled=cam.enabled,
         has_sub=cam.has_sub,
         has_main=cam.has_main,
@@ -112,12 +113,16 @@ async def update_camera(
     if cam is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not found")
     data = body.model_dump(exclude_unset=True)
+    if "ip" in data:
+        # Empty string from the form means "clear" — main falls back to NVR.
+        data["ip"] = (data["ip"] or "").strip() or None
     for field, value in data.items():
         setattr(cam, field, value)
     await session.commit()
     nvr = (await session.execute(select(Nvr).where(Nvr.id == cam.nvr_id))).scalar_one()
-    # Stream toggles change the set of MediaMTX paths we want — push diffs.
-    if {"enabled", "has_sub", "has_main"} & data.keys():
+    # Stream toggles change the set of MediaMTX paths we want; an IP change
+    # flips the _main path's source between camera-direct and via-NVR.
+    if {"enabled", "has_sub", "has_main", "ip"} & data.keys():
         await _try_reconcile(session, delete_orphans=True, ctx=f"camera {camera_id} update")
     return _to_read(cam, nvr)
 

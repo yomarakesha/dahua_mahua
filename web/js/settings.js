@@ -13,7 +13,7 @@ import { esc } from "./utils.js";
 import { dlog } from "./logger.js";
 import {
   listNvrs, createNvr, updateNvr, deleteNvr, testNvr, healthAllNvrs,
-  setNvrChannels,
+  setNvrChannels, importCameraIps,
   listCameras, createCamera, updateCamera, deleteCamera,
   listRegions, listEvents, reconcileMediamtx,
   changePassword as apiChangePassword, logout as apiLogout,
@@ -410,6 +410,8 @@ function renderCameraRow(cam) {
     `<td><input type="checkbox" data-field="enabled" ${cam.enabled ? "checked" : ""}></td>` +
     `<td class="ch-count">${cam.channel}</td>` +
     `<td><input type="text" data-field="name" value="${esc(cam.name || "")}" placeholder="${esc(cam.display_name)}"></td>` +
+    `<td><input type="text" data-field="ip" class="cam-ip ${cam.ip ? "direct" : ""}" value="${esc(cam.ip || "")}" placeholder="via NVR" ` +
+      `title="IP задан — main идёт напрямую с камеры; пусто — main через NVR"></td>` +
     `<td><input type="checkbox" data-field="has_sub" ${cam.has_sub ? "checked" : ""}></td>` +
     `<td><input type="checkbox" data-field="has_main" ${cam.has_main ? "checked" : ""}></td>` +
     `<td class="row-actions">` +
@@ -431,6 +433,8 @@ function renderCameraRow(cam) {
     const body = {
       enabled: tr.querySelector('[data-field="enabled"]').checked,
       name: tr.querySelector('[data-field="name"]').value.trim() || null,
+      // Empty string = clear: that camera's main falls back to the NVR relay.
+      ip: tr.querySelector('[data-field="ip"]').value.trim(),
       has_sub: tr.querySelector('[data-field="has_sub"]').checked,
       has_main: tr.querySelector('[data-field="has_main"]').checked,
     };
@@ -531,6 +535,33 @@ export async function enableAllChannels() {
   dom.camerasEnableAllBtn.disabled = false;
   await refreshCameras();
   await fetchCameras();
+}
+
+// Ask the NVR for its connected-camera list and fill each channel's IP, so
+// main streams pull straight from the cameras (the NVR's RTSP relay drops
+// packets on main — see docs/audit-plan.md §9).
+export async function importIps() {
+  if (!_currentNvrId) return;
+  dom.camerasImportIpsBtn.disabled = true;
+  setStatus(dom.camerasStatus, "Запрашиваю список камер у регистратора...");
+  dlog.info(_currentNvrId, "import-ips-start", "");
+  try {
+    const res = await importCameraIps(_currentNvrId);
+    dlog.info(_currentNvrId, "import-ips-ok", `found=${res.found} updated=${res.updated}`);
+    setStatus(
+      dom.camerasStatus,
+      res.updated
+        ? `Регистратор сообщил ${res.found} камер, обновлено ${res.updated} — main теперь напрямую`
+        : `Регистратор сообщил ${res.found} камер — IP уже актуальны`,
+    );
+    await refreshCameras();
+    await fetchCameras();
+  } catch (e) {
+    dlog.error(_currentNvrId, "import-ips-fail", errMsg(e));
+    setStatus(dom.camerasStatus, errMsg(e), true);
+  } finally {
+    dom.camerasImportIpsBtn.disabled = false;
+  }
 }
 
 export async function addCamera() {

@@ -49,6 +49,16 @@ async def _ensure_schema() -> None:
         return
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # create_all never alters existing tables, so columns added after a
+        # DB was first created need explicit (idempotent) ALTERs here.
+        # Mirrors alembic revision 0002_camera_ip for Postgres.
+        cols = [
+            row[1]
+            for row in (await conn.exec_driver_sql("PRAGMA table_info(cameras)")).fetchall()
+        ]
+        if "ip" not in cols:
+            await conn.exec_driver_sql("ALTER TABLE cameras ADD COLUMN ip VARCHAR(64)")
+            log.info("SQLite: added cameras.ip column")
     log.info("SQLite schema ensured via create_all")
 
 

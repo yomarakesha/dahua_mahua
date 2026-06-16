@@ -6,9 +6,11 @@ import { state, saveGroups } from "./state.js";
 import { dom } from "./dom.js";
 import {
   getNvrId, getChannel, formatName, labelFor, getNvrList,
-  gridCells, totalPages, scheduleStatusUpdate,
+  gridCells, totalPages, scheduleStatusUpdate, showToast,
 } from "./utils.js";
 import { showContextMenu } from "./ui-common.js";
+import { updateNvr } from "./api.js";
+import { fetchCameras, fetchInventory } from "./streams.js";
 
 let _onAutoFit = () => {};
 let _renderGridFn = () => {};
@@ -82,6 +84,33 @@ function updateFilterLabel() {
   else dom.sbFilter.textContent = "All cameras";
 }
 
+// One-click NVR switch. If the NVR was auto-disabled (watchdog) it has dropped
+// out of the camera list entirely, so a plain filter would show an empty grid
+// and the operator would have to re-add it via NVR management. Instead we turn
+// it back on first, refresh the inventory + camera list, then show it — so a
+// non-technical user never leaves the main screen. See memory: simple-user
+// low-friction.
+let _switchingNvr = false;
+async function switchToNvr(nvrId, nvrMeta) {
+  if (nvrMeta && nvrMeta.enabled === false) {
+    if (_switchingNvr) return;       // ignore double-clicks mid-enable
+    _switchingNvr = true;
+    try {
+      await updateNvr(nvrId, { enabled: true });
+      if (nvrMeta) nvrMeta.enabled = true;   // optimistic; refreshed below
+      await fetchInventory();                // pull fresh enabled flags
+      await fetchCameras();                  // now this NVR's cameras appear
+    } catch (e) {
+      // Backend refuses re-enable on lockout (409), bad password (400), etc.
+      showToast(`Не удалось включить регистратор: ${String(e.message || e)}`, "error", 6000);
+      return;
+    } finally {
+      _switchingNvr = false;
+    }
+  }
+  applyFilter("nvr", nvrId);
+}
+
 // ── Sidebar tree ────────────────────────────────────────────────────────────
 
 export function renderSidebar() {
@@ -152,19 +181,20 @@ function renderNvrTree() {
       children.appendChild(camEl);
     });
 
-    header.addEventListener("click", (e) => {
-      if (e.detail === 1) {
-        arrow.classList.toggle("open");
-        children.classList.toggle("open");
-      }
+    // Arrow toggles the channel list; a click anywhere else on the row switches
+    // the grid to this NVR (turning it on first if it was auto-disabled).
+    arrow.addEventListener("click", (e) => {
+      e.stopPropagation();
+      arrow.classList.toggle("open");
+      children.classList.toggle("open");
     });
 
-    header.addEventListener("dblclick", () => applyFilter("nvr", nvrId));
+    header.addEventListener("click", () => switchToNvr(nvrId, nvrMeta));
 
     header.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       showContextMenu(e, [
-        { label: "Show NVR", action: () => applyFilter("nvr", nvrId) },
+        { label: "Show NVR", action: () => switchToNvr(nvrId, nvrMeta) },
         { label: "Rename", action: () => renameNvr(nvrId) },
       ]);
     });
