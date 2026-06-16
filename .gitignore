@@ -19,6 +19,10 @@ dss.db*
 *.db-journal
 *.clean-bak
 
+# netcheck scratch — generated isolated-MediaMTX configs/logs (keep the .py tools)
+.netcheck/*cfg_*.yml
+.netcheck/*log_*.log
+
 # Logs / runtime artefacts
 *.log
 nvr_events.jsonl
