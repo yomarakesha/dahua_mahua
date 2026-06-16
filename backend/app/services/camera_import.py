@@ -27,7 +27,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crypto import decrypt_password
-from app.models import Camera, Nvr
+from app.models import Camera, Nvr, Vendor
+from app.services.rtsp_probe import probe_rtsp
 
 log = logging.getLogger("dss.camera_import")
 
@@ -90,31 +91,59 @@ async def fetch_camera_ips(
     return parse_remote_devices(r.text)
 
 
-async def _probe_rtsp(ip: str, port: int = 554, timeout: float = 1.5) -> bool:
-    """True if a TCP connection to ip:port opens within `timeout`.
+async def _probe_rtsp(
+    ip: str,
+    *,
+    username: str,
+    password: str,
+    vendor: Vendor | str = Vendor.dahua,
+    port: int = 554,
+    timeout: float = 1.5,
+) -> bool:
+    """True only if the camera answers RTSP **and the NVR credentials actually
+    authenticate** (digest auth → 200).
 
-    A camera's RemoteDevice Address is only useful for a direct main pull if
-    the box is actually routable from here. On PoE NVRs the cameras sit behind
-    the recorder's internal switch and never answer directly — probing weeds
-    those out so we don't point _main at a dead host."""
-    try:
-        _, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout)
-    except (OSError, asyncio.TimeoutError):
-        return False
-    writer.close()
-    try:
-        await writer.wait_closed()
-    except OSError:
-        pass
-    return True
+    A bare open port is not enough. Two ways a "reachable" camera still yields a
+    black screen on direct pull:
+      • it sits behind the NVR's PoE switch and never answers directly, or
+      • it answers, but its password differs from the NVR's → 401.
+    Direct pull reuses the NVR credentials (path_sync: "camera creds mirror the
+    NVR's"), so we verify exactly that here. A 401 (wrong password) or 403
+    (firmware ban) both mean "do not pull direct" → fall back to the NVR relay.
+    Runs the sync digest probe in a thread so it doesn't block the loop."""
+    res = await asyncio.to_thread(
+        probe_rtsp, ip, port, username, password,
+        channel=1, vendor=vendor, timeout=timeout,
+    )
+    return res.ok
 
 
-async def filter_reachable(ips: set[str], *, port: int = 554, timeout: float = 1.5) -> set[str]:
-    """Probe a set of IPs concurrently; return only those that answer."""
+async def filter_reachable(
+    ips: set[str],
+    *,
+    username: str,
+    password: str,
+    vendor: Vendor | str = Vendor.dahua,
+    port: int = 554,
+    timeout: float = 1.5,
+    concurrency: int = 16,
+) -> set[str]:
+    """Probe IPs concurrently and return only those that authenticate. Bounded
+    concurrency keeps us from opening hundreds of sockets (and from looking like
+    a flood to the NVR) when a fleet has many channels."""
     ordered = list(ips)
     if not ordered:
         return set()
-    results = await asyncio.gather(*(_probe_rtsp(ip, port, timeout) for ip in ordered))
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _one(ip: str) -> bool:
+        async with sem:
+            return await _probe_rtsp(
+                ip, username=username, password=password,
+                vendor=vendor, port=port, timeout=timeout,
+            )
+
+    results = await asyncio.gather(*(_one(ip) for ip in ordered))
     return {ip for ip, ok in zip(ordered, results) if ok}
 
 
@@ -126,20 +155,22 @@ async def apply_camera_ips(session: AsyncSession, nvr: Nvr) -> tuple[int, int]:
     IP, and cameras whose stored IP actually changed.
 
     Reachability-aware: for every channel the NVR reports we set `Camera.ip`
-    to the camera's address when it answers on :554 (main pulls direct), or to
-    `None` when it doesn't (main falls back to the NVR relay). A stored-but-
-    dead IP is exactly what points _main at nothing and makes the watchdog
-    disable the NVR, so we clear those too. Channels the NVR does NOT list are
-    left untouched.
+    to the camera's address when it answers on :554 AND authenticates with the
+    NVR credentials (main pulls direct), or to `None` when it doesn't (main
+    falls back to the NVR relay). A stored-but-dead/401 IP is exactly what
+    points _main at nothing and makes the watchdog disable the NVR, so we clear
+    those too. Channels the NVR does NOT list are left untouched.
     """
-    chan_ips = await fetch_camera_ips(
-        nvr.ip, nvr.rtsp_username, decrypt_password(nvr.rtsp_password_encrypted)
-    )
+    password = decrypt_password(nvr.rtsp_password_encrypted)
+    chan_ips = await fetch_camera_ips(nvr.ip, nvr.rtsp_username, password)
     if not chan_ips:
         log.info("NVR %s: RemoteDevice list is empty — nothing to import", nvr.id)
         return 0, 0
 
-    reachable = await filter_reachable(set(chan_ips.values()))
+    reachable = await filter_reachable(
+        set(chan_ips.values()),
+        username=nvr.rtsp_username, password=password, vendor=nvr.vendor,
+    )
 
     cams = list(
         (
