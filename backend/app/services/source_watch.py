@@ -51,7 +51,9 @@ def _parse_path(name: str) -> tuple[str, int] | None:
     if len(parts) != 2:
         return None
     rhs = parts[1]
-    if rhs.endswith("_main"):
+    if rhs.endswith("_main_nvr"):       # the per-camera via-NVR toggle variant
+        rhs = rhs[:-9]
+    elif rhs.endswith("_main"):
         rhs = rhs[:-5]
     if not rhs.isdigit():
         return None

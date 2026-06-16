@@ -54,17 +54,29 @@ class SyncReport:
 
 # Path naming kept in lockstep with `Camera.mediamtx_path()` and the names
 # the original setup used, so MediaMTX clients see stable identifiers.
-def path_name(nvr_id: str, channel: int, quality: StreamQuality) -> str:
-    suffix = "_main" if quality == StreamQuality.main else ""
+def path_name(
+    nvr_id: str, channel: int, quality: StreamQuality, *, relay_variant: bool = False
+) -> str:
+    if quality != StreamQuality.main:
+        return f"{nvr_id}_ch{channel}"
+    # `_main` is the default (direct when the camera has an IP). `_main_nvr` is
+    # the always-via-NVR variant, offered alongside `_main` only when a direct
+    # path exists, so the operator can toggle source per camera in fullscreen.
+    suffix = "_main_nvr" if relay_variant else "_main"
     return f"{nvr_id}_ch{channel}{suffix}"
 
 
-def _build_path_config(nvr: Nvr, camera: Camera, quality: StreamQuality) -> dict[str, Any]:
-    """Build the MediaMTX path-config payload for one camera+quality."""
+def _build_path_config(
+    nvr: Nvr, camera: Camera, quality: StreamQuality, *, force_relay: bool = False
+) -> dict[str, Any]:
+    """Build the MediaMTX path-config payload for one camera+quality.
+
+    `force_relay=True` builds the via-NVR source even when the camera has a
+    direct IP — used for the `_main_nvr` toggle variant."""
     settings = get_settings()
     password = decrypt_password(nvr.rtsp_password_encrypted)
     subtype = 0 if quality == StreamQuality.main else 1
-    if quality == StreamQuality.main and camera.ip:
+    if quality == StreamQuality.main and camera.ip and not force_relay:
         # Main goes straight to the camera: the NVR's RTSP relay drops packets
         # on main streams even at trivial load (measured: 7815 lost vs 0 direct
         # — docs/audit-plan.md §9). A standalone IP camera serves its own
@@ -146,6 +158,16 @@ async def _desired_paths(session: AsyncSession) -> dict[str, dict[str, Any]]:
             if cam.has_main:
                 name = path_name(nvr.id, cam.channel, StreamQuality.main)
                 desired[name] = _build_path_config(nvr, cam, StreamQuality.main)
+                # When a direct path exists, also publish the via-NVR variant so
+                # the operator can switch source per camera. On-demand → costs
+                # nothing on the NVR unless someone actually selects it.
+                if cam.ip:
+                    rname = path_name(
+                        nvr.id, cam.channel, StreamQuality.main, relay_variant=True
+                    )
+                    desired[rname] = _build_path_config(
+                        nvr, cam, StreamQuality.main, force_relay=True
+                    )
     return desired
 
 
@@ -158,7 +180,9 @@ def _is_dss_managed(name: str) -> bool:
     if len(parts) != 2:
         return False
     rhs = parts[1]
-    if rhs.endswith("_main"):
+    if rhs.endswith("_main_nvr"):
+        rhs = rhs[:-9]
+    elif rhs.endswith("_main"):
         rhs = rhs[:-5]
     return rhs.isdigit()
 

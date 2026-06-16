@@ -24,7 +24,8 @@ import {
   startPatrol, stopPatrol, togglePatrol, takeSnapshot, setupKeyboard,
 } from "./grid.js";
 import {
-  openFullscreen, toggleFullscreenQuality, toggleFullscreenSound, closeFullscreen,
+  openFullscreen, toggleFullscreenQuality, toggleFullscreenSound,
+  toggleFullscreenSource, closeFullscreen,
 } from "./fullscreen.js";
 import {
   renderLayoutSelect, showLayoutDialog, hideLayoutDialog,
@@ -113,6 +114,7 @@ function bindEvents() {
   dom.shortcutsBtn.addEventListener("click", () => toggleModal(dom.shortcutsModal));
   dom.fsCloseBtn.addEventListener("click", closeFullscreen);
   dom.fsQualityBtn.addEventListener("click", toggleFullscreenQuality);
+  dom.fsSourceBtn.addEventListener("click", toggleFullscreenSource);
   dom.fsSoundBtn.addEventListener("click", toggleFullscreenSound);
   dom.fsSnapshotBtn.addEventListener("click", () => {
     if (state.fullscreenPath) takeSnapshot(state.fullscreenPath, dom.fsVideo);
@@ -168,6 +170,7 @@ async function init() {
     hideContextMenu,
     toggleFullscreenQuality,
     toggleFullscreenSound,
+    toggleFullscreenSource,
     showGroupDialog,
     openSettings,
   });

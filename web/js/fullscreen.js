@@ -11,6 +11,81 @@ import { dom } from "./dom.js";
 import { labelFor, showToast } from "./utils.js";
 import { resetVideoElement } from "./streams.js";
 
+// ── Main-stream source (direct camera ⇄ via NVR) ─────────────────────────────
+// The main stream defaults to pulling straight from the camera (0 packet loss
+// vs the NVR relay). The operator can switch a camera back to the NVR relay per
+// camera; the choice is remembered in localStorage. Only cameras that actually
+// have a reachable direct IP get the toggle (their backend publishes a second
+// `_main_nvr` path alongside `_main`).
+const SOURCE_KEY = "dss.mainSource";
+
+function sourceMap() {
+  try {
+    return JSON.parse(localStorage.getItem(SOURCE_KEY) || "{}") || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function getMainSource(path) {
+  return sourceMap()[path] === "nvr" ? "nvr" : "direct";
+}
+
+function setMainSource(path, value) {
+  const m = sourceMap();
+  if (value === "nvr") m[path] = "nvr";
+  else delete m[path];               // "direct" is the default — don't store it
+  try {
+    localStorage.setItem(SOURCE_KEY, JSON.stringify(m));
+  } catch (_) {}
+}
+
+function cameraHasDirect(path) {
+  const c = state.cameraByPath && state.cameraByPath[path];
+  return !!(c && c.ip);
+}
+
+// Resolve the MediaMTX path for the main stream given the operator's choice.
+// Falls back to `_main` whenever there's no direct alternative.
+function mainPathFor(path) {
+  return cameraHasDirect(path) && getMainSource(path) === "nvr"
+    ? path + "_main_nvr"
+    : path + "_main";
+}
+
+export function updateSourceBtn() {
+  const path = state.fullscreenPath;
+  const has = !!path && cameraHasDirect(path);
+  dom.fsSourceBtn.classList.toggle("hidden", !has);
+  if (!has) return;
+  const viaNvr = getMainSource(path) === "nvr";
+  dom.fsSourceBtn.textContent = viaNvr ? "NVR" : "Камера";
+  dom.fsSourceBtn.title = viaNvr
+    ? "Источник: через регистратор — нажмите для прямого с камеры (N)"
+    : "Источник: прямо с камеры — нажмите для NVR (N)";
+  dom.fsSourceBtn.classList.toggle("active", !viaNvr);
+}
+
+export function toggleFullscreenSource() {
+  const path = state.fullscreenPath;
+  if (!path || !cameraHasDirect(path)) return;   // nothing to switch to
+  setMainSource(path, getMainSource(path) === "nvr" ? "direct" : "nvr");
+  updateSourceBtn();
+  // Only reconnect if the main stream is actually on screen; if we're showing
+  // the SD sub-stream the new preference applies next time HD is selected.
+  if (state.fullscreenIsMain) {
+    const token = ++state.fullscreenToken;
+    disconnectFullscreenMain();
+    connectFullscreenMain(path, token);
+  }
+  showToast(
+    getMainSource(path) === "nvr"
+      ? "Источник: через регистратор (NVR)"
+      : "Источник: прямо с камеры",
+    "info", 2500,
+  );
+}
+
 export function openFullscreen(path) {
   const conn = state.connections[path];
   const token = ++state.fullscreenToken;
@@ -36,6 +111,7 @@ export function openFullscreen(path) {
   dom.fsOverlay.classList.remove("hidden");
   dom.fsOverlay.requestFullscreen().catch(() => {});
   updateQualityBtn();
+  updateSourceBtn();
 
   connectFullscreenMain(path, token);
 }
@@ -111,7 +187,7 @@ export function toggleFullscreenQuality() {
 
 async function connectFullscreenMain(path, token) {
   disconnectFullscreenMain();
-  const mainPath = path + "_main";
+  const mainPath = mainPathFor(path);
 
   let pc;
   try {

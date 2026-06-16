@@ -34,6 +34,7 @@ export const dom = {
   fsVideo:        $("fs-video"),
   fsBuffer:       $("fs-buffer"),
   fsQualityBtn:   $("fs-quality-btn"),
+  fsSourceBtn:    $("fs-source-btn"),
   fsSoundBtn:     $("fs-sound-btn"),
   fsSnapshotBtn:  $("fs-snapshot-btn"),
   fsCloseBtn:     $("fs-close-btn"),
