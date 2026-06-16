@@ -10,7 +10,14 @@ backend/.env
 backend/.venv/
 
 # SQLite databases (may contain password hashes + encrypted NVR creds)
+# Cover the DB and its WAL/SHM sidecars + any *.bak / *.clean-bak snapshots —
+# *.db alone misses dss.db-wal / dss.db.bak-* etc.
 *.db
+dss.db*
+*.db-shm
+*.db-wal
+*.db-journal
+*.clean-bak
 
 # Logs / runtime artefacts
 *.log
