@@ -18,6 +18,7 @@ camera whenever `Camera.ip` is known. This module keeps those IPs filled in.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -89,14 +90,47 @@ async def fetch_camera_ips(
     return parse_remote_devices(r.text)
 
 
+async def _probe_rtsp(ip: str, port: int = 554, timeout: float = 1.5) -> bool:
+    """True if a TCP connection to ip:port opens within `timeout`.
+
+    A camera's RemoteDevice Address is only useful for a direct main pull if
+    the box is actually routable from here. On PoE NVRs the cameras sit behind
+    the recorder's internal switch and never answer directly — probing weeds
+    those out so we don't point _main at a dead host."""
+    try:
+        _, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout)
+    except (OSError, asyncio.TimeoutError):
+        return False
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except OSError:
+        pass
+    return True
+
+
+async def filter_reachable(ips: set[str], *, port: int = 554, timeout: float = 1.5) -> set[str]:
+    """Probe a set of IPs concurrently; return only those that answer."""
+    ordered = list(ips)
+    if not ordered:
+        return set()
+    results = await asyncio.gather(*(_probe_rtsp(ip, port, timeout) for ip in ordered))
+    return {ip for ip, ok in zip(ordered, results) if ok}
+
+
 async def apply_camera_ips(session: AsyncSession, nvr: Nvr) -> tuple[int, int]:
-    """Fetch the NVR's device list and fill `Camera.ip` per channel.
+    """Fetch the NVR's device list and set `Camera.ip` per channel — but only
+    for cameras that actually answer on RTSP.
 
     Returns `(found, updated)`: channels the NVR reported with a real camera
-    IP, and cameras whose stored IP actually changed. Does NOT clear IPs for
-    channels missing from the NVR's list — an operator may have set one by
-    hand, and erasing it would silently flip that camera's main back to the
-    lossy NVR relay.
+    IP, and cameras whose stored IP actually changed.
+
+    Reachability-aware: for every channel the NVR reports we set `Camera.ip`
+    to the camera's address when it answers on :554 (main pulls direct), or to
+    `None` when it doesn't (main falls back to the NVR relay). A stored-but-
+    dead IP is exactly what points _main at nothing and makes the watchdog
+    disable the NVR, so we clear those too. Channels the NVR does NOT list are
+    left untouched.
     """
     chan_ips = await fetch_camera_ips(
         nvr.ip, nvr.rtsp_username, decrypt_password(nvr.rtsp_password_encrypted)
@@ -105,20 +139,28 @@ async def apply_camera_ips(session: AsyncSession, nvr: Nvr) -> tuple[int, int]:
         log.info("NVR %s: RemoteDevice list is empty — nothing to import", nvr.id)
         return 0, 0
 
+    reachable = await filter_reachable(set(chan_ips.values()))
+
     cams = list(
         (
             await session.execute(select(Camera).where(Camera.nvr_id == nvr.id))
         ).scalars()
     )
     updated = 0
+    direct = 0
     for cam in cams:
-        new_ip = chan_ips.get(cam.channel)
-        if new_ip and cam.ip != new_ip:
-            cam.ip = new_ip
+        reported = chan_ips.get(cam.channel)
+        if reported is None:
+            continue  # NVR didn't list this channel — don't touch a manual IP
+        target = reported if reported in reachable else None
+        if target is not None:
+            direct += 1
+        if cam.ip != target:
+            cam.ip = target
             updated += 1
     await session.commit()
     log.info(
-        "NVR %s: camera IP import — %d channel(s) on NVR, %d camera(s) updated",
-        nvr.id, len(chan_ips), updated,
+        "NVR %s: camera IP import — %d channel(s) on NVR, %d direct/%d relay, %d updated",
+        nvr.id, len(chan_ips), direct, len(chan_ips) - direct, updated,
     )
     return len(chan_ips), updated

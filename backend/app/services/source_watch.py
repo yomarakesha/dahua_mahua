@@ -147,6 +147,7 @@ async def _poll_once(
     nvr_fail: dict[str, int],
     cam_fail: dict[tuple[str, int], int],
     ch_last_ready: dict[tuple[str, int], float],
+    nvr_last_ready: dict[str, float],
     threshold: int,
     cam_threshold: int,
     recovery_seconds: float,
@@ -191,6 +192,7 @@ async def _poll_once(
         cam_fail.pop(key, None)
         ch_last_ready[key] = now
     for nvr_id in ok_nvrs:
+        nvr_last_ready[nvr_id] = now
         if nvr_fail.pop(nvr_id, None):
             log.info("source-watch: %s recovered, NVR counter cleared", nvr_id)
 
@@ -233,6 +235,16 @@ async def _poll_once(
         else:
             # No channel on this NVR is ready → account-wide failure
             # (wrong password / host unreachable). Disable the whole NVR.
+            last_ok = nvr_last_ready.get(nvr_id)
+            if last_ok is not None and (now - last_ok) < recovery_seconds:
+                # The NVR streamed fine moments ago, so every channel dropping
+                # at once is a transient bandwidth/packet-loss spike or an
+                # on-demand source restart — NOT a wrong-password lockout.
+                # Disabling here is what nuked a working NVR under packet loss
+                # (the very symptom we hit on the via-NVR/constrained-link
+                # site). Leave it; clients reconnect on their own.
+                nvr_fail.pop(nvr_id, None)
+                continue
             nvr_fail[nvr_id] = nvr_fail.get(nvr_id, 0) + 1
             n = nvr_fail[nvr_id]
             log.warning("source-watch: %s no channel ready while viewers pull it (%d/%d)",
@@ -302,6 +314,7 @@ async def _run() -> None:
     nvr_fail: dict[str, int] = {}
     cam_fail: dict[tuple[str, int], int] = {}
     ch_last_ready: dict[tuple[str, int], float] = {}
+    nvr_last_ready: dict[str, float] = {}
     log.info(
         "Source watchdog running (interval=%.1fs nvr_threshold=%d cam_threshold=%d grace=%.0fs)",
         interval, threshold, cam_threshold, grace,
@@ -320,7 +333,7 @@ async def _run() -> None:
                 log.info("source-watch: startup grace elapsed — policing active")
             try:
                 await _poll_once(
-                    nvr_fail, cam_fail, ch_last_ready,
+                    nvr_fail, cam_fail, ch_last_ready, nvr_last_ready,
                     threshold, cam_threshold, recovery,
                 )
             except Exception as e:  # noqa: BLE001 — watchdog must never die
