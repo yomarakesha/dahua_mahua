@@ -10,6 +10,7 @@ import { state, loadState, savePrefs } from "./state.js";
 import { dom } from "./dom.js";
 import { dlog } from "./logger.js";
 import { scheduleStatusUpdate } from "./utils.js";
+import { isMse, startMseSampler } from "./mse.js";
 import {
   fetchCameras, fetchInventory, startStallDetection, reconnectAllVisible,
 } from "./streams.js";
@@ -187,6 +188,7 @@ async function init() {
 
   setInterval(() => { fetchCameras(); scheduleStatusUpdate(); }, CONFIG.pollInterval);
   startStallDetection();
+  if (isMse()) startMseSampler();   // MSE telemetry (WebRTC sampler no-ops here)
 
   // Periodic connection summary for diagnostics
   setInterval(() => {

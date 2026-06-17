@@ -17,6 +17,7 @@ import {
 import { showContextMenu, toggleSidebar, toggleModal } from "./ui-common.js";
 import { addToGroup } from "./sidebar.js";
 import { openFullscreen } from "./fullscreen.js";
+import { isMse, mountMse } from "./mse.js";
 
 // ── Grid rendering ──────────────────────────────────────────────────────────
 // Two paths: full rebuild (size change → recreate every cell) and diff-update
@@ -107,14 +108,22 @@ function populatePathCell(cell, path) {
   cell.draggable = true;
   cell.style.background = "";
 
-  const video = document.createElement("video");
-  video.autoplay = true;
-  video.muted = true;
-  video.playsInline = true;
+  // The media element: a buffered-MSE player (go2rtc) or a WebRTC <video>.
+  let media;
+  if (isMse()) {
+    media = mountMse(cell, streamPathFor(path));   // self-connecting MSE player
+  } else {
+    media = document.createElement("video");
+    media.autoplay = true;
+    media.muted = true;
+    media.playsInline = true;
+    cell.appendChild(media);
+  }
 
   const dot = document.createElement("div");
   dot.className = "status-dot";
   dot.dataset.dotPath = path;
+  if (isMse()) dot.classList.add("live");   // MSE component self-manages; show live
 
   const label = document.createElement("div");
   label.className = "label";
@@ -126,15 +135,18 @@ function populatePathCell(cell, path) {
   snapBtn.className = "cell-btn";
   snapBtn.innerHTML = "&#128247;";
   snapBtn.title = "Snapshot";
-  snapBtn.addEventListener("click", (e) => { e.stopPropagation(); takeSnapshot(path, video); });
+  // For MSE the frame source is the component's inner <video>.
+  snapBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    takeSnapshot(path, isMse() ? media.video : media);
+  });
   controls.appendChild(snapBtn);
 
-  cell.appendChild(video);
   cell.appendChild(dot);
   cell.appendChild(label);
   cell.appendChild(controls);
 
-  attachOrConnect(path, video);
+  if (!isMse()) attachOrConnect(path, media);   // MSE connects itself on mount
 }
 
 function populateEmptyCell(cell) {
@@ -196,11 +208,15 @@ export function renderGrid() {
       const newPath = pageCams[i] || null;
       if (oldPath === newPath) {
         if (newPath) {
-          const video = cell.querySelector("video");
           const label = cell.querySelector(".label");
           const newLabel = labelFor(newPath);
           if (label && label.textContent !== newLabel) label.textContent = newLabel;
-          if (video) attachOrConnect(newPath, video);
+          // MSE players persist across diff-renders and self-manage; only the
+          // WebRTC path needs a re-attach to its <video>.
+          if (!isMse()) {
+            const video = cell.querySelector("video");
+            if (video) attachOrConnect(newPath, video);
+          }
           kept++;
         }
         continue;
@@ -227,6 +243,7 @@ export function renderGrid() {
 }
 
 function preconnectNextPage(paths) {
+  if (isMse()) return;   // MSE players connect on mount; no WebRTC pre-warm needed
   const nextCams = Array.isArray(paths) ? paths : getNextPageCameras().slice(0, getPreconnectLimit());
   if (nextCams.length === 0) return;
 

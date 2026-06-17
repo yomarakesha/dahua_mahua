@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     mediamtx_bin: str = "mediamtx"
     mediamtx_config_path: str = "mediamtx.yml"
 
+    # ── go2rtc (buffered MSE relay) ──────────────────────────────────────────
+    # relay = "mediamtx" (WebRTC) or "go2rtc" (MSE). go2rtc's buffered MSE
+    # pipeline absorbs bursty/jittery camera frame delivery that freezes WebRTC
+    # at 0% packet loss — see docs/perf-tuning.md.
+    relay: str = "mediamtx"
+    go2rtc_api_url: str = "http://localhost:1984"
+    # Browser-facing base the frontend uses for the MSE/WebRTC WebSocket.
+    go2rtc_ws_url: str = "ws://localhost:1984"
+
     # ── Source-on-demand timings ─────────────────────────────────────────────
     sub_start_timeout: str = "10s"
     sub_close_after: str = "30s"

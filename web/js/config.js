@@ -11,6 +11,10 @@ export const CONFIG = {
   // those through the backend would defeat the fan-out.
   webrtcBase:     `${location.protocol}//${location.hostname}:8889`,
   hlsBase:        `${location.protocol}//${location.hostname}:8888`,
+  // Delivery relay: "go2rtc-mse" (buffered MSE — absorbs camera frame-timing
+  // jitter that freezes WebRTC at 0% loss) or "mediamtx" (legacy WebRTC/WHEP).
+  relay:          "go2rtc-mse",
+  go2rtcWsBase:   `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.hostname}:1984`,
   // ICE servers for the browser-side RTCPeerConnection. EMPTY on purpose:
   // DSS is a LAN fan-out, so the browser and MediaMTX exchange host
   // candidates directly and connect instantly. A public STUN server here is
