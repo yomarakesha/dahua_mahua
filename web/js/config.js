@@ -36,6 +36,13 @@ export const LS = {
 export const STALL_CHECK_INTERVAL = 4000;
 export const STALL_THRESHOLD = 8;
 
+// Receiver-side jitter buffer target (ms). WebRTC's default buffer is tiny
+// (~30–150ms) and freezes at 0% loss when the source delivers frames with
+// irregular timing (camera on a jittery LAN). Enlarging it trades a little
+// latency for far fewer freezes — applied per video receiver via
+// jitterBufferTarget (Firefox) / playoutDelayHint (Chrome). 0 = leave default.
+export const JITTER_BUFFER_MS = 800;
+
 // How long to wait for a transient ICE `disconnected` to self-recover before
 // treating it as an error and reconnecting. `disconnected` (unlike `failed`)
 // routinely heals on its own when the main thread is briefly starved; an

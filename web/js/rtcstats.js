@@ -18,9 +18,25 @@
 
 import { state } from "./state.js";
 import { dlog } from "./logger.js";
+import { JITTER_BUFFER_MS } from "./config.js";
 
 const SAMPLE_MS = 8000;
 let _timer = null;
+
+// Enlarge the receiver jitter buffer so irregular source frame timing (camera
+// on a jittery LAN) doesn't starve the decoder and freeze the picture. Standard
+// W3C API (jitterBufferTarget); Chrome still ships the older playoutDelayHint.
+// Safe no-op on browsers/receivers that don't support either.
+export function applyJitterBuffer(pc, ms = JITTER_BUFFER_MS) {
+  if (!pc || !ms || typeof pc.getReceivers !== "function") return;
+  for (const r of pc.getReceivers()) {
+    if (!r.track || r.track.kind !== "video") continue;
+    try {
+      if ("jitterBufferTarget" in r) r.jitterBufferTarget = ms;        // ms
+      else if ("playoutDelayHint" in r) r.playoutDelayHint = ms / 1000; // seconds
+    } catch (_) {}
+  }
+}
 
 // Pull the inbound video report (+ its negotiated codec) out of a getStats map.
 export async function inboundVideoStats(pc) {

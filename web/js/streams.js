@@ -11,7 +11,7 @@ import {
   scheduleStatusUpdate, showWarning,
 } from "./utils.js";
 import { listCameras, listNvrs } from "./api.js";
-import { captureStall, startStatsSampler } from "./rtcstats.js";
+import { captureStall, startStatsSampler, applyJitterBuffer } from "./rtcstats.js";
 
 // ── MediaMTX API ────────────────────────────────────────────────────────────
 
@@ -262,6 +262,7 @@ async function tryWebRTC(path, videoEl, conn, generation) {
     const active = getActiveConnection(path, generation);
     if (!active || active.pc !== pc) return;
     dlog.info(path, "webrtc-track-received", `streams=${evt.streams.length}`);
+    applyJitterBuffer(pc);   // enlarge jitter buffer to absorb source timing jitter
     active.stream = evt.streams[0];
     if (active.video) {
       active.video.srcObject = active.stream;

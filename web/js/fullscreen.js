@@ -10,6 +10,7 @@ import { state } from "./state.js";
 import { dom } from "./dom.js";
 import { labelFor, showToast } from "./utils.js";
 import { resetVideoElement } from "./streams.js";
+import { applyJitterBuffer } from "./rtcstats.js";
 
 // ── Main-stream source (direct camera ⇄ via NVR) ─────────────────────────────
 // The main stream defaults to pulling straight from the camera (0 packet loss
@@ -209,6 +210,7 @@ async function connectFullscreenMain(path, token) {
 
   pc.ontrack = (evt) => {
     if (!state.fullscreenConn || state.fullscreenConn.pc !== pc || state.fullscreenConn.token !== token) return;
+    applyJitterBuffer(pc);   // enlarge jitter buffer to absorb source timing jitter
     dom.fsBuffer.srcObject = evt.streams[0];
 
     const onReady = () => {
