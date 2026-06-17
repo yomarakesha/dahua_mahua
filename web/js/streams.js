@@ -11,6 +11,7 @@ import {
   scheduleStatusUpdate, showWarning,
 } from "./utils.js";
 import { listCameras, listNvrs } from "./api.js";
+import { captureStall, startStatsSampler } from "./rtcstats.js";
 
 // ── MediaMTX API ────────────────────────────────────────────────────────────
 
@@ -440,6 +441,7 @@ export function updateCellDot(path, status) {
 export function startStallDetection() {
   if (state.stallCheckTimer) return;
   state.stallCheckTimer = setInterval(checkForStalls, STALL_CHECK_INTERVAL);
+  startStatsSampler();   // periodic WebRTC inbound-rtp telemetry → server logs
 }
 
 function checkForStalls() {
@@ -468,6 +470,7 @@ function checkForStalls() {
 
     if (elapsed >= STALL_THRESHOLD && curTime === conn._lastCheckTime && readyState < 3) {
       dlog.warn(path, "video-stall-detected", `readyState=${readyState} curTime=${curTime} elapsed=${elapsed.toFixed(1)}s mode=${conn.mode}`);
+      if (conn.pc) captureStall(path, conn.pc);   // grab WebRTC stats at the freeze
       conn.status = "error";
       conn.lastError = "video-stall";
       updateCellDot(path, "error");
