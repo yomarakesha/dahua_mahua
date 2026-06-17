@@ -48,3 +48,6 @@ key.pem
 *.swp
 .DS_Store
 Thumbs.db
+
+# Local launcher runtime (start-mac.sh)
+.run/
