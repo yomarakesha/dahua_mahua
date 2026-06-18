@@ -1,0 +1,18 @@
+# go2rtc base config — buffered-MSE delivery relay (replaces MediaMTX when
+# RELAY=go2rtc). NO camera streams or secrets here: the DSS backend registers
+# every stream at runtime via the go2rtc API (app/services/go2rtc_sync.py),
+# mirroring how it managed MediaMTX paths. start-mac.sh copies this to the
+# runtime .go2rtc/ dir (gitignored, since go2rtc persists the live stream list —
+# with credentials — back into its config file).
+api:
+  listen: ":1984"
+  # Allow the DSS frontend (served on :8080) to open cross-origin MSE/WebRTC
+  # WebSockets. LAN-only deployment; lock down behind the authenticating ingress
+  # in production, same caveat as MediaMTX's anonymous playback.
+  origin: "*"
+rtsp:
+  listen: ":8553"      # off MediaMTX's :8554 so both can run during migration
+webrtc:
+  listen: ":8556"      # go2rtc also offers WebRTC as a low-latency alternative
+log:
+  level: warn

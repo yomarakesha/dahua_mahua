@@ -379,6 +379,23 @@ body {
   display: block;
 }
 
+/* Fullscreen MSE player — fill the overlay, below the control header. */
+#fullscreen-overlay dss-mse.fs-mse {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  z-index: 1;
+}
+#fullscreen-overlay dss-mse.fs-mse video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+#fs-header { z-index: 2; }   /* keep controls above the MSE player */
+
 .cam-cell .label {
   position: absolute;
   bottom: 0;

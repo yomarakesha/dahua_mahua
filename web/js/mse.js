@@ -17,8 +17,12 @@ import { state } from "./state.js";
 import { dlog } from "./logger.js";
 
 if (!customElements.get("dss-mse")) {
-  // Plain subclass — VideoRTC builds the inner <video> and handles everything.
-  customElements.define("dss-mse", class extends VideoRTC {});
+  customElements.define("dss-mse", class extends VideoRTC {
+    oninit() {
+      super.oninit();                 // builds + appends this.video
+      if (this.video) this.video.controls = false;   // no native controls in tiles
+    }
+  });
 }
 
 export function isMse() {

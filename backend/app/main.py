@@ -84,9 +84,20 @@ async def _ensure_bootstrap_admin() -> None:
 
 
 async def _initial_reconcile() -> None:
-    """Best-effort path sync on startup. If MediaMTX isn't reachable yet
-    (e.g. docker-compose race), we log and continue — the admin can retry
-    via POST /api/v1/mediamtx/reconcile once it comes up."""
+    """Best-effort stream sync on startup against the active relay. If the relay
+    isn't reachable yet, log and continue — the admin can retry once it's up."""
+    settings = get_settings()
+    if settings.relay == "go2rtc":
+        from app.services import go2rtc_api, go2rtc_sync
+        try:
+            await go2rtc_api.get_client().ping()
+        except Exception:  # noqa: BLE001
+            log.warning("go2rtc not reachable at startup — skipping initial reconcile")
+            return
+        async with SessionLocal() as session:
+            report = await go2rtc_sync.reconcile(session, delete_orphans=False)
+        log.info("Startup reconcile (go2rtc): %s", report)
+        return
     client = get_client()
     if not await client.ping():
         log.warning("MediaMTX not reachable at startup — skipping initial reconcile")

@@ -11,6 +11,7 @@ import { dom } from "./dom.js";
 import { labelFor, showToast } from "./utils.js";
 import { resetVideoElement } from "./streams.js";
 import { applyJitterBuffer } from "./rtcstats.js";
+import { isMse, mountMse } from "./mse.js";
 
 // ── Main-stream source (direct camera ⇄ via NVR) ─────────────────────────────
 // The main stream defaults to pulling straight from the camera (0 packet loss
@@ -170,7 +171,8 @@ export function toggleFullscreenQuality() {
   const token = ++state.fullscreenToken;
   disconnectFullscreenMain();
 
-  if (state.fullscreenIsMain) {
+  if (state.fullscreenIsMain || isMse()) {
+    // MSE handles both HD (main) and SD (sub) through the same mount path.
     connectFullscreenMain(state.fullscreenPath, token);
   } else {
     const conn = state.connections[state.fullscreenPath];
@@ -189,6 +191,15 @@ export function toggleFullscreenQuality() {
 async function connectFullscreenMain(path, token) {
   disconnectFullscreenMain();
   const mainPath = mainPathFor(path);
+
+  if (isMse()) {
+    // Buffered MSE: HD = the (direct/relay) main stream, SD = the sub stream.
+    const streamPath = state.fullscreenIsMain ? mainPath : path;
+    const el = mountMse(dom.fsOverlay, streamPath);
+    el.classList.add("fs-mse");
+    state.fullscreenConn = { mseEl: el, token, swapped: true, _swapTimer: null };
+    return;
+  }
 
   let pc;
   try {
@@ -296,6 +307,9 @@ function tryFullscreenHLS(mainPath, subPath, token) {
 function disconnectFullscreenMain() {
   if (state.fullscreenConn) {
     if (state.fullscreenConn._swapTimer) clearTimeout(state.fullscreenConn._swapTimer);
+    if (state.fullscreenConn.mseEl) {
+      try { state.fullscreenConn.mseEl.remove(); } catch (_) {}   // tears down WS + MediaSource
+    }
     if (state.fullscreenConn.pc) {
       try { state.fullscreenConn.pc.close(); } catch (_) {}
     }

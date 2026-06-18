@@ -51,3 +51,6 @@ Thumbs.db
 
 # Local launcher runtime (start-mac.sh)
 .run/
+
+# go2rtc runtime (binary + live config with credentials); template is go2rtc.base.yaml
+.go2rtc/

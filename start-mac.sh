@@ -21,6 +21,9 @@ ENVFILE="$BACKEND/.env"
 RUN="$ROOT/.run"                       # pids + logs (gitignored)
 MTX="$ROOT/mediamtx"                   # macOS/Linux binary (not mediamtx.exe)
 MTXCFG="$ROOT/mediamtx.yml"
+G2DIR="$ROOT/.go2rtc"                   # go2rtc runtime (binary + live config)
+G2BIN="$G2DIR/go2rtc"
+G2VER="v1.9.14"
 
 mkdir -p "$RUN"
 c_ok()   { printf "\033[32m✓ %s\033[0m\n" "$*"; }
@@ -46,7 +49,7 @@ start_one() {  # start_one <name> <port> <workdir> <cmd...>
 
 stop_all() {
   local any=0
-  for name in frontend backend mediamtx; do
+  for name in frontend backend mediamtx go2rtc; do
     local pf="$RUN/$name.pid"
     [ -f "$pf" ] || continue
     local pid; pid="$(cat "$pf")"
@@ -118,9 +121,36 @@ fi
 grep -q 'postgresql' "$ENVFILE" && c_warn "Postgres DATABASE_URL detected — ensure it's up and migrated" \
                                  || c_ok "SQLite backend (no Postgres needed)"
 
+# ── relay: go2rtc (buffered MSE) or mediamtx (legacy WebRTC) ──────────────────
+RELAY="$(sed -n 's/^RELAY=//p' "$ENVFILE" 2>/dev/null | tr -d '[:space:]')"
+RELAY="${RELAY:-mediamtx}"
+
+ensure_go2rtc() {
+  mkdir -p "$G2DIR"
+  if [ ! -x "$G2BIN" ]; then
+    c_step "Downloading go2rtc $G2VER (first run)"
+    local arch; arch="$(uname -m)"; [ "$arch" = "x86_64" ] && arch="amd64" || arch="arm64"
+    local os; os="$(uname -s | tr 'A-Z' 'a-z')"   # darwin / linux
+    curl -sL -m 120 -o "$G2DIR/go2rtc.zip" \
+      "https://github.com/AlexxIT/go2rtc/releases/download/$G2VER/go2rtc_${os}_${arch}.zip" \
+      && unzip -o -q "$G2DIR/go2rtc.zip" -d "$G2DIR" && chmod +x "$G2BIN" && rm -f "$G2DIR/go2rtc.zip" \
+      || { c_err "go2rtc download failed"; return 1; }
+    c_ok "go2rtc installed"
+  fi
+  # Fresh runtime config from the committed template (no secrets — the backend
+  # registers streams via the go2rtc API on startup).
+  cp "$ROOT/go2rtc.base.yaml" "$G2DIR/go2rtc.yaml"
+}
+
 # ── launch ───────────────────────────────────────────────────────────────────
-start_one mediamtx 9997 "$ROOT"    "$MTX" "$MTXCFG"
-wait_port 9997 mediamtx 15
+if [ "$RELAY" = "go2rtc" ]; then
+  ensure_go2rtc || exit 1
+  start_one go2rtc 1984 "$G2DIR" "$G2BIN" -config "$G2DIR/go2rtc.yaml"
+  wait_port 1984 go2rtc 15
+else
+  start_one mediamtx 9997 "$ROOT" "$MTX" "$MTXCFG"
+  wait_port 9997 mediamtx 15
+fi
 
 start_one backend  8000 "$BACKEND" "$PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 wait_port 8000 backend 25
@@ -132,7 +162,11 @@ echo
 c_ok "DSS is up:"
 echo "  Frontend  http://localhost:8080"
 echo "  API docs  http://localhost:8000/docs"
-echo "  MediaMTX  http://localhost:9997/v3/paths/list"
+if [ "$RELAY" = "go2rtc" ]; then
+  echo "  go2rtc    http://localhost:1984  (relay=go2rtc, buffered MSE)"
+else
+  echo "  MediaMTX  http://localhost:9997/v3/paths/list"
+fi
 echo
 echo "Login: admin / admin (you'll be asked to change it)."
 echo "Stop with:  ./start-mac.sh stop      Logs:  ./start-mac.sh logs"
