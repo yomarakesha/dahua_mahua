@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script src="http://localhost:1984/video-rtc.js"></script></head>
+<body style="margin:0;background:#000">
+<div id="g" style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px"></div>
+<script>
+const cams=['cam1','cam2','cam3','cam4','cam5','cam6'], els={};
+for(const c of cams){
+  const v=document.createElement('video-stream');
+  v.mode='mse';                                  // FORCE MSE only
+  v.src=new URL(`ws://localhost:1984/api/ws?src=${c}`);
+  v.style.width='100%'; v.style.aspectRatio='4/3';
+  document.getElementById('g').appendChild(v); els[c]=v;
+}
+window.__snap=()=>cams.map(c=>{
+  const comp=els[c], video=comp.video||comp.querySelector('video')||{};
+  let q={}; try{q=video.getVideoPlaybackQuality?.()||{}}catch(e){}
+  return {cam:c, mode:comp.mode, ct:+(video.currentTime||0).toFixed(2),
+    total:q.totalVideoFrames||0, dropped:q.droppedVideoFrames||0,
+    rs:video.readyState??-1, paused:video.paused??true};
+});
+</script></body></html>
