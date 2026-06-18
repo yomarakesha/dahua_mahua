@@ -464,20 +464,29 @@ export class VideoRTC extends HTMLElement {
                     }
                 }
 
-                if (!sb.updating && sb.buffered && sb.buffered.length) {
-                    const end = sb.buffered.end(sb.buffered.length - 1);
-                    const start = end - 5;
-                    const start0 = sb.buffered.start(0);
-                    if (start > start0) {
-                        sb.remove(start0, start);
-                        ms.setLiveSeekableRange(start, end);
+                // DSS patch: the whole buffer-trim is best-effort. On a stream
+                // blip the MediaSource can close mid-flight (e.g. jittery link →
+                // WS drop) while this updateend still fires, making sb.remove() /
+                // setLiveSeekableRange throw "Type error" in a tight loop that
+                // storms window.onerror and degrades the page. Guard + bail; the
+                // next updateend (after reconnect) resumes cleanly.
+                if (!sb.updating && sb.buffered && sb.buffered.length && ms.readyState === 'open') {
+                    try {
+                        const end = sb.buffered.end(sb.buffered.length - 1);
+                        const start = end - 5;
+                        const start0 = sb.buffered.start(0);
+                        if (start > start0) {
+                            sb.remove(start0, start);
+                            ms.setLiveSeekableRange(start, end);
+                        }
+                        if (this.video.currentTime < start) {
+                            this.video.currentTime = start;
+                        }
+                        const gap = end - this.video.currentTime;
+                        this.video.playbackRate = gap > 0.1 ? gap : 0.1;
+                    } catch (e) {
+                        // transient MSE state — ignore; updateend will retry
                     }
-                    if (this.video.currentTime < start) {
-                        this.video.currentTime = start;
-                    }
-                    const gap = end - this.video.currentTime;
-                    this.video.playbackRate = gap > 0.1 ? gap : 0.1;
-                    // console.debug('VideoRTC.buffered', gap, this.video.playbackRate, this.video.readyState);
                 }
             });
 
