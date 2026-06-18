@@ -473,7 +473,8 @@ export class VideoRTC extends HTMLElement {
                 if (!sb.updating && sb.buffered && sb.buffered.length && ms.readyState === 'open') {
                     try {
                         const end = sb.buffered.end(sb.buffered.length - 1);
-                        const start = end - 5;
+                        // DSS: keep a 12s window (was 5s) for jitter headroom.
+                        const start = end - 12;
                         const start0 = sb.buffered.start(0);
                         if (start > start0) {
                             sb.remove(start0, start);
@@ -482,8 +483,16 @@ export class VideoRTC extends HTMLElement {
                         if (this.video.currentTime < start) {
                             this.video.currentTime = start;
                         }
+                        // DSS: the upstream logic chased to ~live (gap≈1s) and sped up
+                        // hard, leaving the buffer near-empty so any source jitter
+                        // (camera on a flaky LAN) underran and froze after a few
+                        // seconds. Instead hold a ~3s cushion with a gentle
+                        // proportional rate (0.5–1.3x): slow down to refill when the
+                        // buffer is low, catch up gently when it's deep. Trades a few
+                        // seconds of latency — fine for surveillance — for no freezes.
+                        const TARGET = 3.0;
                         const gap = end - this.video.currentTime;
-                        this.video.playbackRate = gap > 0.1 ? gap : 0.1;
+                        this.video.playbackRate = Math.max(0.5, Math.min(1.3, 1 + (gap - TARGET) * 0.2));
                     } catch (e) {
                         // transient MSE state — ignore; updateend will retry
                     }
