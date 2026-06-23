@@ -164,14 +164,13 @@ def _reencode_cmd(source: str, settings: Any) -> str:
         enc = f"-c:v {vcodec} -preset p1 -tune ll -delay 0"
     else:
         enc = f"-c:v {vcodec}"
-    # `-probesize`/`-analyzeduration` cap how long ffmpeg inspects the input
-    # before it starts. Defaults (~5MB / 5s) dominate cold-start latency; the
-    # source is a known single H.264 track, so 500KB / 1s is plenty and shaves
-    # several seconds off startup — critical when a grid cold-starts many
-    # streams at once (else the browser's WHEP wait times out on the tail).
+    # NOTE: do NOT add `-fflags nobuffer` or shrink probesize/analyzeduration
+    # here — that re-introduced playback freezes/stutter (removing the input
+    # buffer makes the re-encoder hiccup on jitter) for no real cold-start gain.
+    # The cold-start fix lives in the frontend (batched connects + 25s WHEP
+    # timeout), not in starving ffmpeg's input. Keep this command stable.
     return (
         f"{ffbin} -nostdin -loglevel error -rtsp_transport tcp "
-        f"-probesize 500000 -analyzeduration 1000000 -fflags nobuffer "
         f"-i {source} -an {enc} "
         f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p "
         "-f rtsp -rtsp_transport tcp rtsp://localhost:$RTSP_PORT/$MTX_PATH"
