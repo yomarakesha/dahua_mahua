@@ -1,6 +1,0 @@
-=== camera-subnet IP fix 2026-06-11T10:15:50 ===
-admin=True
-192.168.23.240 -> Preferred
-OK secondary IP: 192.168.23.240
-ping camera 192.168.23.11 replies: 4/4
-DONE

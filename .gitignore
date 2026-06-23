@@ -32,6 +32,11 @@ logs.txt
 # Secrets
 credentials.json
 .env
+# go2rtc persists live streams (with plaintext NVR credentials) back into its
+# config files — keep ALL go2rtc runtime config out of git.
+.go2rtc/go2rtc.yaml
+.go2rtc/go2rtc.gen.yaml
+.go2rtc/go2rtc.min.yaml
 # Inventory backups contain (plaintext / masked) NVR passwords
 dss-backup-*.json
 
@@ -51,3 +56,15 @@ Thumbs.db
 
 # Local launcher runtime (start-mac.sh)
 .run/
+
+# Seed/inventory with plaintext NVR password
+nvr_inventory.json
+
+# Diagnostic / scratch dirs — one-off debugging, never part of the app
+.netcheck/
+.playwright-mcp/
+# go2rtc fully abandoned in favour of MediaMTX re-encode relay
+.go2rtc/
+console-dump.txt
+netcheck-result.md
+netcheck-mac-result.md

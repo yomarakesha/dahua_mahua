@@ -1,9 +1,0 @@
-- generic [ref=e2]:
-  - heading "DSS" [level=1] [ref=e5]
-  - generic [ref=e6]: Surveillance console
-  - generic [ref=e7]: Username
-  - textbox "Username" [ref=e8]: admin
-  - generic [ref=e9]: Password
-  - textbox "Password" [ref=e10]: admin
-  - button "Sign in" [ref=e11] [cursor=pointer]
-  - generic [ref=e12]: Invalid credentials

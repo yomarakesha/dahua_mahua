@@ -39,9 +39,17 @@ rtspTransports: [tcp]
 # WebRTC (WHEP) for low-latency browser playback.
 webrtc: yes
 webrtcAddress: :8889
-# These hosts are advertised in ICE candidates — operators connect to them
-# directly. Set WEBRTCADDITIONALHOSTS to your public hostname / IP via env.
-webrtcAdditionalHosts: []
+# Advertise ONLY the real LAN IPs as ICE candidates. Gathering from all
+# interfaces also leaked 127.0.0.1, the Wi-Fi IP and the singbox VPN tun
+# (172.18.0.1) — remote browsers waste seconds probing those dead/VPN
+# candidates before (maybe) finding the right one, so video was slow/absent.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [10.10.1.221, 192.168.1.132]
+# WebRTC media over UDP (default) AND TCP. TCP is a fallback for clients/LANs
+# where UDP is blocked or filtered (AP client-isolation, strict firewalls) —
+# without it WebRTC has no fallback and the video silently never starts.
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
 
 # Low-latency HLS as the fallback path.
 hls: yes
