@@ -76,11 +76,14 @@ def _build_path_config(
     settings = get_settings()
     password = decrypt_password(nvr.rtsp_password_encrypted)
     subtype = 0 if quality == StreamQuality.main else 1
-    if quality == StreamQuality.main and camera.ip and not force_relay:
-        # Main goes straight to the camera: the NVR's RTSP relay drops packets
-        # on main streams even at trivial load (measured: 7815 lost vs 0 direct
-        # — docs/audit-plan.md §9). A standalone IP camera serves its own
-        # stream as channel 1; camera creds mirror the NVR's on this fleet.
+    if camera.ip and not force_relay:
+        # Pull straight from the camera (sub AND main), not the NVR's RTSP relay.
+        # One NVR can't re-stream many channels at once: measured read i/o-timeouts
+        # → producer reconnects → grid freezes once ~16+ concurrent pulls hit a
+        # single NVR. A standalone IP camera serves its own stream as channel 1 and
+        # only ever handles its own 1-2 streams, so load spreads across the fleet.
+        # Camera creds mirror the NVR's on this fleet. `_main_nvr` (force_relay)
+        # still offers a via-NVR fallback for the main toggle.
         source = build_rtsp_url(
             ip=camera.ip,
             port=554,
