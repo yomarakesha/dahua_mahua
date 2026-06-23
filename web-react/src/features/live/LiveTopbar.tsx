@@ -1,4 +1,3 @@
-import { LogoWordmark } from "@/components/Logo";
 import {
   GridIcon,
   SearchIcon,
@@ -34,12 +33,7 @@ export function LiveTopbar({
   total,
 }: Props) {
   return (
-    <div className="flex h-[54px] flex-none items-center gap-3.5 border-b border-white/[.06] bg-gradient-to-b from-[#10151a] to-[#0c1014] px-4">
-      <div className="pr-1.5">
-        <LogoWordmark size={30} />
-      </div>
-      <div className="h-6 w-px bg-white/[.08]" />
-
+    <div className="flex h-[54px] flex-none items-center gap-3.5 border-b border-white/[.06] bg-gradient-to-b from-[#0e1216] to-[#0b0e12] px-4">
       {/* layout controls */}
       <div className="flex items-center gap-1.5">
         <div className="flex h-[34px] items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/[.12] px-3 text-base font-bold text-accent-light">

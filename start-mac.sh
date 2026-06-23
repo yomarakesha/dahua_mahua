@@ -62,14 +62,21 @@ stop_all() {
 case "${1:-start}" in
   stop)    stop_all; exit 0 ;;
   restart) stop_all; sleep 1 ;;
-  logs)    exec tail -n 40 -f "$RUN"/mediamtx.log "$RUN"/backend.log "$RUN"/frontend.log ;;
+  logs)    exec tail -n 40 -f "$RUN"/*.log ;;
   status)
-    for p in 9997:MediaMTX 8000:Backend 8080:Frontend 8889:WHEP 8888:HLS; do
+    for p in 1984:go2rtc 8000:Backend 8080:Frontend; do
       port_up "${p%%:*}" && c_ok "${p##*:} (${p%%:*})" || c_warn "${p##*:} (${p%%:*}) down"
     done; exit 0 ;;
-  start) ;;
-  *) c_err "usage: $0 [start|stop|restart|logs|status]"; exit 2 ;;
+  start)     ;;                 # background: services keep running; stop with `stop`
+  run|up|fg) FOREGROUND=1 ;;    # foreground: stays attached, Ctrl+C stops everything
+  *) c_err "usage: $0 [start|run|stop|restart|logs|status]"; exit 2 ;;
 esac
+
+# Foreground mode: trap Ctrl+C / TERM to cleanly tear down everything we start.
+# Set before launching so an interrupt mid-startup still cleans up.
+if [ "${FOREGROUND:-0}" = 1 ]; then
+  trap 'echo; c_step "Stopping (Ctrl+C)…"; stop_all; exit 0' INT TERM
+fi
 
 # ── prerequisites ────────────────────────────────────────────────────────────
 command -v python3 >/dev/null || { c_err "python3 not found"; exit 1; }
@@ -131,7 +138,9 @@ ensure_go2rtc() {
     c_step "Downloading go2rtc $G2VER (first run)"
     local arch; arch="$(uname -m)"; [ "$arch" = "x86_64" ] && arch="amd64" || arch="arm64"
     local os; os="$(uname -s | tr 'A-Z' 'a-z')"   # darwin / linux
-    curl -sL -m 120 -o "$G2DIR/go2rtc.zip" \
+    [ "$os" = "darwin" ] && os="mac"              # go2rtc release assets use "mac", not "darwin"
+    # -f: fail (non-zero) on HTTP errors so a 404 page isn't saved as a .zip.
+    curl -fsSL --retry 5 --retry-delay 2 -m 180 -o "$G2DIR/go2rtc.zip" \
       "https://github.com/AlexxIT/go2rtc/releases/download/$G2VER/go2rtc_${os}_${arch}.zip" \
       && unzip -o -q "$G2DIR/go2rtc.zip" -d "$G2DIR" && chmod +x "$G2BIN" && rm -f "$G2DIR/go2rtc.zip" \
       || { c_err "go2rtc download failed"; return 1; }
@@ -155,15 +164,13 @@ fi
 start_one backend  8000 "$BACKEND" "$PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 wait_port 8000 backend 25
 
-# Prefer the new React build (web-react/dist) when it's been built; fall back to
-# the legacy vanilla UI in web/. Build it with: (cd web-react && npm run build)
-SERVEDIR="$WEBDIR"
-if [ -f "$ROOT/web-react/dist/index.html" ]; then
-  SERVEDIR="$ROOT/web-react/dist"
-  c_ok "Serving React UI (web-react/dist)"
-else
-  c_warn "React build not found — serving legacy web/ (run: cd web-react && npm run build)"
+# Serve the React UI build (web-react/dist). The legacy web/ UI has been removed.
+SERVEDIR="$ROOT/web-react/dist"
+if [ ! -f "$SERVEDIR/index.html" ]; then
+  c_err "React UI not built — run: (cd web-react && npm run build)"
+  exit 1
 fi
+c_ok "Serving React UI (web-react/dist)"
 start_one frontend 8080 "$SERVEDIR"  "$PY" -m http.server 8080
 wait_port 8080 frontend 10
 
@@ -178,6 +185,17 @@ else
 fi
 echo
 echo "Login: admin / admin (you'll be asked to change it)."
-echo "Stop with:  ./start-mac.sh stop      Logs:  ./start-mac.sh logs"
+echo
 
 [ "${DSS_NO_BROWSER:-}" = "1" ] || open "http://localhost:8080" 2>/dev/null || true
+
+if [ "${FOREGROUND:-0}" = 1 ]; then
+  c_ok "Running in foreground — press Ctrl+C to stop everything."
+  echo
+  # Stream live logs and block until Ctrl+C (handled by the trap above).
+  tail -n 0 -F "$RUN"/*.log 2>/dev/null &
+  wait $!
+else
+  echo "Foreground (Ctrl+C to stop):  ./start-mac.sh run"
+  echo "Background stop:              ./start-mac.sh stop       Logs:  ./start-mac.sh logs"
+fi

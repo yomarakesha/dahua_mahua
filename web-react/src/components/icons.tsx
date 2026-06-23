@@ -131,3 +131,15 @@ export const PauseIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
     <rect x="14" y="4" width="4" height="16" rx="1" />
   </Ic>
 );
+export const VolumeOn = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
+  <Ic {...p}>
+    <path d="M11 5L6 9H2v6h4l5 4z" />
+    <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+  </Ic>
+);
+export const VolumeOff = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
+  <Ic {...p}>
+    <path d="M11 5L6 9H2v6h4l5 4z" />
+    <path d="M22 9l-6 6M16 9l6 6" />
+  </Ic>
+);

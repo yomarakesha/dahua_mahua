@@ -110,10 +110,12 @@ export default function LiveWall() {
       <div className="flex min-h-0 flex-1">
         <LiveSidebar
           nvrs={nvrs ?? []}
+          cameras={enabled}
           countByNvr={countByNvr}
           healthyById={healthyById}
           selectedNvrId={selectedNvrId}
           onSelectNvr={setSelectedNvrId}
+          onPickCamera={setFullscreen}
           visibleStreams={visibleStreams}
           load={load}
         />

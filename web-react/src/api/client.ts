@@ -115,5 +115,8 @@ export async function logout() {
   }
   setToken(null);
   setMe(null);
-  location.hash = "#/login";
+  // Hard reload so React state (AuthProvider's in-memory `me`) re-initialises
+  // from the now-cleared storage — otherwise the user appears still logged in.
+  window.location.hash = "#/login";
+  window.location.reload();
 }

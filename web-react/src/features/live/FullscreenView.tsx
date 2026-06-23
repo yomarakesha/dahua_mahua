@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { MsePlayer } from "@/components/video/MsePlayer";
 import { streamName } from "@/api/types";
-import { XIcon } from "@/components/icons";
+import { XIcon, VolumeOn, VolumeOff } from "@/components/icons";
 import type { Camera } from "@/api/types";
 
 interface Props {
@@ -11,6 +11,11 @@ interface Props {
 
 /** Single-camera fullscreen overlay. Uses MAIN stream when available. */
 export function FullscreenView({ cam, onClose }: Props) {
+  // Audio is OFF by default; the user enables it with the speaker button (a
+  // user gesture, which browsers require to start audio). Only here in the
+  // main/fullscreen view — grid tiles stay muted.
+  const [audioOn, setAudioOn] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -32,9 +37,23 @@ export function FullscreenView({ cam, onClose }: Props) {
         <span className="font-mono text-2xs text-ink-faint">ch{cam.channel}</span>
         <button
           type="button"
+          onClick={() => setAudioOn((v) => !v)}
+          title={audioOn ? "Mute" : "Enable sound"}
+          className={[
+            "ml-auto flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
+            audioOn
+              ? "border-accent/30 bg-accent/[.12] text-accent-light"
+              : "border-white/[.08] bg-white/[.04] text-ink-mute hover:bg-white/[.08] hover:text-ink",
+          ].join(" ")}
+        >
+          {audioOn ? <VolumeOn size={16} /> : <VolumeOff size={16} />}
+          {audioOn ? "Sound on" : "Sound off"}
+        </button>
+        <button
+          type="button"
           onClick={onClose}
           title="Close (Esc)"
-          className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg border border-white/[.08] bg-white/[.04] text-ink-mute transition hover:bg-white/[.08] hover:text-ink"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[.08] bg-white/[.04] text-ink-mute transition hover:bg-white/[.08] hover:text-ink"
         >
           <XIcon size={18} />
         </button>
@@ -46,7 +65,11 @@ export function FullscreenView({ cam, onClose }: Props) {
       >
         <div className="relative h-full w-full overflow-hidden rounded-xl border border-white/[.08] bg-black">
           {quality ? (
-            <MsePlayer src={streamName(cam, quality)} className="absolute inset-0 h-full w-full" />
+            <MsePlayer
+              src={streamName(cam, quality)}
+              muted={!audioOn}
+              className="absolute inset-0 h-full w-full"
+            />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="font-mono text-xs uppercase tracking-wider text-ink-faint">

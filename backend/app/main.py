@@ -156,9 +156,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # LAN deployment: operators reach the UI by the host's IP (10.x / 192.168.x /
+    # 172.16-31.x) on the frontend port, so the browser's Origin varies per client
+    # machine. allow_credentials=True forbids "*", so we match any private-LAN
+    # origin (any port) via regex, alongside the explicit cors_origins list.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

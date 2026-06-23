@@ -34,7 +34,7 @@ $envFile  = Join-Path $backend ".env"
 $pyVenv   = Join-Path $venv "Scripts\python.exe"
 $mtxExe   = Join-Path $root "mediamtx.exe"
 $mtxCfg   = Join-Path $root "mediamtx.yml"
-$webDir   = Join-Path $root "web"
+$webDir   = Join-Path $root "web-react\dist"   # React UI build (legacy web/ removed)
 
 # Helpers -----------------------------------------------------------------
 
