@@ -32,8 +32,13 @@ export function MsePlayer({ src, className, muted = true }: Props) {
     host.appendChild(el);
     elRef.current = el;
     return () => {
+      // Deterministically close the WebSocket + MediaSource. el.remove() alone
+      // won't: background=true makes disconnectedCallback a no-op, and setting
+      // src="" early-returns in onconnect without closing the socket — which
+      // leaks a go2rtc consumer (and its RTSP pull) per unmount. ondisconnect()
+      // closes ws + pc and clears the <video>.
       try {
-        el.src = "";
+        el.ondisconnect();
       } catch {
         /* ignore */
       }
@@ -45,6 +50,14 @@ export function MsePlayer({ src, className, muted = true }: Props) {
   useEffect(() => {
     const el = elRef.current;
     if (!el || !src) return;
+    // Tear down any existing connection first: VideoRTC.onconnect() early-returns
+    // when a WebSocket already exists, so without this, re-pointing .src on a live
+    // element would keep playing the OLD stream. Harmless on first mount (ws null).
+    try {
+      el.ondisconnect();
+    } catch {
+      /* ignore */
+    }
     el.src = new URL(`${CONFIG.go2rtcWsBase}/api/ws?src=${encodeURIComponent(src)}`);
   }, [src]);
 

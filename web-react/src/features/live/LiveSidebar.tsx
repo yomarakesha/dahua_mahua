@@ -152,7 +152,7 @@ export function LiveSidebar({
       </div>
 
       <div className="rounded-xl border border-accent/[.16] bg-accent/[.06] p-3">
-        <div className="mb-2 text-2xs font-bold tracking-[1px] text-ink-dim">SYSTEM LOAD</div>
+        <div className="mb-2 text-2xs font-bold tracking-[1px] text-ink-dim">GRID USAGE</div>
         <div className="mb-1.5 flex items-center gap-2">
           <div className="h-[5px] flex-1 overflow-hidden rounded-[3px] bg-white/[.07]">
             <div

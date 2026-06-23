@@ -55,10 +55,11 @@ class Settings(BaseSettings):
     mediamtx_config_path: str = "mediamtx.yml"
 
     # ── go2rtc (buffered MSE relay) ──────────────────────────────────────────
-    # relay = "mediamtx" (WebRTC) or "go2rtc" (MSE). go2rtc's buffered MSE
-    # pipeline absorbs bursty/jittery camera frame delivery that freezes WebRTC
-    # at 0% packet loss — see docs/perf-tuning.md.
-    relay: str = "mediamtx"
+    # relay = "go2rtc" (MSE, default) or "mediamtx" (legacy WebRTC). go2rtc's
+    # buffered MSE pipeline absorbs bursty/jittery camera frame delivery that
+    # freezes WebRTC at 0% packet loss — see docs/perf-tuning.md. The React
+    # frontend speaks go2rtc/MSE only, so this is the default it expects.
+    relay: str = "go2rtc"
     go2rtc_api_url: str = "http://localhost:1984"
     # Browser-facing base the frontend uses for the MSE/WebRTC WebSocket.
     go2rtc_ws_url: str = "ws://localhost:1984"

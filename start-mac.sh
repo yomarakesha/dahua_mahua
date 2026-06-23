@@ -107,6 +107,7 @@ DATABASE_URL=sqlite+aiosqlite:///./dss.db
 JWT_SECRET=$JWT
 NVR_SECRET_KEY=$FERNET
 CORS_ORIGINS=["http://localhost:8080"]
+RELAY=go2rtc
 MEDIAMTX_API_URL=http://localhost:9997
 MEDIAMTX_WEBRTC_URL=http://localhost:8889
 MEDIAMTX_HLS_URL=http://localhost:8888
@@ -130,7 +131,9 @@ grep -q 'postgresql' "$ENVFILE" && c_warn "Postgres DATABASE_URL detected — en
 
 # ── relay: go2rtc (buffered MSE) or mediamtx (legacy WebRTC) ──────────────────
 RELAY="$(sed -n 's/^RELAY=//p' "$ENVFILE" 2>/dev/null | tr -d '[:space:]')"
-RELAY="${RELAY:-mediamtx}"
+# go2rtc is the default: the React frontend speaks go2rtc/MSE only. Override by
+# setting RELAY=mediamtx in backend/.env (legacy WebRTC UI).
+RELAY="${RELAY:-go2rtc}"
 
 ensure_go2rtc() {
   mkdir -p "$G2DIR"

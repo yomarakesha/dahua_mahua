@@ -102,7 +102,17 @@ export async function login(username: string, password: string) {
   }
   const data = (await res.json()) as TokenResponse;
   setToken(data.access_token);
-  const me = await request<Me>("GET", "/auth/me");
+  // Fetch the profile directly (not via request()) so a transient 401 here
+  // doesn't trip the global 401 handler — which would wipe the token we just set
+  // and yank the route to #/login, fighting the login page's own navigation.
+  const meRes = await fetch(CONFIG.backendBase + "/auth/me", {
+    headers: { Authorization: "Bearer " + data.access_token },
+  });
+  if (!meRes.ok) {
+    setToken(null);
+    throw new ApiError(meRes.status, "Signed in, but could not load your profile. Try again.");
+  }
+  const me = (await meRes.json()) as Me;
   setMe(me);
   return { token: data, me, mustChange: data.must_change_password };
 }

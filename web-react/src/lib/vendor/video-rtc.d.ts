@@ -5,4 +5,6 @@ export class VideoRTC extends HTMLElement {
   src: string | URL;
   video: HTMLVideoElement;
   oninit(): void;
+  /** Closes the WebSocket + RTCPeerConnection and clears the <video>. */
+  ondisconnect(): void;
 }

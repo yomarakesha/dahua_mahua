@@ -35,6 +35,10 @@ $pyVenv   = Join-Path $venv "Scripts\python.exe"
 $mtxExe   = Join-Path $root "mediamtx.exe"
 $mtxCfg   = Join-Path $root "mediamtx.yml"
 $webDir   = Join-Path $root "web-react\dist"   # React UI build (legacy web/ removed)
+$g2Dir    = Join-Path $root ".go2rtc"          # go2rtc runtime (binary + live config)
+$g2Bin    = Join-Path $g2Dir "go2rtc.exe"
+$g2Cfg    = Join-Path $g2Dir "go2rtc.yaml"
+$g2Ver    = "v1.9.14"
 
 # Helpers -----------------------------------------------------------------
 
@@ -72,10 +76,32 @@ function Wait-ForPort($port, $name, $timeoutSec = 30) {
 
 Write-Step "Sanity checks"
 Require-Cmd "py"
-if (-not (Test-Path $mtxExe)) { throw "mediamtx.exe not found at $mtxExe" }
-if (-not (Test-Path $mtxCfg)) { throw "mediamtx.yml not found at $mtxCfg" }
 if (-not (Test-Path $backend)) { throw "backend/ not found at $backend" }
-Write-Ok "py, mediamtx.exe, backend/ all present"
+if (-not (Test-Path (Join-Path $webDir "index.html"))) {
+    throw "React UI not built. Run:  cd web-react; npm install; npm run build"
+}
+Write-Ok "py, backend/, web-react/dist present"
+
+# Download + stage go2rtc (default relay). MediaMTX (legacy relay) is checked
+# at launch instead, since it's optional now.
+function Ensure-Go2rtc {
+    New-Item -ItemType Directory -Force -Path $g2Dir | Out-Null
+    if (-not (Test-Path $g2Bin)) {
+        Write-Step "Downloading go2rtc $g2Ver (first run)"
+        $arch = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
+        $url  = "https://github.com/AlexxIT/go2rtc/releases/download/$g2Ver/go2rtc_$arch.zip"
+        $zip  = Join-Path $g2Dir "go2rtc.zip"
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+            Expand-Archive -Path $zip -DestinationPath $g2Dir -Force
+            Remove-Item $zip -Force
+        } catch { throw "go2rtc download failed: $_" }
+        Write-Ok "go2rtc installed"
+    }
+    # Fresh runtime config from the committed template (no secrets — the backend
+    # registers streams via the go2rtc API on startup).
+    Copy-Item (Join-Path $root "go2rtc.base.yaml") $g2Cfg -Force
+}
 
 # venv + deps -------------------------------------------------------------
 
@@ -106,6 +132,7 @@ DATABASE_URL=sqlite+aiosqlite:///./dss.db
 JWT_SECRET=$jwt
 NVR_SECRET_KEY=$fernet
 CORS_ORIGINS=["http://localhost:8080"]
+RELAY=go2rtc
 MEDIAMTX_API_URL=http://localhost:9997
 MEDIAMTX_WEBRTC_URL=http://localhost:8889
 MEDIAMTX_HLS_URL=http://localhost:8888
@@ -171,11 +198,24 @@ if ($freshEnv -and $usingPostgres) {
 
 # Launch the three processes ---------------------------------------------
 
-Write-Step "Starting MediaMTX (window 1)"
-$mtxCmd = "Set-Location '$root'; `$Host.UI.RawUI.WindowTitle='DSS MediaMTX'; & '$mtxExe' '$mtxCfg'"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", $mtxCmd | Out-Null
+# Relay: go2rtc (buffered MSE — what the React UI speaks) or mediamtx (legacy).
+$relayLine = (Select-String -Path $envFile -Pattern '^RELAY=' -SimpleMatch | Select-Object -First 1).Line
+$relay = if ($relayLine) { ($relayLine -replace '^RELAY=', '').Trim() } else { 'go2rtc' }
 
-Wait-ForPort 9997 "MediaMTX" 15 | Out-Null
+if ($relay -eq 'go2rtc') {
+    Ensure-Go2rtc
+    Write-Step "Starting go2rtc (window 1)"
+    $g2Cmd = "Set-Location '$g2Dir'; `$Host.UI.RawUI.WindowTitle='DSS go2rtc'; & '$g2Bin' -config '$g2Cfg'"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", $g2Cmd | Out-Null
+    Wait-ForPort 1984 "go2rtc" 15 | Out-Null
+} else {
+    if (-not (Test-Path $mtxExe)) { throw "mediamtx.exe not found at $mtxExe (RELAY=mediamtx)" }
+    if (-not (Test-Path $mtxCfg)) { throw "mediamtx.yml not found at $mtxCfg" }
+    Write-Step "Starting MediaMTX (window 1)"
+    $mtxCmd = "Set-Location '$root'; `$Host.UI.RawUI.WindowTitle='DSS MediaMTX'; & '$mtxExe' '$mtxCfg'"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", $mtxCmd | Out-Null
+    Wait-ForPort 9997 "MediaMTX" 15 | Out-Null
+}
 
 Write-Step "Starting FastAPI backend (window 2)"
 $backendCmd = "Set-Location '$backend'; `$Host.UI.RawUI.WindowTitle='DSS Backend'; " +
@@ -197,7 +237,11 @@ Write-Host ""
 Write-Host "DSS is up:" -ForegroundColor Green
 Write-Host "  Frontend  http://localhost:8080"     -ForegroundColor Green
 Write-Host "  API docs  http://localhost:8000/docs" -ForegroundColor Green
-Write-Host "  MediaMTX  http://localhost:9997/v3/paths/list" -ForegroundColor Green
+if ($relay -eq 'go2rtc') {
+    Write-Host "  go2rtc    http://localhost:1984  (relay=go2rtc, buffered MSE)" -ForegroundColor Green
+} else {
+    Write-Host "  MediaMTX  http://localhost:9997/v3/paths/list" -ForegroundColor Green
+}
 Write-Host ""
 Write-Host "Login: admin / admin (will require password change on first sign-in)." -ForegroundColor Yellow
 Write-Host "Stop everything by closing the three PowerShell windows." -ForegroundColor Yellow

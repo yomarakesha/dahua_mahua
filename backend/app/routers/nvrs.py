@@ -27,7 +27,7 @@ from app.schemas import (
     NvrUpdate,
     SetChannelsRequest,
 )
-from app.services import camera_import, lockouts, nvr_events, path_sync
+from app.services import camera_import, lockouts, nvr_events, relay_sync
 from app.services.discovery import detect_dahua_channels
 from app.services.rtsp_probe import probe_rtsp, tcp_reachable
 
@@ -264,7 +264,7 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
     # row stays. Reconcile is idempotent and the operator can retry via
     # POST /mediamtx/reconcile once MediaMTX is back.
     try:
-        await path_sync.reconcile(session, delete_orphans=False)
+        await relay_sync.reconcile(session, delete_orphans=False)
     except Exception as e:
         log.warning("NVR %s created in DB but MediaMTX reconcile failed: %s", nvr.id, e)
     return _to_read(nvr, create_notice=notice)
@@ -365,7 +365,7 @@ async def update_nvr(
     # MediaMTX source URL or the desired set of paths. Non-fatal: a 200
     # still goes back if MediaMTX is unreachable.
     try:
-        await path_sync.reconcile(session, delete_orphans=True)
+        await relay_sync.reconcile(session, delete_orphans=True)
     except Exception as e:
         log.warning("NVR %s saved in DB but MediaMTX reconcile failed: %s", nvr_id, e)
     return _to_read(nvr)
@@ -416,7 +416,7 @@ async def set_channels(
     # Push the new/removed paths to MediaMTX. delete_orphans=True so pruned
     # channels' paths are torn down too.
     try:
-        await path_sync.reconcile(session, delete_orphans=True)
+        await relay_sync.reconcile(session, delete_orphans=True)
     except Exception as e:
         log.warning("NVR %s set-channels saved but MediaMTX reconcile failed: %s", nvr_id, e)
 
@@ -465,7 +465,7 @@ async def import_camera_ips(
 
     if updated:
         try:
-            await path_sync.reconcile(session, delete_orphans=False)
+            await relay_sync.reconcile(session, delete_orphans=False)
         except Exception as e:  # noqa: BLE001
             log.warning("NVR %s: IPs saved but MediaMTX reconcile failed: %s", nvr_id, e)
 
@@ -489,7 +489,7 @@ async def delete_nvr(nvr_id: str, session: SessionDep, _: AdminUser) -> None:
     await session.delete(nvr)
     await session.commit()
     log.info("NVR deleted id=%s", nvr_id)
-    await path_sync.remove_paths_for_nvr(session, nvr_id)
+    await relay_sync.remove_paths_for_nvr(session, nvr_id)
 
 
 @router.post("/{nvr_id}/test", response_model=NvrTestResult)

@@ -134,7 +134,7 @@ export default function LiveWall() {
               }}
             >
               {pageCams.map((cam) => (
-                <CameraTile key={cam.id} cam={cam} time={time} onOpen={setFullscreen} />
+                <CameraTile key={cam.id} cam={cam} onOpen={setFullscreen} />
               ))}
             </div>
           )}
@@ -173,9 +173,8 @@ export default function LiveWall() {
       </div>
 
       <StatusBar
-        online={online}
-        connecting={Math.max(0, total - online)}
-        total={total}
+        streams={visibleStreams}
+        cameras={total}
         nvrLabel={selectedNvrName(nvrs ?? [], selectedNvrId)}
         time={time}
       />
@@ -195,16 +194,17 @@ function selectedNvrName(
   return nvrs.find((n) => n.id === id)?.label ?? id;
 }
 
+// Honest counts only: the app doesn't track per-stream connection health, so we
+// show what's real — streams playing on this page and total cameras — rather
+// than fabricated Online/Connecting/Error figures.
 function StatusBar({
-  online,
-  connecting,
-  total,
+  streams,
+  cameras,
   nvrLabel,
   time,
 }: {
-  online: number;
-  connecting: number;
-  total: number;
+  streams: number;
+  cameras: number;
   nvrLabel: string;
   time: string;
 }) {
@@ -212,17 +212,9 @@ function StatusBar({
     <div className="flex h-8 flex-none items-center gap-5 border-t border-white/[.06] bg-gradient-to-b from-[#0c1014] to-[#090c0f] px-4 font-mono text-xs">
       <span className="flex items-center gap-1.5 text-accent-light">
         <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_7px_#2ecc71]" />
-        Online: {online}
+        Streams: {streams}
       </span>
-      <span className="flex items-center gap-1.5 text-warn">
-        <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-        Connecting: {connecting}
-      </span>
-      <span className="flex items-center gap-1.5 text-ink-dim">
-        <span className="h-1.5 w-1.5 rounded-full bg-ink-faint/60" />
-        Error: 0
-      </span>
-      <span className="text-ink-faint">Total: {total}</span>
+      <span className="text-ink-faint">Cameras: {cameras}</span>
       <span className="ml-auto truncate text-[#3f4951]">
         {nvrLabel} · {time}
       </span>

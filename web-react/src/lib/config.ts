@@ -14,11 +14,6 @@ const httpProto = window.location.protocol === "https:" ? "https:" : "http:";
 export const CONFIG = {
   backendBase: `${httpProto}//${host}:8000/api/v1`,
   go2rtcWsBase: `${wsProto}//${host}:1984`,
-  go2rtcHttpBase: `${httpProto}//${host}:1984`,
-  relay: "go2rtc-mse" as const,
-  pollInterval: 10_000,
-  reconnectBase: 2_000,
-  reconnectMax: 30_000,
   gridPresets: [1, 4, 9, 16, 25, 36, 64] as const,
   patrolIntervals: [5, 10, 15, 30, 60] as const,
 } as const;
@@ -26,6 +21,4 @@ export const CONFIG = {
 export const STORAGE = {
   token: "dss_token",
   me: "dss_me",
-  layouts: "dss_layouts",
-  prefs: "dss_prefs",
 } as const;

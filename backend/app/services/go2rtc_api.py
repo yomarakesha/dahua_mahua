@@ -39,8 +39,11 @@ class Go2rtcClient:
         r.raise_for_status()
 
     async def list_streams(self) -> dict[str, str]:
-        """Return {name: configured_source_url}. The producer url is the source,
-        present even while the stream is idle/on-demand."""
+        """Return {name: active_producer_url}. NOTE: go2rtc only lists a producer
+        while the stream is actively connected, so an idle on-demand stream maps
+        to "" (not its configured source). Reconcile therefore re-PUTs idle
+        streams — harmless (idempotent config update, no viewer to disturb), but
+        the source-unchanged skip only fires for streams with live viewers."""
         r = await self._client.get(f"{self._base}/api/streams")
         r.raise_for_status()
         out: dict[str, str] = {}
