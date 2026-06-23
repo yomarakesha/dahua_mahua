@@ -49,8 +49,3 @@ export const JITTER_BUFFER_MS = 800;
 // immediate reconnect tears down a connection that would have recovered and
 // re-opens the NVR RTSP source, snowballing into a reconnect storm.
 export const ICE_DISCONNECT_GRACE = 4000;
-
-// How long the browser waits for a WHEP answer. The answer is gated on the
-// on-demand source becoming ready, and a grid cold-start spins up many ffmpeg
-// re-encoders at once, so this must be >= MediaMTX's SUB_START_TIMEOUT (25s).
-export const WHEP_TIMEOUT_MS = 25000;

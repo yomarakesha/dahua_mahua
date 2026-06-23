@@ -3,7 +3,7 @@
  * and auto-disable handling for repeatedly failing NVRs.
  */
 
-import { CONFIG, STALL_CHECK_INTERVAL, STALL_THRESHOLD, ICE_DISCONNECT_GRACE, WHEP_TIMEOUT_MS } from "./config.js";
+import { CONFIG, STALL_CHECK_INTERVAL, STALL_THRESHOLD, ICE_DISCONNECT_GRACE } from "./config.js";
 import { state } from "./state.js";
 import { dlog } from "./logger.js";
 import { decideIceAction } from "./ice.js";
@@ -327,10 +327,7 @@ async function tryWebRTC(path, videoEl, conn, generation) {
     const wpath = conn.streamPath || path;
     dlog.debug(path, "whep-request", `${CONFIG.webrtcBase}/${wpath}/whep`);
     const abort = new AbortController();
-    // 25s: a grid cold-start spins up many on-demand ffmpeg re-encoders at once;
-    // the WHEP answer is gated on the source becoming ready. Must be >= MediaMTX
-    // SUB_START_TIMEOUT or the browser aborts a negotiation that would succeed.
-    const timer = setTimeout(() => abort.abort(), WHEP_TIMEOUT_MS);
+    const timer = setTimeout(() => abort.abort(), 10000);
     const res = await fetch(`${CONFIG.webrtcBase}/${wpath}/whep`, {
       method: "POST",
       headers: { "Content-Type": "application/sdp" },
@@ -349,7 +346,7 @@ async function tryWebRTC(path, videoEl, conn, generation) {
     dlog.info(path, "webrtc-negotiation-ok");
     return true;
   } catch (e) {
-    const msg = e.name === "AbortError" ? `whep-timeout-${WHEP_TIMEOUT_MS / 1000}s` : String(e).slice(0, 150);
+    const msg = e.name === "AbortError" ? "whep-timeout-10s" : String(e).slice(0, 150);
     dlog.error(path, "webrtc-negotiation-failed", msg);
     const active = getActiveConnection(path, generation);
     if (active && active.pc === pc) {

@@ -164,11 +164,6 @@ def _reencode_cmd(source: str, settings: Any) -> str:
         enc = f"-c:v {vcodec} -preset p1 -tune ll -delay 0"
     else:
         enc = f"-c:v {vcodec}"
-    # NOTE: do NOT add `-fflags nobuffer` or shrink probesize/analyzeduration
-    # here — that re-introduced playback freezes/stutter (removing the input
-    # buffer makes the re-encoder hiccup on jitter) for no real cold-start gain.
-    # The cold-start fix lives in the frontend (batched connects + 25s WHEP
-    # timeout), not in starving ffmpeg's input. Keep this command stable.
     return (
         f"{ffbin} -nostdin -loglevel error -rtsp_transport tcp "
         f"-i {source} -an {enc} "

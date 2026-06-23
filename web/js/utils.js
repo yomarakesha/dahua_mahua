@@ -48,57 +48,23 @@ export function getNvrList() {
 
 export function gridCells() { return state.gridCols * state.gridRows; }
 
-// Partition filteredCameras into pages. In fixed mode that's a plain chunk by
-// grid size. In auto mode each page is filled greedily but never holds more than
-// `nvrCap` cameras from a single NVR — the NVR physically serves only ~13 live
-// streams, so packing more onto one screen just yields dead tiles. The overflow
-// rolls onto the next page instead. Order is otherwise preserved.
-export function buildPages() {
-  const cams = state.filteredCameras;
-  if (!state.autoGrid) {
-    const perPage = gridCells();
-    const pages = [];
-    for (let i = 0; i < cams.length; i += perPage) pages.push(cams.slice(i, i + perPage));
-    return pages.length ? pages : [[]];
-  }
-  const cap = state.prefs.nvrCap || 12;
-  const maxPP = state.prefs.autoMaxPerPage || 16;
-  const pages = [];
-  let remaining = cams;
-  while (remaining.length) {
-    const page = [];
-    const perNvr = {};
-    const leftover = [];
-    for (const cam of remaining) {
-      const nvr = getNvrId(cam);
-      if (page.length < maxPP && (perNvr[nvr] || 0) < cap) {
-        page.push(cam);
-        perNvr[nvr] = (perNvr[nvr] || 0) + 1;
-      } else {
-        leftover.push(cam);
-      }
-    }
-    pages.push(page);
-    remaining = leftover;
-  }
-  return pages.length ? pages : [[]];
-}
-
 export function totalPages() {
-  return Math.max(1, buildPages().length);
+  return Math.max(1, Math.ceil(state.filteredCameras.length / gridCells()));
 }
 
 export function getPageCameras() {
-  const pages = buildPages();
-  const idx = Math.max(0, Math.min(state.currentPage, pages.length - 1));
-  return pages[idx] || [];
+  const perPage = gridCells();
+  const start = state.currentPage * perPage;
+  return state.filteredCameras.slice(start, start + perPage);
 }
 
 export function getNextPageCameras() {
-  const pages = buildPages();
-  if (pages.length <= 1) return [];
-  const next = (state.currentPage + 1) % pages.length;
-  return pages[next] || [];
+  const tp = totalPages();
+  if (tp <= 1) return [];
+  const nextPage = (state.currentPage + 1) % tp;
+  const perPage = gridCells();
+  const start = nextPage * perPage;
+  return state.filteredCameras.slice(start, start + perPage);
 }
 
 export function getPreconnectLimit() {
