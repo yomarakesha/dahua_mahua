@@ -155,7 +155,16 @@ fi
 start_one backend  8000 "$BACKEND" "$PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 wait_port 8000 backend 25
 
-start_one frontend 8080 "$WEBDIR"  "$PY" -m http.server 8080
+# Prefer the new React build (web-react/dist) when it's been built; fall back to
+# the legacy vanilla UI in web/. Build it with: (cd web-react && npm run build)
+SERVEDIR="$WEBDIR"
+if [ -f "$ROOT/web-react/dist/index.html" ]; then
+  SERVEDIR="$ROOT/web-react/dist"
+  c_ok "Serving React UI (web-react/dist)"
+else
+  c_warn "React build not found — serving legacy web/ (run: cd web-react && npm run build)"
+fi
+start_one frontend 8080 "$SERVEDIR"  "$PY" -m http.server 8080
 wait_port 8080 frontend 10
 
 echo
