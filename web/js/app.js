@@ -19,7 +19,7 @@ import {
   filterGroupCameras, toggleGroupSelectAll,
 } from "./sidebar.js";
 import {
-  renderGrid, setGridSize, updateGridSizeInput, parseGridInput,
+  renderGrid, setGridSize, setAutoGrid, updateGridSizeInput, parseGridInput,
   autoFitGrid, goToPage, nextPage, prevPage, setFocusedCell,
   startPatrol, stopPatrol, togglePatrol, takeSnapshot, setupKeyboard,
 } from "./grid.js";
@@ -61,6 +61,8 @@ function bindEvents() {
     if (e.key === "Enter") { e.preventDefault(); dom.gridSizeSel.blur(); }
   });
   dom.gridSizeSel.addEventListener("blur", () => {
+    const v = dom.gridSizeSel.value.trim().toLowerCase();
+    if (v === "auto" || v === "a" || v === "") { setAutoGrid(true); return; }
     const parsed = parseGridInput(dom.gridSizeSel.value);
     if (parsed) setGridSize(parsed[0], parsed[1]);
     else updateGridSizeInput();

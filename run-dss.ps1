@@ -27,7 +27,7 @@ Start-Process -FilePath $venv -ArgumentList "-m","uvicorn","app.main:app","--hos
 Start-Sleep -Seconds 4
 
 Write-Host "Frontend (:8081)..." -ForegroundColor Cyan
-Start-Process -FilePath $venv -ArgumentList "-m","http.server","8081","--bind","0.0.0.0" -WorkingDirectory (Join-Path $root "web") -WindowStyle Minimized
+Start-Process -FilePath $venv -ArgumentList "serve.py","8081" -WorkingDirectory (Join-Path $root "web") -WindowStyle Minimized
 Start-Sleep -Seconds 3
 
 Write-Host ""

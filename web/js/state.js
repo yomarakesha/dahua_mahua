@@ -9,6 +9,7 @@ export const state = {
   filteredCameras: [],
   gridCols: 4,
   gridRows: 4,
+  autoGrid: true,
   currentPage: 0,
   searchText: "",
   activeFilter: { type: "all", value: "" },
@@ -16,6 +17,11 @@ export const state = {
   layouts: [],
   prefs: {
     gridCols: 4, gridRows: 4, patrolInterval: 10,
+    // autoGrid: grid size follows the camera count automatically. nvrCap: max
+    // distinct streams pulled from a SINGLE NVR per page (the NVR's own RTSP
+    // limit is ~13, so 12 keeps a safety margin and guarantees no dead tiles).
+    // autoMaxPerPage caps tiles/page so a browser isn't asked to decode too many.
+    autoGrid: true, nvrCap: 12, autoMaxPerPage: 16,
     sidebarOpen: true, lastLayout: "",
     maxRetries: 3, retryDelay: 10, maxConcurrent: 8,
   },
@@ -53,6 +59,7 @@ export function loadState() {
     }
     state.gridCols = state.prefs.gridCols || 4;
     state.gridRows = state.prefs.gridRows || 4;
+    state.autoGrid = state.prefs.autoGrid !== false; // default ON
   } catch (_) {}
 }
 
