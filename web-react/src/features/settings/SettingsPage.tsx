@@ -3,6 +3,7 @@ import { useChangePassword } from "@/api/hooks";
 import { useAuth } from "@/lib/auth";
 import { logout, ApiError } from "@/api/client";
 import { GearIcon, KeyIcon, PowerIcon } from "@/components/icons";
+import { PasswordInput } from "@/components/PasswordInput";
 
 const APP_VERSION = "v3.2.0";
 
@@ -100,9 +101,8 @@ function ChangePasswordPanel() {
       </div>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="Current password">
-          <input
-            type="password"
-            className="dss-input h-[42px]"
+          <PasswordInput
+            className="h-[42px]"
             value={current}
             autoComplete="current-password"
             onChange={(e) => setCurrent(e.target.value)}
@@ -110,9 +110,8 @@ function ChangePasswordPanel() {
         </Field>
         <div className="flex flex-col gap-4 sm:flex-row">
           <Field label="New password">
-            <input
-              type="password"
-              className="dss-input h-[42px]"
+            <PasswordInput
+              className="h-[42px]"
               value={next}
               autoComplete="new-password"
               placeholder="min 8 characters"
@@ -120,9 +119,8 @@ function ChangePasswordPanel() {
             />
           </Field>
           <Field label="Confirm new password">
-            <input
-              type="password"
-              className="dss-input h-[42px]"
+            <PasswordInput
+              className="h-[42px]"
               value={confirm}
               autoComplete="new-password"
               onChange={(e) => setConfirm(e.target.value)}

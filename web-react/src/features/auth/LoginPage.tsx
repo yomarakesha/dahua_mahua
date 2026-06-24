@@ -25,7 +25,8 @@ export default function LoginPage() {
     try {
       const result = await login(username.trim(), password);
       setMe(result.me);
-      navigate(result.mustChange ? "/settings" : "/", { replace: true });
+      // Always land on the live wall — no forced password change after login.
+      navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
       setPending(false);

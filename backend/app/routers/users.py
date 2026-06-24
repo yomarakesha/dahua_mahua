@@ -61,7 +61,7 @@ async def create_user(body: UserCreate, session: SessionDep, _: AdminUser) -> Us
         password_hash=hash_password(body.password),
         role=body.role,
         is_active=body.is_active,
-        must_change_password=True,  # force change on first login
+        must_change_password=False,  # no forced change — user logs in straight to the wall
     )
     if body.region_ids:
         regions = list(
@@ -132,7 +132,7 @@ async def update_user(
         pw = data.pop("new_password")
         if pw is not None:
             user.password_hash = hash_password(pw)
-            user.must_change_password = True
+            user.must_change_password = False
     if "region_ids" in data:
         ids = data.pop("region_ids") or []
         regions = list(

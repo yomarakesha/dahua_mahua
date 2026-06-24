@@ -10,6 +10,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import type { Camera, Nvr, Role, User } from "@/api/types";
 import { PlusIcon, PencilIcon, TrashIcon, XIcon, KeyIcon, ServerIcon } from "@/components/icons";
+import { PasswordInput } from "@/components/PasswordInput";
 
 export default function UsersPage() {
   const { data: users, isLoading } = useUsers();
@@ -243,9 +244,8 @@ function UserEditor({
             </label>
             <label className="block">
               <span className="dss-label">{isNew ? "Password" : "Reset password"}</span>
-              <input
-                className="dss-input mt-1"
-                type="password"
+              <PasswordInput
+                className="mt-1"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={isNew ? "min 8 chars" : "leave blank to keep"}
