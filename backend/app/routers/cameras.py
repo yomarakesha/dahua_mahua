@@ -67,8 +67,9 @@ async def list_cameras(
     if user.role == Role.admin:
         return [_to_read(cam, nvr) for cam, nvr in rows]
 
-    allowed = {r.id for r in user.regions}
-    return [_to_read(cam, nvr) for cam, nvr in rows if nvr.region_id in allowed]
+    # Operators see only the cameras explicitly granted to them.
+    allowed = {c.id for c in user.cameras}
+    return [_to_read(cam, nvr) for cam, nvr in rows if cam.id in allowed]
 
 
 @router.post("", response_model=CameraRead, status_code=status.HTTP_201_CREATED)

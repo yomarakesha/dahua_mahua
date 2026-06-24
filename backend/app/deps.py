@@ -1,9 +1,11 @@
-"""FastAPI dependencies: current user, role + region access guards.
+"""FastAPI dependencies: current user, role + access guards.
 
 RBAC model:
-  • admin    — bypasses all region checks, sees everything.
-  • operator — sees only NVRs/cameras whose region_id is in the user's
-               `regions` set. NVRs with region_id=NULL are admin-only.
+  • admin    — bypasses all checks, sees everything, manages users.
+  • operator — sees ONLY the cameras explicitly granted to them (per-camera
+               grants in `user.cameras`). No grants → sees nothing. Regions
+               remain for optional NVR-level grouping but are not the access
+               mechanism.
 """
 
 from __future__ import annotations
@@ -87,6 +89,10 @@ def _user_region_ids(user: User) -> set[uuid.UUID]:
     return {r.id for r in user.regions}
 
 
+def _user_camera_ids(user: User) -> set[uuid.UUID]:
+    return {c.id for c in user.cameras}
+
+
 def user_can_access_nvr(user: User, nvr: Nvr) -> bool:
     if user.role == Role.admin:
         return True
@@ -95,12 +101,19 @@ def user_can_access_nvr(user: User, nvr: Nvr) -> bool:
     return nvr.region_id in _user_region_ids(user)
 
 
+def user_can_access_camera(user: User, camera: Camera) -> bool:
+    """Per-camera access: admins see all; operators see only granted cameras."""
+    if user.role == Role.admin:
+        return True
+    return camera.id in _user_camera_ids(user)
+
+
 async def authorize_camera(
     camera_id: uuid.UUID,
     session: SessionDep,
     user: CurrentUser,
 ) -> Camera:
-    """Load a camera by id and 403 if the current user can't access its NVR."""
+    """Load a camera by id and 404 if the current user can't access it."""
     camera = (
         await session.execute(
             select(Camera).where(Camera.id == camera_id)
@@ -111,7 +124,7 @@ async def authorize_camera(
     nvr = (await session.execute(select(Nvr).where(Nvr.id == camera.nvr_id))).scalar_one_or_none()
     if nvr is None or not nvr.enabled or not camera.enabled:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not available")
-    if not user_can_access_nvr(user, nvr):
+    if not user_can_access_camera(user, camera):
         # Return 404 (not 403) so we don't reveal that the camera exists.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not found")
     return camera

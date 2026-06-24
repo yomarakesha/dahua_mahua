@@ -13,6 +13,9 @@ import type {
   NvrTestResult,
   NvrUpdate,
   Region,
+  User,
+  UserCreate,
+  UserUpdate,
 } from "./types";
 
 export const qk = {
@@ -21,6 +24,7 @@ export const qk = {
   cameras: ["cameras"] as const,
   regions: ["regions"] as const,
   events: ["events"] as const,
+  users: ["users"] as const,
 };
 
 // ── Queries ──────────────────────────────────────────────────────────────────
@@ -142,5 +146,39 @@ export function useChangePassword() {
   return useMutation({
     mutationFn: (body: { current_password: string; new_password: string }) =>
       http.post<unknown>("/auth/change-password", body),
+  });
+}
+
+// ── Users (admin) ────────────────────────────────────────────────────────────
+
+export function useUsers() {
+  return useQuery({ queryKey: qk.users, queryFn: () => http.get<User[]>("/users") });
+}
+
+function useInvalidateUsers() {
+  const qc = useQueryClient();
+  return () => qc.invalidateQueries({ queryKey: qk.users });
+}
+
+export function useCreateUser() {
+  const invalidate = useInvalidateUsers();
+  return useMutation({
+    mutationFn: (body: UserCreate) => http.post<User>("/users", body),
+    onSuccess: invalidate,
+  });
+}
+export function useUpdateUser() {
+  const invalidate = useInvalidateUsers();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UserUpdate }) =>
+      http.patch<User>(`/users/${id}`, body),
+    onSuccess: invalidate,
+  });
+}
+export function useDeleteUser() {
+  const invalidate = useInvalidateUsers();
+  return useMutation({
+    mutationFn: (id: string) => http.del<null>(`/users/${id}`),
+    onSuccess: invalidate,
   });
 }

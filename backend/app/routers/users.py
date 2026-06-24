@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.deps import AdminUser, SessionDep
-from app.models import Region, Role, User
+from app.models import Camera, Region, Role, User
 from app.schemas import UserCreate, UserRead, UserUpdate
 from app.security import hash_password
 
@@ -27,7 +27,17 @@ def _to_read(user: User) -> UserRead:
         created_at=user.created_at,
         last_login_at=user.last_login_at,
         region_ids=[r.id for r in user.regions],
+        camera_ids=[c.id for c in user.cameras],
     )
+
+
+async def _resolve_cameras(session: SessionDep, ids: list[uuid.UUID]) -> list[Camera]:
+    if not ids:
+        return []
+    cams = list((await session.execute(select(Camera).where(Camera.id.in_(ids)))).scalars())
+    if len(cams) != len(set(ids)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "One or more camera_ids do not exist")
+    return cams
 
 
 @router.get("", response_model=list[UserRead])
@@ -35,7 +45,9 @@ async def list_users(session: SessionDep, _: AdminUser) -> list[UserRead]:
     users = list(
         (
             await session.execute(
-                select(User).options(selectinload(User.regions)).order_by(User.username)
+                select(User)
+                .options(selectinload(User.regions), selectinload(User.cameras))
+                .order_by(User.username)
             )
         ).scalars()
     )
@@ -58,13 +70,14 @@ async def create_user(body: UserCreate, session: SessionDep, _: AdminUser) -> Us
         if len(regions) != len(body.region_ids):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "One or more region_ids do not exist")
         user.regions = regions
+    user.cameras = await _resolve_cameras(session, body.camera_ids)
     session.add(user)
     try:
         await session.commit()
     except IntegrityError:
         await session.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f"User '{body.username}' already exists") from None
-    await session.refresh(user, attribute_names=["regions"])
+    await session.refresh(user, attribute_names=["regions", "cameras"])
     return _to_read(user)
 
 
@@ -77,7 +90,9 @@ async def update_user(
 ) -> UserRead:
     user = (
         await session.execute(
-            select(User).where(User.id == user_id).options(selectinload(User.regions))
+            select(User)
+            .where(User.id == user_id)
+            .options(selectinload(User.regions), selectinload(User.cameras))
         )
     ).scalar_one_or_none()
     if user is None:
@@ -126,10 +141,13 @@ async def update_user(
         if len(regions) != len(ids):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "One or more region_ids do not exist")
         user.regions = regions
+    if "camera_ids" in data:
+        cam_ids = data.pop("camera_ids") or []
+        user.cameras = await _resolve_cameras(session, cam_ids)
     for field, value in data.items():
         setattr(user, field, value)
     await session.commit()
-    await session.refresh(user, attribute_names=["regions"])
+    await session.refresh(user, attribute_names=["regions", "cameras"])
     return _to_read(user)
 
 

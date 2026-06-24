@@ -5,6 +5,7 @@ import LoginPage from "@/features/auth/LoginPage";
 import LiveWall from "@/features/live/LiveWall";
 import NvrManagement from "@/features/nvrs/NvrManagement";
 import CameraChannels from "@/features/nvrs/CameraChannels";
+import UsersPage from "@/features/users/UsersPage";
 import SettingsPage from "@/features/settings/SettingsPage";
 
 export default function App() {
@@ -33,6 +34,14 @@ export default function App() {
             element={
               <RequireAuth adminOnly>
                 <CameraChannels />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="users"
+            element={
+              <RequireAuth adminOnly>
+                <UsersPage />
               </RequireAuth>
             }
           />

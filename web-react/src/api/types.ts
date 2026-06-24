@@ -13,6 +13,25 @@ export interface Me {
   created_at: string;
   last_login_at: string | null;
   region_ids: string[];
+  camera_ids: string[];
+}
+
+/** Full user record (admin user-management). Same shape as Me. */
+export type User = Me;
+
+export interface UserCreate {
+  username: string;
+  password: string;
+  role: Role;
+  is_active?: boolean;
+  camera_ids?: string[];
+}
+
+export interface UserUpdate {
+  role?: Role;
+  is_active?: boolean;
+  new_password?: string;
+  camera_ids?: string[];
 }
 
 export interface TokenResponse {
