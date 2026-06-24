@@ -1,15 +1,16 @@
 import {
   GridIcon,
   SearchIcon,
-  ChevronDown,
   PlayIcon,
   PauseIcon,
 } from "@/components/icons";
 
 interface Props {
-  /** sqrt of current preset (N for an N×N grid). */
-  gridN: number;
-  onCycleGrid: () => void;
+  /** Grid columns × rows (independent — build any N×M layout). */
+  cols: number;
+  rows: number;
+  onCols: (n: number) => void;
+  onRows: (n: number) => void;
   patrol: boolean;
   onTogglePatrol: () => void;
   patrolInterval: number;
@@ -20,9 +21,44 @@ interface Props {
   total: number;
 }
 
+function Stepper({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div className="flex h-[34px] items-center gap-1 rounded-lg border border-white/[.07] bg-panel pl-2 pr-1">
+      <span className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">{label}</span>
+      <button
+        type="button"
+        onClick={() => onChange(value - 1)}
+        title={`Fewer ${label.toLowerCase()}`}
+        className="flex h-6 w-6 items-center justify-center rounded text-ink-mute transition hover:bg-white/[.06] hover:text-ink-soft"
+      >
+        −
+      </button>
+      <span className="w-4 text-center font-mono text-base font-semibold text-ink-soft">{value}</span>
+      <button
+        type="button"
+        onClick={() => onChange(value + 1)}
+        title={`More ${label.toLowerCase()}`}
+        className="flex h-6 w-6 items-center justify-center rounded text-ink-mute transition hover:bg-white/[.06] hover:text-ink-soft"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 export function LiveTopbar({
-  gridN,
-  onCycleGrid,
+  cols,
+  rows,
+  onCols,
+  onRows,
   patrol,
   onTogglePatrol,
   patrolInterval,
@@ -34,21 +70,15 @@ export function LiveTopbar({
 }: Props) {
   return (
     <div className="flex h-[54px] flex-none items-center gap-3.5 border-b border-white/[.06] bg-gradient-to-b from-[#0e1216] to-[#0b0e12] px-4">
-      {/* layout controls */}
+      {/* layout controls: independent columns × rows */}
       <div className="flex items-center gap-1.5">
         <div className="flex h-[34px] items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/[.12] px-3 text-base font-bold text-accent-light">
           <GridIcon size={14} />
           Live Grid
         </div>
-        <button
-          type="button"
-          onClick={onCycleGrid}
-          title="Cycle layout"
-          className="flex h-[34px] items-center gap-1.5 rounded-lg border border-white/[.07] bg-panel px-3 font-mono text-base font-semibold text-ink-mute transition hover:border-white/[.14] hover:text-ink-soft"
-        >
-          {gridN}×{gridN}
-          <ChevronDown size={13} className="text-ink-dim" />
-        </button>
+        <Stepper label="Cols" value={cols} onChange={onCols} />
+        <span className="text-sm font-semibold text-ink-faint">×</span>
+        <Stepper label="Rows" value={rows} onChange={onRows} />
       </div>
 
       <div className="h-6 w-px bg-white/[.08]" />

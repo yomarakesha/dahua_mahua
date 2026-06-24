@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useCreateNvr } from "@/api/hooks";
 import type { NvrCreate, Vendor } from "@/api/types";
 import { PlusIcon, ChevronDown, ChevronRight } from "@/components/icons";
+import { PasswordInput } from "@/components/PasswordInput";
 
 const VENDORS: Vendor[] = ["dahua", "hikvision"];
 
@@ -68,9 +69,8 @@ export function AddNvrForm() {
           />
         </Field>
         <Field className="min-w-[140px] flex-[2]" label="Password">
-          <input
-            type="password"
-            className="dss-input h-[42px]"
+          <PasswordInput
+            className="h-[42px]"
             placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}

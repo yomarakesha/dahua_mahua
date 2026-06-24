@@ -9,14 +9,17 @@ import { CameraTile } from "./CameraTile";
 import { FullscreenView } from "./FullscreenView";
 import { useClock } from "./useClock";
 
-const PRESETS = CONFIG.gridPresets;
 const PATROL = CONFIG.patrolIntervals;
+const GRID_MIN = 1;
+const GRID_MAX = 8;
+const clampGrid = (n: number) => Math.max(GRID_MIN, Math.min(GRID_MAX, n));
 
 export default function LiveWall() {
   const { data: cameras, isLoading: camsLoading } = useCameras();
   const { data: nvrs } = useNvrs();
 
-  const [presetIdx, setPresetIdx] = useState(3); // default 16 (4×4)
+  const [cols, setCols] = useState(4); // columns × rows grid (default 4×4)
+  const [rows, setRows] = useState(4);
   const [selectedNvrId, setSelectedNvrId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [patrol, setPatrol] = useState(false);
@@ -26,8 +29,7 @@ export default function LiveWall() {
 
   const time = useClock();
 
-  const cellCount = PRESETS[presetIdx];
-  const gridN = Math.round(Math.sqrt(cellCount));
+  const cellCount = cols * rows;
   const patrolInterval = PATROL[patrolIdx];
 
   // Enabled cameras only, optionally filtered by NVR + search text.
@@ -56,7 +58,7 @@ export default function LiveWall() {
   // Reset to first page on any filter/layout change.
   useEffect(() => {
     setPage(0);
-  }, [selectedNvrId, search, presetIdx]);
+  }, [selectedNvrId, search, cols, rows]);
 
   const pageCams = useMemo(
     () => filtered.slice(page * cellCount, page * cellCount + cellCount),
@@ -95,8 +97,10 @@ export default function LiveWall() {
   return (
     <div className="flex h-full w-full flex-col bg-deep">
       <LiveTopbar
-        gridN={gridN}
-        onCycleGrid={() => setPresetIdx((i) => (i + 1) % PRESETS.length)}
+        cols={cols}
+        rows={rows}
+        onCols={(n) => setCols(clampGrid(n))}
+        onRows={(n) => setRows(clampGrid(n))}
         patrol={patrol}
         onTogglePatrol={() => setPatrol((p) => !p)}
         patrolInterval={patrolInterval}
@@ -122,15 +126,15 @@ export default function LiveWall() {
 
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-deep">
           {camsLoading ? (
-            <SkeletonGrid n={gridN} />
+            <SkeletonGrid cols={cols} rows={rows} />
           ) : filtered.length === 0 ? (
             <EmptyState filtered={enabled.length > 0} />
           ) : (
             <div
               className="grid min-h-0 flex-1 gap-1.5 p-2"
               style={{
-                gridTemplateColumns: `repeat(${gridN}, minmax(0, 1fr))`,
-                gridTemplateRows: `repeat(${gridN}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
               }}
             >
               {pageCams.map((cam) => (
@@ -222,16 +226,16 @@ function StatusBar({
   );
 }
 
-function SkeletonGrid({ n }: { n: number }) {
+function SkeletonGrid({ cols, rows }: { cols: number; rows: number }) {
   return (
     <div
       className="grid min-h-0 flex-1 gap-1.5 p-2"
       style={{
-        gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${n}, minmax(0, 1fr))`,
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
       }}
     >
-      {Array.from({ length: n * n }).map((_, i) => (
+      {Array.from({ length: cols * rows }).map((_, i) => (
         <div
           key={i}
           className="animate-pulse rounded border border-white/[.04] bg-white/[.02]"
