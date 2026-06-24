@@ -55,7 +55,7 @@ async def _ensure_bootstrap_admin(session: AsyncSession) -> None:
         username=settings.bootstrap_admin_username,
         password_hash=hash_password(settings.bootstrap_admin_password),
         role=Role.admin,
-        must_change_password=True,
+        must_change_password=False,
     )
     session.add(admin)
     print(
