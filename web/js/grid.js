@@ -24,13 +24,58 @@ import { openFullscreen } from "./fullscreen.js";
 // contents when the path actually changes). The latter avoids the cost of
 // `innerHTML = ""` + 64 fresh listener bindings on every page-flip / filter.
 
+// ── Cold-start throttle ──────────────────────────────────────────────────────
+// Each fresh tile opens one on-demand RTSP pull from the NVR. The NVR caps
+// concurrent pulls (~12-16), so firing a whole grid at once makes the tail wait
+// ~25s+ and the browser's WHEP request times out. Launch *new* connections in
+// small staggered batches; already-connected (warm) tiles re-attach instantly
+// and never enter this queue.
+const COLD_BATCH = 4;
+const COLD_GAP_MS = 2000;
+const _coldQueue = [];   // [{ path, getVideo }]
+let _coldTimer = null;
+
+function liveVideoFor(path) {
+  const sel = `.cam-cell[data-path="${(window.CSS && CSS.escape) ? CSS.escape(path) : path}"]`;
+  const cell = dom.cameraGrid.querySelector(sel);
+  return cell ? cell.querySelector("video") : null;
+}
+
+function drainColdQueue() {
+  _coldTimer = null;
+  let launched = 0;
+  while (_coldQueue.length && launched < COLD_BATCH) {
+    const { path, getVideo, preconnect } = _coldQueue.shift();
+    const video = getVideo();
+    if (!video) continue;                       // tile gone (page flip) — drop it
+    const conn = state.connections[path];
+    if (conn && conn.status !== "error" && conn.pc) {
+      attachConnectionVideo(path, video);       // became warm meanwhile — no NVR hit
+    } else {
+      connectCamera(path, video);
+      if (preconnect) {
+        const c = state.connections[path];
+        if (c) c.preconnected = true;
+      }
+      launched++;
+    }
+  }
+  if (_coldQueue.length) _coldTimer = setTimeout(drainColdQueue, COLD_GAP_MS);
+}
+
+function queueColdConnect(path, getVideo, preconnect = false) {
+  if (_coldQueue.some(q => q.path === path)) return;
+  _coldQueue.push({ path, getVideo, preconnect });
+  if (!_coldTimer) _coldTimer = setTimeout(drainColdQueue, 0); // first batch ASAP
+}
+
 function attachOrConnect(path, video) {
   const existingConn = state.connections[path];
   const desiredStream = streamPathFor(path);
   if (existingConn) {
     // Tier mismatch (sub↔main) — force a reconnect on the right path.
     if (existingConn.streamPath && existingConn.streamPath !== desiredStream) {
-      connectCamera(path, video);
+      queueColdConnect(path, () => liveVideoFor(path) || video);
       return;
     }
     attachConnectionVideo(path, video);
@@ -39,10 +84,10 @@ function attachOrConnect(path, video) {
         clearTimeout(existingConn.retryTimer);
         existingConn.retryTimer = null;
       }
-      connectCamera(path, video);
+      queueColdConnect(path, () => liveVideoFor(path) || video);
     }
   } else {
-    connectCamera(path, video);
+    queueColdConnect(path, () => liveVideoFor(path) || video);
   }
 }
 
@@ -146,6 +191,13 @@ function populateEmptyCell(cell) {
 
 export function renderGrid() {
   const pageCams = getPageCameras();
+  // Auto mode: size the grid to exactly fit this page's cameras (the page was
+  // already capped to a safe per-NVR count in buildPages).
+  if (state.autoGrid) {
+    const [c, r] = fitDims(pageCams.length || 1);
+    state.gridCols = c;
+    state.gridRows = r;
+  }
   const cols = state.gridCols;
   const rows = state.gridRows;
   const totalSlots = cols * rows;
@@ -241,9 +293,8 @@ function preconnectNextPage(paths) {
     video.style.display = "none";
     document.body.appendChild(video);
 
-    connectCamera(path, video);
-    const conn = state.connections[path];
-    if (conn) conn.preconnected = true;
+    // Share the cold-start throttle so preconnect never bursts the NVR either.
+    queueColdConnect(path, () => video, true);
   });
 }
 
@@ -275,7 +326,17 @@ export function prevPage() { goToPage(state.currentPage - 1); }
 
 // ── Grid sizing ─────────────────────────────────────────────────────────────
 
+// Square-ish [cols, rows] that fits n tiles (n=12 → 4x3, 16 → 4x4, 9 → 3x3).
+function fitDims(n) {
+  const c = Math.ceil(Math.sqrt(n));
+  const r = Math.ceil(n / c);
+  return [c, r];
+}
+
+// Manual size = explicit fixed grid → leaves auto mode.
 export function setGridSize(cols, rows) {
+  state.autoGrid = false;
+  state.prefs.autoGrid = false;
   state.gridCols = cols;
   state.gridRows = rows || cols;
   state.prefs.gridCols = state.gridCols;
@@ -286,8 +347,17 @@ export function setGridSize(cols, rows) {
   renderGrid();
 }
 
+export function setAutoGrid(on) {
+  state.autoGrid = !!on;
+  state.prefs.autoGrid = state.autoGrid;
+  state.currentPage = 0;
+  savePrefs();
+  updateGridSizeInput();
+  renderGrid();
+}
+
 export function updateGridSizeInput() {
-  dom.gridSizeSel.value = `${state.gridCols}x${state.gridRows}`;
+  dom.gridSizeSel.value = state.autoGrid ? "auto" : `${state.gridCols}x${state.gridRows}`;
 }
 
 export function parseGridInput(val) {
@@ -303,6 +373,8 @@ export function parseGridInput(val) {
 }
 
 export function autoFitGrid(cameraCount) {
+  // In auto mode the render already fits each (NVR-capped) page, so just redraw.
+  if (state.autoGrid) { state.currentPage = 0; renderGrid(); return; }
   if (cameraCount <= 0) return;
   const s = Math.ceil(Math.sqrt(cameraCount));
   const rows = Math.ceil(cameraCount / s);
