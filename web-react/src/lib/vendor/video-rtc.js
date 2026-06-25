@@ -514,13 +514,22 @@ export class VideoRTC extends HTMLElement {
                             sb.remove(start0, start);
                             ms.setLiveSeekableRange(start, end);
                         }
-                        this.video.playbackRate = 1.0;
                         const gap = end - this.video.currentTime;
-                        // Re-center to the cushion ONLY on real drift: near underrun
-                        // (gap collapsed) or excess latency (drifted past the window).
-                        // In between, leave currentTime alone — the cushion absorbs it.
-                        if (gap < 0.3 || gap > WINDOW) {
+                        if (gap < 0.2 || gap > WINDOW) {
+                            // Catastrophic drift only (near underrun, or latency past the
+                            // whole window): a hard resync is unavoidable. Rare.
                             this.video.currentTime = end - TARGET;
+                            this.video.playbackRate = 1.0;
+                        } else {
+                            // Normal operation: DON'T hard-seek (that's the visible
+                            // back-and-forth judder — currentTime jumping back to rebuild
+                            // the cushion). Instead ease the cushion toward TARGET with a
+                            // tiny playbackRate nudge, clamped to ±5% — imperceptible to
+                            // the eye, and exactly 1.0x at TARGET so it can never stick in
+                            // slow-motion (the reason the old ±50% controller was reverted).
+                            const err = gap - TARGET;  // + = too much latency, − = too thin
+                            this.video.playbackRate =
+                                1 + Math.max(-0.05, Math.min(0.05, err * 0.04));
                         }
                     } catch (e) {
                         // transient MSE state — ignore; updateend will retry
