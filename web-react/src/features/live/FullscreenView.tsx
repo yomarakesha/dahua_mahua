@@ -15,10 +15,10 @@ export function FullscreenView({ cam, onClose }: Props) {
   // user gesture, which browsers require to start audio). Only here in the
   // main/fullscreen view — grid tiles stay muted.
   const [audioOn, setAudioOn] = useState(false);
-  // Source for the MAIN stream: direct from the camera IP (default, spreads load)
-  // or via the NVR (the `_main_nvr` relay variant — fallback when the camera
-  // isn't directly reachable). Backend publishes both streams.
-  const [viaNvr, setViaNvr] = useState(false);
+  // Source for the MAIN stream: via the NVR (default — the `_main_nvr` relay
+  // variant, so we hit the NVR once instead of every camera directly) or direct
+  // from the camera IP (toggle off). Backend publishes both streams.
+  const [viaNvr, setViaNvr] = useState(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
