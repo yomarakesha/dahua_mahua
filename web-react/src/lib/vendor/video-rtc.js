@@ -250,6 +250,14 @@ export class VideoRTC extends HTMLElement {
 
         this.video.addEventListener('error', ev => {
             const err = this.video.error;
+            // DSS patch: ondisconnect() sets video.src='' as part of a deliberate
+            // teardown (stream switch / unmount). The browser reports that empty src
+            // as MEDIA_ERR_SRC_NOT_SUPPORTED. Ignore it — otherwise the ws.close()
+            // below would kill a socket we just reopened for the new stream, giving
+            // "WebSocket is closed before the connection is established".
+            if (err && err.code === 4 && !this.video.getAttribute('src') && !this.video.srcObject) {
+                return;
+            }
             // https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
             const MEDIA_ERRORS = {
                 1: 'MEDIA_ERR_ABORTED',

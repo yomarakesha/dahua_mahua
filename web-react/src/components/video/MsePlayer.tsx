@@ -22,6 +22,7 @@ interface Props {
 export function MsePlayer({ src, className, muted = true }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const elRef = useRef<VideoRTC | null>(null);
+  const firstSrcRef = useRef(true);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -50,14 +51,25 @@ export function MsePlayer({ src, className, muted = true }: Props) {
   useEffect(() => {
     const el = elRef.current;
     if (!el || !src) return;
-    // Tear down any existing connection first: VideoRTC.onconnect() early-returns
-    // when a WebSocket already exists, so without this, re-pointing .src on a live
-    // element would keep playing the OLD stream. Harmless on first mount (ws null).
-    try {
-      el.ondisconnect();
-    } catch {
-      /* ignore */
+    // On a live element, tear down the old connection before re-pointing .src:
+    // VideoRTC.onconnect() early-returns when a WebSocket already exists, so
+    // without this a stream switch would keep playing the OLD stream.
+    //
+    // BUT skip it on first mount. ondisconnect() sets <video>.src='' (video-rtc
+    // line ~341), which makes the browser fire an async MEDIA_ERR_SRC_NOT_SUPPORTED
+    // ("Empty src") whose handler runs `this.ws.close()` — and by the time that
+    // async error fires we've already opened the new socket, so it would close a
+    // CONNECTING socket ("closed before the connection is established"). On first
+    // mount there's nothing to tear down anyway. (video-rtc.js also now guards the
+    // error handler against this synthetic error, for the stream-switch case.)
+    if (!firstSrcRef.current) {
+      try {
+        el.ondisconnect();
+      } catch {
+        /* ignore */
+      }
     }
+    firstSrcRef.current = false;
     el.src = new URL(`${CONFIG.go2rtcWsBase}/api/ws?src=${encodeURIComponent(src)}`);
   }, [src]);
 
