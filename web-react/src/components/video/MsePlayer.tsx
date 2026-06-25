@@ -12,14 +12,21 @@ interface Props {
   /** Audio mute. Defaults true (grid tiles are always muted; fullscreen can
    *  unmute on a user gesture). */
   muted?: boolean;
+  /**
+   * Transport. "mse" (default) buffers and plays every frame in order — great for
+   * the grid (subs have huge margin), but on a marginal 4MP main it thrashes and
+   * freezes. "webrtc" is real-time and DROPS late frames instead of stalling — the
+   * old-design behavior that kept the 4MP main smooth. Used for fullscreen mains.
+   */
+  mode?: "mse" | "webrtc";
 }
 
 /**
- * Buffered-MSE video tile. Wraps the <dss-mse> web component: mounts it once,
- * re-points `.src` when the stream changes, and tears it down on unmount (the
- * element owns its WebSocket + MediaSource + reconnect lifecycle).
+ * Video tile wrapping the <dss-mse> web component: mounts it once, re-points
+ * `.src` when the stream changes, and tears it down on unmount (the element owns
+ * its WebSocket + MediaSource/PeerConnection + reconnect lifecycle).
  */
-export function MsePlayer({ src, className, muted = true }: Props) {
+export function MsePlayer({ src, className, muted = true, mode = "mse" }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const elRef = useRef<VideoRTC | null>(null);
   const firstSrcRef = useRef(true);
@@ -28,7 +35,7 @@ export function MsePlayer({ src, className, muted = true }: Props) {
     const host = hostRef.current;
     if (!host) return;
     const el = document.createElement("dss-mse") as VideoRTC;
-    el.mode = "mse";
+    el.mode = mode;
     el.background = true;
     host.appendChild(el);
     elRef.current = el;

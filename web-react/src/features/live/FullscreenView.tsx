@@ -88,6 +88,10 @@ export function FullscreenView({ cam, onClose }: Props) {
             <MsePlayer
               src={streamName(cam, quality, viaNvr)}
               muted={!audioOn}
+              // WebRTC for the fullscreen main: real-time, drops late frames instead
+              // of buffering+freezing like MSE does on a marginal 4MP stream. This is
+              // the old-design transport that kept mains smooth on this same client.
+              mode="webrtc"
               className="absolute inset-0 h-full w-full"
             />
           ) : (
