@@ -66,6 +66,14 @@ class Go2rtcClient:
         if r.status_code >= 400 and r.status_code != 404:
             raise Go2rtcError(f"delete_stream {name}: {r.status_code}")
 
+    async def restart(self) -> None:
+        """Restart go2rtc so it re-reads its config file. Used by the file-based
+        re-encode sync (exec sources are only honoured from the YAML, not the API).
+        go2rtc re-execs itself; active viewers reconnect."""
+        r = await self._client.post(f"{self._base}/api/restart")
+        if r.status_code >= 400:
+            raise Go2rtcError(f"restart: {r.status_code} {r.text[:120]}")
+
     async def aclose(self) -> None:
         await self._client.aclose()
 

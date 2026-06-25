@@ -15,11 +15,51 @@ import time
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.go2rtc_api import Go2rtcClient, Go2rtcError, get_client
+from app.services.go2rtc_config import read_streams, write_streams
 from app.services.go2rtc_reencode import build_go2rtc_source
 from app.services.path_sync import _desired_paths, _is_dss_managed
 from app.settings import get_settings
 
 log = logging.getLogger("dss.go2rtc_sync")
+
+
+async def _desired_sources(session: AsyncSession, settings) -> dict[str, str]:
+    """{name: go2rtc-source} — raw RTSP, or an exec:ffmpeg re-encode where enabled."""
+    paths = await _desired_paths(session)
+    return {
+        name: build_go2rtc_source(name, cfg["source"], settings)
+        for name, cfg in paths.items()
+    }
+
+
+async def _reconcile_via_file(
+    session: AsyncSession, settings, client: Go2rtcClient
+) -> dict:
+    """Re-encode mode: exec sources are only honoured from go2rtc's YAML, not the
+    API. Write the streams section and reload go2rtc — but only when something
+    actually changed, so a no-op reconcile never restarts (and never drops
+    viewers)."""
+    t0 = time.perf_counter()
+    desired = await _desired_sources(session, settings)
+    path = settings.go2rtc_config_path
+    current = read_streams(path)
+    if current == desired:
+        log.info("go2rtc file reconcile: no change (%d streams)", len(desired))
+        return {"mode": "file", "changed": False, "streams": len(desired)}
+
+    write_streams(path, desired)
+    try:
+        await client.restart()
+        reloaded = True
+    except Exception as e:  # noqa: BLE001
+        log.error("go2rtc file reconcile: wrote config but restart failed: %s", e)
+        reloaded = False
+    dt = (time.perf_counter() - t0) * 1000
+    log.info(
+        "go2rtc file reconcile in %.0fms: wrote %d streams, reloaded=%s",
+        dt, len(desired), reloaded,
+    )
+    return {"mode": "file", "changed": True, "streams": len(desired), "reloaded": reloaded}
 
 
 async def reconcile(
@@ -28,9 +68,16 @@ async def reconcile(
     client: Go2rtcClient | None = None,
     delete_orphans: bool = True,
 ) -> dict:
-    """Add/update/delete go2rtc streams to match the DB. Idempotent."""
+    """Add/update/delete go2rtc streams to match the DB. Idempotent.
+
+    Two modes: when re-encoding is enabled we manage go2rtc's YAML + reload (exec
+    sources are API-rejected); otherwise we PUT/DELETE raw RTSP sources via the API.
+    """
     client = client or get_client()
     settings = get_settings()
+    if settings.reencode_enabled:
+        return await _reconcile_via_file(session, settings, client)
+
     t0 = time.perf_counter()
     desired = await _desired_paths(session)  # {name: {"source": url, ...}}
 

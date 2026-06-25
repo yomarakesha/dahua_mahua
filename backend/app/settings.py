@@ -76,9 +76,19 @@ class Settings(BaseSettings):
     reencode_enabled: bool = False
     reencode_keyframe_seconds: float = 0.5
     reencode_qualities: str = "sub"  # "sub" | "main" | "both"
-    reencode_vcodec: str = "libx264"  # h264_qsv | h264_nvenc | libx264
+    # "auto" probes the host (real test-encode) and picks the best WORKING encoder:
+    # h264_qsv → h264_nvenc → h264_vaapi → libx264 (CPU). A codec can be compiled
+    # into ffmpeg yet fail at runtime when the GPU is absent (this box: no GPU →
+    # auto resolves to libx264). Set an explicit codec to skip probing.
+    reencode_vcodec: str = "auto"
     reencode_preset: str = "veryfast"
     reencode_ffmpeg_bin: str = "ffmpeg"
+    # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
+    # ("insecure producer"); they're only honoured from the static YAML. So when
+    # re-encoding we write streams into this file and reload go2rtc instead of
+    # PUT /api/streams. Path is relative to the process CWD (the repo root, where
+    # start.ps1/start-mac.sh copy go2rtc.base.yaml → .go2rtc/go2rtc.yaml).
+    go2rtc_config_path: str = ".go2rtc/go2rtc.yaml"
 
     # ── Source-on-demand timings ─────────────────────────────────────────────
     sub_start_timeout: str = "10s"

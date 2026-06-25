@@ -21,9 +21,64 @@ expression have none — keep it that way.
 
 from __future__ import annotations
 
+import logging
+import subprocess
 from typing import Any
 
 from app.models import StreamQuality
+
+log = logging.getLogger("dss.go2rtc_reencode")
+
+# Preference order for `vcodec="auto"`. Hardware first (cheap), CPU last (always
+# works). A codec may be compiled into ffmpeg yet fail at runtime with no GPU, so
+# we don't trust the encoder *list* — we run a tiny real encode to confirm.
+_HW_CANDIDATES = ("h264_qsv", "h264_nvenc", "h264_vaapi")
+_CPU_FALLBACK = "libx264"
+
+_resolved_vcodec: str | None = None  # cached across reconciles (probe once)
+
+
+def _test_encoder(ffbin: str, vcodec: str) -> bool:
+    """True if a 0.2s synthetic encode with `vcodec` actually succeeds."""
+    try:
+        proc = subprocess.run(
+            [
+                ffbin, "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10", "-t", "0.2",
+                "-c:v", vcodec, "-f", "null", "-",
+            ],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def resolve_vcodec(settings: Any) -> str:
+    """Return the effective encoder. An explicit `reencode_vcodec` is used as-is;
+    `"auto"` probes the host once (real test-encode) and caches the winner —
+    falling back to CPU libx264 when no hardware encoder actually works."""
+    global _resolved_vcodec
+    want = (settings.reencode_vcodec or "auto").lower()
+    if want != "auto":
+        return want
+    if _resolved_vcodec is not None:
+        return _resolved_vcodec
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    chosen = _CPU_FALLBACK
+    for vc in _HW_CANDIDATES:
+        if _test_encoder(ffbin, vc):
+            chosen = vc
+            break
+    _resolved_vcodec = chosen
+    log.info("re-encode vcodec auto-resolved to %s", chosen)
+    return chosen
+
+
+def reset_vcodec_cache() -> None:
+    """Drop the cached auto-resolved codec (e.g. after a hardware change)."""
+    global _resolved_vcodec
+    _resolved_vcodec = None
 
 
 def quality_of_stream(name: str) -> StreamQuality:
@@ -48,8 +103,8 @@ def reencode_enabled_for(settings: Any, quality: StreamQuality) -> bool:
 
 def _encoder_flags(settings: Any) -> str:
     """Encoder-specific output flags for low-latency, faithful to the pre-redesign
-    `path_sync._reencode_cmd` (commit 3712cc6)."""
-    vcodec = settings.reencode_vcodec or "libx264"
+    `path_sync._reencode_cmd` (commit 3712cc6). vcodec is resolved (auto → probed)."""
+    vcodec = resolve_vcodec(settings)
     preset = settings.reencode_preset or "veryfast"
     if vcodec == "libx264":
         return f"-c:v libx264 -preset {preset} -tune zerolatency"
