@@ -15,10 +15,12 @@ export function FullscreenView({ cam, onClose }: Props) {
   // user gesture, which browsers require to start audio). Only here in the
   // main/fullscreen view — grid tiles stay muted.
   const [audioOn, setAudioOn] = useState(false);
-  // Source for the MAIN stream: via the NVR (default — the `_main_nvr` relay
-  // variant, so we hit the NVR once instead of every camera directly) or direct
-  // from the camera IP (toggle off). Backend publishes both streams.
-  const [viaNvr, setViaNvr] = useState(true);
+  // Source for the MAIN stream: DIRECT from the camera IP by default. The NVR's
+  // RTSP relay drops packets / times out on concurrent 4MP mains (measured 7815
+  // lost vs 0 direct — exactly why the June-23 build was stable and why routing
+  // mains via the NVR froze them). The toggle still offers Via-NVR (`_main_nvr`)
+  // as a per-camera fallback when a camera isn't directly reachable.
+  const [viaNvr, setViaNvr] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

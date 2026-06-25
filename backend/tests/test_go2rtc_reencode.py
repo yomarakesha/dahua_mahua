@@ -41,6 +41,15 @@ def test_disabled_passes_source_through_raw():
     assert build_go2rtc_source("nvr1_ch2", URL, s) == URL
 
 
+def test_via_nvr_main_is_never_reencoded():
+    # _main_nvr pulls from the overloaded NVR — re-encoding it spawns a doomed
+    # exec (i/o timeout → black). Must stay raw passthrough even when "both" is on.
+    s = _settings(reencode_qualities="both")
+    assert build_go2rtc_source("nvr1_ch2_main_nvr", URL, s) == URL
+    # the DIRECT main still re-encodes
+    assert build_go2rtc_source("nvr1_ch2_main", URL, s).startswith("exec:ffmpeg")
+
+
 def test_qualities_filter_targets_only_chosen_quality():
     s = _settings(reencode_qualities="sub")
     # sub re-encoded, main left raw

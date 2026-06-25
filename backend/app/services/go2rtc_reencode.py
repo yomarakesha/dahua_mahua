@@ -132,9 +132,22 @@ def reencode_source(rtsp_url: str, settings: Any) -> str:
     )
 
 
+def is_via_nvr(name: str) -> bool:
+    """`…_main_nvr` = the via-NVR fallback variant (force_relay)."""
+    return name.endswith("_main_nvr")
+
+
 def build_go2rtc_source(name: str, rtsp_url: str, settings: Any) -> str:
     """Return the go2rtc source for a DSS stream: a re-encode `exec:` command when
-    re-encoding is enabled for this stream's quality, else the raw RTSP URL."""
+    re-encoding is enabled for this stream's quality, else the raw RTSP URL.
+
+    Never re-encode a via-NVR source. The NVR's RTSP relay drops packets / times
+    out on concurrent 4MP mains (measured 7815 lost vs 0 direct), so wrapping it
+    in ffmpeg just spawns a doomed exec that hits [exec] timeout → black tile.
+    Raw passthrough at least shows the struggling stream; re-encode is reserved
+    for direct-from-camera sources (which is where it actually helps)."""
+    if is_via_nvr(name):
+        return rtsp_url
     if reencode_enabled_for(settings, quality_of_stream(name)):
         return reencode_source(rtsp_url, settings)
     return rtsp_url
