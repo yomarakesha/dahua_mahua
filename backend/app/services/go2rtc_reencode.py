@@ -124,9 +124,13 @@ def reencode_source(rtsp_url: str, settings: Any) -> str:
     kf = settings.reencode_keyframe_seconds
     ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
     enc = _encoder_flags(settings)
+    # VBV bitrate cap: keeps the 0.5s-GOP I-frame spikes from swamping the client
+    # (bufsize ~= 1s of maxrate → smooth, low-latency). 0 = unconstrained CRF.
+    maxrate = int(getattr(settings, "reencode_maxrate_kbps", 0) or 0)
+    rate = f" -maxrate {maxrate}k -bufsize {maxrate}k" if maxrate > 0 else ""
     return (
         f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport tcp "
-        f"-i {rtsp_url} -an {enc} "
+        f"-i {rtsp_url} -an {enc}{rate} "
         f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p "
         "-f rtsp -rtsp_transport tcp {output}"
     )

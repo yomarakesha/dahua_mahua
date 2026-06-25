@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     reencode_vcodec: str = "auto"
     reencode_preset: str = "veryfast"
     reencode_ffmpeg_bin: str = "ffmpeg"
+    # Cap the re-encoded bitrate (VBV: -maxrate/-bufsize). 0 = unconstrained CRF.
+    # STRONGLY recommended for 4MP mains: forcing a 0.5s GOP on 4MP makes ~4× more
+    # (big) I-frames than the camera's native 2s GOP, so an uncapped CRF stream
+    # spikes hard and swamps the client network/decoder → cushion underrun → freeze.
+    # ~6000 (6 Mbps) is a good start for 4MP; subs sit well under it so one value
+    # is fine for both. bufsize is held to ~1s of maxrate to smooth the spikes.
+    reencode_maxrate_kbps: int = 0
     # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
     # ("insecure producer"); they're only honoured from the static YAML. So when
     # re-encoding we write streams into this file and reload go2rtc instead of

@@ -73,6 +73,16 @@ def test_qsv_command_forces_short_gop_and_targets_go2rtc_output():
     assert " " not in URL
 
 
+def test_bitrate_cap_off_by_default_and_applied_when_set():
+    # uncapped (0) → no VBV flags
+    assert "-maxrate" not in build_go2rtc_source("nvr1_ch2_main", URL, _settings())
+    # capped → VBV maxrate + ~1s bufsize, before the keyframe forcing
+    s = _settings(reencode_maxrate_kbps=6000)
+    cmd = build_go2rtc_source("nvr1_ch2_main", URL, s)
+    assert "-maxrate 6000k -bufsize 6000k" in cmd
+    assert cmd.index("-maxrate") < cmd.index("-force_key_frames")
+
+
 def test_libx264_fallback_uses_zerolatency():
     cmd = build_go2rtc_source("nvr1_ch2", URL, _settings(reencode_vcodec="libx264"))
     assert "-c:v libx264 -preset veryfast -tune zerolatency" in cmd
