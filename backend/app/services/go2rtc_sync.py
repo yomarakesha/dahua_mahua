@@ -15,7 +15,9 @@ import time
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.go2rtc_api import Go2rtcClient, Go2rtcError, get_client
+from app.services.go2rtc_reencode import build_go2rtc_source
 from app.services.path_sync import _desired_paths, _is_dss_managed
+from app.settings import get_settings
 
 log = logging.getLogger("dss.go2rtc_sync")
 
@@ -28,6 +30,7 @@ async def reconcile(
 ) -> dict:
     """Add/update/delete go2rtc streams to match the DB. Idempotent."""
     client = client or get_client()
+    settings = get_settings()
     t0 = time.perf_counter()
     desired = await _desired_paths(session)  # {name: {"source": url, ...}}
 
@@ -39,7 +42,9 @@ async def reconcile(
 
     added = updated = deleted = errors = 0
     for name, cfg in desired.items():
-        src = cfg["source"]
+        # Wrap the raw RTSP source in an anti-freeze re-encode (short-GOP ffmpeg)
+        # when enabled for this stream's quality; otherwise pass it through raw.
+        src = build_go2rtc_source(name, cfg["source"], settings)
         if existing.get(name) == src:
             continue  # already correct — don't disturb active viewers
         try:

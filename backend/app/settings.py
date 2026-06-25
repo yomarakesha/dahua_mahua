@@ -64,6 +64,22 @@ class Settings(BaseSettings):
     # Browser-facing base the frontend uses for the MSE/WebRTC WebSocket.
     go2rtc_ws_url: str = "ws://localhost:1984"
 
+    # ── Anti-freeze re-encode relay ──────────────────────────────────────────
+    # Cameras ship a ~2s GOP (keyframe interval); on any jitter the picture
+    # freezes up to 2s waiting for the next keyframe. Re-encoding to a short
+    # forced keyframe interval cuts recovery to a blink. This is THE thing that
+    # made 4MP stable pre-redesign (was MediaMTX runOnDemand; here it's a go2rtc
+    # `exec:ffmpeg` source). NOT the transport. On-demand → only streams being
+    # viewed are encoded, so concurrency is bounded by viewers, not 34 channels.
+    # On the server set REENCODE_ENABLED=true + REENCODE_VCODEC=h264_qsv (Intel
+    # QuickSync iGPU). vcodec=libx264 is the portable CPU fallback (heavier).
+    reencode_enabled: bool = False
+    reencode_keyframe_seconds: float = 0.5
+    reencode_qualities: str = "sub"  # "sub" | "main" | "both"
+    reencode_vcodec: str = "libx264"  # h264_qsv | h264_nvenc | libx264
+    reencode_preset: str = "veryfast"
+    reencode_ffmpeg_bin: str = "ffmpeg"
+
     # ── Source-on-demand timings ─────────────────────────────────────────────
     sub_start_timeout: str = "10s"
     sub_close_after: str = "30s"
