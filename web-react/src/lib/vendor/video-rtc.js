@@ -488,24 +488,39 @@ export class VideoRTC extends HTMLElement {
                 if (!sb.updating && sb.buffered && sb.buffered.length && ms.readyState === 'open') {
                     try {
                         const end = sb.buffered.end(sb.buffered.length - 1);
-                        // DSS: keep a ~4s trim window — absorbs I-frame bursts / mild
-                        // LAN jitter, small enough for low latency.
-                        const start = end - 4;
+                        // DSS live-buffer policy — the actual freeze fix.
+                        //
+                        // The freeze is a buffer UNDERRUN, not a GOP problem (re-encode
+                        // to 0.5s GOP didn't stop it): the player sat ~at live with a
+                        // thin buffer, and the camera's delivery jitter drained it to
+                        // empty → stall every few seconds. Commit 87b6904 diagnosed this
+                        // exactly ("smooth for a few seconds, then freezing every 5-10s")
+                        // and fixed it by holding a ~3s cushion BEHIND live. That cushion
+                        // was later reverted because an earlier proportional controller
+                        // dropped playbackRate below 1.0 and never recovered on a clean
+                        // source → permanent slow-motion.
+                        //
+                        // This keeps BOTH: hold the cushion, but play at REAL-TIME 1.0x
+                        // (never slow down), and only re-center when we drift OUTSIDE a
+                        // wide band — so ordinary jitter is absorbed silently, with no
+                        // seeks and no slow-motion.
+                        //  - WINDOW: seconds kept buffered before trimming old data.
+                        //  - TARGET: seconds behind live we aim to play (the cushion).
+                        const WINDOW = 10;
+                        const TARGET = 3;
+                        const start = end - WINDOW;
                         const start0 = sb.buffered.start(0);
                         if (start > start0) {
                             sb.remove(start0, start);
                             ms.setLiveSeekableRange(start, end);
                         }
-                        // DSS: play at REAL-TIME (1.0x). An earlier version varied
-                        // playbackRate (down to 0.5x) to hold a fat cushion; on a clean
-                        // client that backfired — the buffer never reached target, so it
-                        // played in permanent slow-motion (~2-13fps on a GPU client that
-                        // should do 25). Validated by main2.html on a QuickSync client:
-                        // stable 25fps. The trim window absorbs jitter; we only seek
-                        // forward if we drift past it.
                         this.video.playbackRate = 1.0;
-                        if (this.video.currentTime < start) {
-                            this.video.currentTime = start;
+                        const gap = end - this.video.currentTime;
+                        // Re-center to the cushion ONLY on real drift: near underrun
+                        // (gap collapsed) or excess latency (drifted past the window).
+                        // In between, leave currentTime alone — the cushion absorbs it.
+                        if (gap < 0.3 || gap > WINDOW) {
+                            this.video.currentTime = end - TARGET;
                         }
                     } catch (e) {
                         // transient MSE state — ignore; updateend will retry
