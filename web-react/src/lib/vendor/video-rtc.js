@@ -354,6 +354,13 @@ export class VideoRTC extends HTMLElement {
      * @returns {Array.<string>} of modes (mse, webrtc, etc.)
      */
     onopen() {
+        // DSS patch: a queued WebSocket 'open' event can fire AFTER ondisconnect()
+        // already closed + nulled this.ws (teardown on unmount, or a stream switch
+        // / reconnect that tore the old socket down mid-connect). Without this guard
+        // the next line throws "Cannot read properties of null (reading
+        // 'addEventListener')" and the tile's player dies. Bail cleanly instead.
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return [];
+
         // CONNECTING => OPEN
         this.wsState = WebSocket.OPEN;
 
