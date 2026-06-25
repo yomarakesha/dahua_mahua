@@ -95,5 +95,45 @@ export function MsePlayer({ src, className, muted = true, mode = "mse" }: Props)
     return () => window.clearInterval(id);
   }, [muted]);
 
+  // Diagnostic logger. Enable with `localStorage.dssDebug = "1"` then reload.
+  // Each second logs the buffer health so a freeze is attributable:
+  //   ctΔ   ≈1.0 playing | 0 STALLED | >1 caught-up/jumped forward
+  //   endΔ  ≈1.0 source delivering | 0 SOURCE STALLED (no data arriving)
+  // → ctΔ=0 & endΔ=0 = source/network stall (nothing arriving)
+  // → ctΔ=0 & endΔ>0 = data arrives but player won't advance (decode/MSE)
+  // → ctΔ big jump    = re-center / latency catch-up
+  //   gap = seconds behind live (buffer depth);  drop = decoder-dropped frames
+  useEffect(() => {
+    let on = false;
+    try { on = localStorage.getItem("dssDebug") === "1"; } catch { /* ignore */ }
+    if (!on) return;
+    const el = elRef.current;
+    if (!el) return;
+    let lastCt = 0;
+    let lastEnd = 0;
+    let lastDrop = 0;
+    const id = window.setInterval(() => {
+      const v = el.video;
+      if (!v) return;
+      const b = v.buffered;
+      const end = b.length ? b.end(b.length - 1) : 0;
+      const ct = v.currentTime;
+      const q = v.getVideoPlaybackQuality?.();
+      const drop = q ? q.droppedVideoFrames : 0;
+      const tot = q ? q.totalVideoFrames : 0;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[dss-buf ${src}] ct=${ct.toFixed(1)} end=${end.toFixed(1)} ` +
+        `gap=${(end - ct).toFixed(1)}s rate=${v.playbackRate.toFixed(2)} ` +
+        `ctΔ=${(ct - lastCt).toFixed(2)} endΔ=${(end - lastEnd).toFixed(2)} ` +
+        `rs=${v.readyState} drop=${drop}(+${drop - lastDrop})/${tot}`,
+      );
+      lastCt = ct;
+      lastEnd = end;
+      lastDrop = drop;
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [src]);
+
   return <div ref={hostRef} className={className} />;
 }
