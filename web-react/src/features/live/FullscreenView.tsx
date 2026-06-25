@@ -88,10 +88,13 @@ export function FullscreenView({ cam, onClose }: Props) {
             <MsePlayer
               src={streamName(cam, quality, viaNvr)}
               muted={!audioOn}
-              // WebRTC for the fullscreen main: real-time, drops late frames instead
-              // of buffering+freezing like MSE does on a marginal 4MP stream. This is
-              // the old-design transport that kept mains smooth on this same client.
-              mode="webrtc"
+              // MSE (over the WebSocket = TCP) for the main. On a lossy link this is
+              // FAR more robust than WebRTC/UDP: TCP retransmits dropped packets
+              // invisibly (~ms on a LAN) so every frame arrives intact. WebRTC can't
+              // recover loss and corrupts frames — measured 0.8% link loss → 81%
+              // frames dropped. mode="webrtc" stays available for a clean link (lower
+              // latency); MSE is the safe default.
+              mode="mse"
               className="absolute inset-0 h-full w-full"
             />
           ) : (
