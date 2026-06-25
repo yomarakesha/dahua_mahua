@@ -72,6 +72,7 @@ export function AddNvrForm() {
           <PasswordInput
             className="h-[42px]"
             placeholder="••••••••"
+            autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />

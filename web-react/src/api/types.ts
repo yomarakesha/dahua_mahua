@@ -150,7 +150,21 @@ export interface CameraIpImportResult {
   message: string;
 }
 
-/** go2rtc stream name for a camera tile. sub = `{nvr}_ch{N}`, main = `…_main`. */
-export function streamName(cam: Pick<Camera, "nvr_id" | "channel">, quality: StreamQuality): string {
-  return quality === "main" ? `${cam.nvr_id}_ch${cam.channel}_main` : `${cam.nvr_id}_ch${cam.channel}`;
+/**
+ * go2rtc stream name for a camera. sub = `{nvr}_ch{N}`, main = `…_main` (direct
+ * from the camera IP). `viaNvr` selects the relay variant `…_main_nvr` (pulled
+ * through the NVR) — used by the fullscreen source toggle. Sub has no via-NVR
+ * variant (the grid stays direct-from-camera to avoid overloading the NVR).
+ */
+export function streamName(
+  cam: Pick<Camera, "nvr_id" | "channel">,
+  quality: StreamQuality,
+  viaNvr = false,
+): string {
+  if (quality === "main") {
+    return viaNvr
+      ? `${cam.nvr_id}_ch${cam.channel}_main_nvr`
+      : `${cam.nvr_id}_ch${cam.channel}_main`;
+  }
+  return `${cam.nvr_id}_ch${cam.channel}`;
 }

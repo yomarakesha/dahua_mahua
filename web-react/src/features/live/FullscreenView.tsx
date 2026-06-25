@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { MsePlayer } from "@/components/video/MsePlayer";
 import { streamName } from "@/api/types";
-import { XIcon, VolumeOn, VolumeOff } from "@/components/icons";
+import { XIcon, VolumeOn, VolumeOff, ServerIcon, CameraIcon } from "@/components/icons";
 import type { Camera } from "@/api/types";
 
 interface Props {
@@ -15,6 +15,10 @@ export function FullscreenView({ cam, onClose }: Props) {
   // user gesture, which browsers require to start audio). Only here in the
   // main/fullscreen view — grid tiles stay muted.
   const [audioOn, setAudioOn] = useState(false);
+  // Source for the MAIN stream: direct from the camera IP (default, spreads load)
+  // or via the NVR (the `_main_nvr` relay variant — fallback when the camera
+  // isn't directly reachable). Backend publishes both streams.
+  const [viaNvr, setViaNvr] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -35,28 +39,42 @@ export function FullscreenView({ cam, onClose }: Props) {
         <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_#2ecc71]" />
         <span className="text-base font-bold text-ink-bright">{cam.display_name}</span>
         <span className="font-mono text-2xs text-ink-faint">ch{cam.channel}</span>
-        <button
-          type="button"
-          onClick={() => setAudioOn((v) => !v)}
-          title={audioOn ? "Mute" : "Enable sound"}
-          className={[
-            "ml-auto flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
-            audioOn
-              ? "border-accent/30 bg-accent/[.12] text-accent-light"
-              : "border-white/[.08] bg-white/[.04] text-ink-mute hover:bg-white/[.08] hover:text-ink",
-          ].join(" ")}
-        >
-          {audioOn ? <VolumeOn size={16} /> : <VolumeOff size={16} />}
-          {audioOn ? "Sound on" : "Sound off"}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close (Esc)"
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[.08] bg-white/[.04] text-ink-mute transition hover:bg-white/[.08] hover:text-ink"
-        >
-          <XIcon size={18} />
-        </button>
+
+        <div className="ml-auto flex items-center gap-2">
+          {quality === "main" && (
+            <button
+              type="button"
+              onClick={() => setViaNvr((v) => !v)}
+              title={viaNvr ? "Source: via NVR — switch to direct camera" : "Source: direct camera — switch to via NVR"}
+              className="flex h-9 items-center gap-2 rounded-lg border border-white/[.08] bg-white/[.04] px-3 text-sm font-semibold text-ink-mute transition hover:bg-white/[.08] hover:text-ink"
+            >
+              {viaNvr ? <ServerIcon size={15} /> : <CameraIcon size={15} />}
+              {viaNvr ? "Via NVR" : "Direct"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setAudioOn((v) => !v)}
+            title={audioOn ? "Mute" : "Enable sound"}
+            className={[
+              "flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
+              audioOn
+                ? "border-accent/30 bg-accent/[.12] text-accent-light"
+                : "border-white/[.08] bg-white/[.04] text-ink-mute hover:bg-white/[.08] hover:text-ink",
+            ].join(" ")}
+          >
+            {audioOn ? <VolumeOn size={16} /> : <VolumeOff size={16} />}
+            {audioOn ? "Sound on" : "Sound off"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close (Esc)"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[.08] bg-white/[.04] text-ink-mute transition hover:bg-white/[.08] hover:text-ink"
+          >
+            <XIcon size={18} />
+          </button>
+        </div>
       </div>
 
       <div
@@ -66,7 +84,7 @@ export function FullscreenView({ cam, onClose }: Props) {
         <div className="relative h-full w-full overflow-hidden rounded-xl border border-white/[.08] bg-black">
           {quality ? (
             <MsePlayer
-              src={streamName(cam, quality)}
+              src={streamName(cam, quality, viaNvr)}
               muted={!audioOn}
               className="absolute inset-0 h-full w-full"
             />

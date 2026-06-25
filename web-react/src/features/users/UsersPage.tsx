@@ -238,6 +238,7 @@ function UserEditor({
                 className="dss-input mt-1"
                 value={username}
                 disabled={!isNew}
+                autoComplete="username"
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="operator1"
               />
@@ -247,6 +248,7 @@ function UserEditor({
               <PasswordInput
                 className="mt-1"
                 value={password}
+                autoComplete="new-password"
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={isNew ? "min 8 chars" : "leave blank to keep"}
               />
