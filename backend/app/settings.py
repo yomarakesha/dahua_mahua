@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     # ~6000 (6 Mbps) is a good start for 4MP; subs sit well under it so one value
     # is fine for both. bufsize is held to ~1s of maxrate to smooth the spikes.
     reencode_maxrate_kbps: int = 0
+    # MAIN-only decode-load reducers. A growing buffer → forward jump → freeze on
+    # the 4MP main is the CLIENT decoder failing to hold 25fps (decode cost scales
+    # with pixels×fps, not bitrate — so the VBV cap alone won't fix it). Downscale
+    # and/or drop fps to cut that load. Subs are untouched (already small).
+    #   reencode_main_scale: ffmpeg scale, e.g. "1920:-2" (1080p, height auto-even),
+    #                        "1280:-2" (720p). "" = keep source resolution.
+    #   reencode_main_fps:   cap main fps, e.g. 15. 0 = source fps.
+    # 4MP→1080p ≈ half the decode work; +15fps ≈ a third of the original.
+    reencode_main_scale: str = ""
+    reencode_main_fps: int = 0
     # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
     # ("insecure producer"); they're only honoured from the static YAML. So when
     # re-encoding we write streams into this file and reload go2rtc instead of

@@ -115,12 +115,16 @@ def _encoder_flags(settings: Any) -> str:
     return f"-c:v {vcodec}"
 
 
-def reencode_source(rtsp_url: str, settings: Any) -> str:
+def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None = None) -> str:
     """Build the go2rtc `exec:ffmpeg` source that re-encodes `rtsp_url` to a short
     GOP and republishes into go2rtc's `{output}` RTSP sink.
 
     `-force_key_frames expr:gte(t,n_forced*kf)` forces a keyframe every `kf`
-    seconds regardless of the source GOP/framerate; `-bf 0` drops B-frames."""
+    seconds regardless of the source GOP/framerate; `-bf 0` drops B-frames.
+
+    For main streams, optional scale/fps reduce the CLIENT decode load (decode cost
+    scales with pixels×fps, not bitrate) — the lever for a 4MP main that decodes too
+    slowly (growing buffer → forward jump → freeze)."""
     kf = settings.reencode_keyframe_seconds
     ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
     enc = _encoder_flags(settings)
@@ -128,9 +132,18 @@ def reencode_source(rtsp_url: str, settings: Any) -> str:
     # (bufsize ~= 1s of maxrate → smooth, low-latency). 0 = unconstrained CRF.
     maxrate = int(getattr(settings, "reencode_maxrate_kbps", 0) or 0)
     rate = f" -maxrate {maxrate}k -bufsize {maxrate}k" if maxrate > 0 else ""
+    # MAIN-only decode-load reducers (subs are already small — leave them alone).
+    vf = fps = ""
+    if quality == StreamQuality.main:
+        scale = (getattr(settings, "reencode_main_scale", "") or "").strip()
+        if scale:
+            vf = f" -vf scale={scale}"
+        n = int(getattr(settings, "reencode_main_fps", 0) or 0)
+        if n > 0:
+            fps = f" -r {n}"
     return (
         f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport tcp "
-        f"-i {rtsp_url} -an {enc}{rate} "
+        f"-i {rtsp_url} -an{vf}{fps} {enc}{rate} "
         f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p "
         "-f rtsp -rtsp_transport tcp {output}"
     )
@@ -152,6 +165,7 @@ def build_go2rtc_source(name: str, rtsp_url: str, settings: Any) -> str:
     for direct-from-camera sources (which is where it actually helps)."""
     if is_via_nvr(name):
         return rtsp_url
-    if reencode_enabled_for(settings, quality_of_stream(name)):
-        return reencode_source(rtsp_url, settings)
+    quality = quality_of_stream(name)
+    if reencode_enabled_for(settings, quality):
+        return reencode_source(rtsp_url, settings, quality)
     return rtsp_url

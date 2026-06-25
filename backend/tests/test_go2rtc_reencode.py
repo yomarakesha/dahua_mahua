@@ -83,6 +83,19 @@ def test_bitrate_cap_off_by_default_and_applied_when_set():
     assert cmd.index("-maxrate") < cmd.index("-force_key_frames")
 
 
+def test_main_scale_and_fps_apply_to_main_only():
+    s = _settings(reencode_main_scale="1920:-2", reencode_main_fps=15)
+    main = build_go2rtc_source("nvr1_ch2_main", URL, s)
+    sub = build_go2rtc_source("nvr1_ch2", URL, s)
+    # main downscaled + fps-capped
+    assert "-vf scale=1920:-2" in main and "-r 15" in main
+    # sub left at source resolution / fps
+    assert "scale=" not in sub and "-r 15" not in sub
+    # default: no scale/fps anywhere
+    plain = build_go2rtc_source("nvr1_ch2_main", URL, _settings())
+    assert "scale=" not in plain and "-r " not in plain
+
+
 def test_libx264_fallback_uses_zerolatency():
     cmd = build_go2rtc_source("nvr1_ch2", URL, _settings(reencode_vcodec="libx264"))
     assert "-c:v libx264 -preset veryfast -tune zerolatency" in cmd
