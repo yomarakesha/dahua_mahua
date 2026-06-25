@@ -506,8 +506,13 @@ export class VideoRTC extends HTMLElement {
                         // seeks and no slow-motion.
                         //  - WINDOW: seconds kept buffered before trimming old data.
                         //  - TARGET: seconds behind live we aim to play (the cushion).
-                        const WINDOW = 10;
-                        const TARGET = 3;
+                        // Resolution-aware: the heavy main (≥720p) gets a deeper cushion
+                        // — its bigger I-frame bursts + TCP retransmit latency on a lossy
+                        // link need more margin to ride through; the low-res grid subs
+                        // stay snappy. (3s is the validated stability floor; 4s for main.)
+                        const heavy = this.video.videoHeight >= 720;
+                        const WINDOW = heavy ? 12 : 10;
+                        const TARGET = heavy ? 4 : 3;
                         const start = end - WINDOW;
                         const start0 = sb.buffered.start(0);
                         if (start > start0) {
@@ -524,12 +529,12 @@ export class VideoRTC extends HTMLElement {
                             // Normal operation: DON'T hard-seek (that's the visible
                             // back-and-forth judder — currentTime jumping back to rebuild
                             // the cushion). Instead ease the cushion toward TARGET with a
-                            // tiny playbackRate nudge, clamped to ±5% — imperceptible to
+                            // tiny playbackRate nudge, clamped to ±8% — imperceptible to
                             // the eye, and exactly 1.0x at TARGET so it can never stick in
                             // slow-motion (the reason the old ±50% controller was reverted).
                             const err = gap - TARGET;  // + = too much latency, − = too thin
                             this.video.playbackRate =
-                                1 + Math.max(-0.05, Math.min(0.05, err * 0.04));
+                                1 + Math.max(-0.08, Math.min(0.08, err * 0.04));
                         }
                     } catch (e) {
                         // transient MSE state — ignore; updateend will retry

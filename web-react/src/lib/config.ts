@@ -6,8 +6,17 @@
  * The video relay is go2rtc buffered-MSE (the fix that, with hardware decode,
  * gives smooth 4MP). The browser talks to the backend for inventory and to
  * go2rtc directly for media (fan-out), never proxying media through the API.
+ *
+ * Dev override: set VITE_SERVER_HOST (e.g. 10.10.1.152) to run the frontend
+ * locally (`npm run dev`) against a REMOTE server's backend + go2rtc, so UI/player
+ * changes are testable without build-and-deploy. Unset in production builds → the
+ * endpoints derive from the page host (the server the app was loaded from).
  */
-const host = window.location.hostname || "localhost";
+const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env;
+const host =
+  viteEnv?.VITE_SERVER_HOST ||
+  window.location.hostname ||
+  "localhost";
 const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
 const httpProto = window.location.protocol === "https:" ? "https:" : "http:";
 
