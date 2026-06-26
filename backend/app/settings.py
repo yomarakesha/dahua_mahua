@@ -100,6 +100,15 @@ class Settings(BaseSettings):
     # 4MP→1080p ≈ half the decode work; +15fps ≈ a third of the original.
     reencode_main_scale: str = ""
     reencode_main_fps: int = 0
+    # RTSP transport for the CAMERA pull (the exec ffmpeg `-i` input). "tcp" is
+    # reliable but on a lossy link a dropped packet stalls the reader (head-of-line
+    # blocking) → the stream collapses to a few fps and freezes. "udp" tolerates
+    # loss: lost packets become brief glitches instead of a stall, so the pull
+    # holds ~realtime fps (measured: a link with 8% large-packet loss delivered
+    # 4fps over TCP vs 23fps over UDP). The server re-encode then heals it into a
+    # clean stream and the browser still receives reliable MSE/TCP. Only affects
+    # re-encoded streams; the republish to go2rtc stays TCP.
+    reencode_input_rtsp_transport: str = "tcp"  # "tcp" | "udp"
     # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
     # ("insecure producer"); they're only honoured from the static YAML. So when
     # re-encoding we write streams into this file and reload go2rtc instead of

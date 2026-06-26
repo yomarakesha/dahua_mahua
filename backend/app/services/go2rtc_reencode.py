@@ -128,6 +128,10 @@ def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None 
     kf = settings.reencode_keyframe_seconds
     ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
     enc = _encoder_flags(settings)
+    # Camera-pull transport. "udp" survives a lossy link (loss → glitches, not a
+    # stall) where "tcp" head-of-line-blocks and collapses to a few fps. The
+    # republish below stays tcp regardless (reliable hop to go2rtc).
+    in_tr = (getattr(settings, "reencode_input_rtsp_transport", "tcp") or "tcp").lower()
     # VBV bitrate cap: keeps the 0.5s-GOP I-frame spikes from swamping the client
     # (bufsize ~= 1s of maxrate → smooth, low-latency). 0 = unconstrained CRF.
     maxrate = int(getattr(settings, "reencode_maxrate_kbps", 0) or 0)
@@ -142,7 +146,7 @@ def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None 
         if n > 0:
             fps = f" -r {n}"
     return (
-        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport tcp "
+        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport {in_tr} "
         f"-i {rtsp_url} -an{vf}{fps} {enc}{rate} "
         f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p "
         "-f rtsp -rtsp_transport tcp {output}"
