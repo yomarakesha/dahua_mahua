@@ -224,6 +224,23 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd | Out-
 
 Wait-ForPort 8000 "Backend" 20 | Out-Null
 
+# go2rtc stream registry fix (Windows) -----------------------------------
+# The backend (cwd=backend/) writes the camera streams into go2rtc's config on
+# its startup reconcile (GO2RTC_CONFIG_PATH in backend/.env pins the absolute
+# path so it lands in THIS file, not backend/.go2rtc/). But go2rtc's POST
+# /api/restart only reloads the config *display* — it does NOT re-init the
+# stream registry, so streams stay unservable ("stream not found"). A hard
+# process restart makes go2rtc actually load and serve them.
+if ($relay -eq 'go2rtc') {
+    Start-Sleep -Seconds 2   # let the startup reconcile finish writing the YAML
+    Write-Step "Reloading go2rtc to pick up backend-written streams"
+    Get-Process go2rtc -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Milliseconds 800
+    $g2Cmd2 = "Set-Location '$g2Dir'; `$Host.UI.RawUI.WindowTitle='DSS go2rtc'; & '$g2Bin' -config '$g2Cfg'"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", $g2Cmd2 | Out-Null
+    Wait-ForPort 1984 "go2rtc" 15 | Out-Null
+}
+
 Write-Step "Starting static frontend (window 3)"
 $frontendCmd = "Set-Location '$webDir'; `$Host.UI.RawUI.WindowTitle='DSS Frontend'; " +
                "& '$pyVenv' -m http.server 8080"
