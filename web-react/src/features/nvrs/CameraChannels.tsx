@@ -202,37 +202,42 @@ export default function CameraChannels() {
             </p>
           )}
 
-          {/* table header */}
-          <div
-            className={`grid ${GRID} gap-2.5 px-3.5 pb-2 text-2xs font-extrabold uppercase tracking-wider text-ink-faint`}
-          >
-            <span>On</span>
-            <span>Ch</span>
-            <span>Name</span>
-            <span>Camera IP</span>
-            <span>Sub</span>
-            <span>Main</span>
-            <span />
-            <span />
-          </div>
+          {/* horizontal scroll below min width so the dense toggle grid never crushes */}
+          <div className="overflow-x-auto">
+            <div className="min-w-[720px]">
+              {/* table header */}
+              <div
+                className={`grid ${GRID} gap-2.5 px-3.5 pb-2 text-2xs font-extrabold uppercase tracking-wider text-ink-faint`}
+              >
+                <span>On</span>
+                <span>Ch</span>
+                <span>Name</span>
+                <span>Camera IP</span>
+                <span>Sub</span>
+                <span>Main</span>
+                <span />
+                <span />
+              </div>
 
-          {cameras.isLoading ? (
-            <ListSkeleton />
-          ) : cameras.isError ? (
-            <p className="px-2 py-6 text-sm text-danger">
-              Failed to load cameras: {(cameras.error as Error).message}
-            </p>
-          ) : channels.length === 0 ? (
-            <div className="rounded-xl border border-white/[.06] bg-deep/60 px-4 py-10 text-center text-sm text-ink-dim">
-              No channels yet — set a total above or add one.
+              {cameras.isLoading ? (
+                <ListSkeleton />
+              ) : cameras.isError ? (
+                <p className="px-2 py-6 text-sm text-danger">
+                  Failed to load cameras: {(cameras.error as Error).message}
+                </p>
+              ) : channels.length === 0 ? (
+                <div className="rounded-xl border border-white/[.06] bg-deep/60 px-4 py-10 text-center text-sm text-ink-dim">
+                  No channels yet — set a total above or add one.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {channels.map((cam) => (
+                    <ChannelRow key={cam.id} cam={cam} />
+                  ))}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="space-y-1.5">
-              {channels.map((cam) => (
-                <ChannelRow key={cam.id} cam={cam} />
-              ))}
-            </div>
-          )}
+          </div>
         </section>
       </div>
     </div>

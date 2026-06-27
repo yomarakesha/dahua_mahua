@@ -61,7 +61,10 @@ export default function UsersPage() {
                 </tr>
               ) : (
                 (users ?? []).map((u) => (
-                  <tr key={u.id} className="border-b border-white/[.04] last:border-0">
+                  <tr
+                    key={u.id}
+                    className="border-b border-white/[.04] transition-colors last:border-0 hover:bg-white/[.02]"
+                  >
                     <td className="px-4 py-2.5 font-medium text-ink">
                       {u.username}
                       {u.id === me?.id && (

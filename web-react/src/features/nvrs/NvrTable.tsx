@@ -22,23 +22,27 @@ export function NvrTable({ nvrs, showHealth, health }: Props) {
     );
   }
   return (
-    <div>
-      <div
-        className={`grid ${GRID} gap-2.5 px-3.5 pb-2.5 text-2xs font-extrabold uppercase tracking-wider text-ink-faint`}
-      >
-        <span>{showHealth ? "OK" : "ON"}</span>
-        <span>ID</span>
-        <span>Label</span>
-        <span>IP</span>
-        <span>Port</span>
-        <span>User</span>
-        <span>Vendor</span>
-        <span>Actions</span>
-      </div>
-      <div className="space-y-2">
-        {nvrs.map((n) => (
-          <NvrRow key={n.id} nvr={n} showHealth={showHealth} health={health[n.id]} />
-        ))}
+    // Horizontal scroll below the table's min width so the 8 columns + 5 action
+    // controls never crush/overflow on narrow viewports.
+    <div className="overflow-x-auto">
+      <div className="min-w-[900px]">
+        <div
+          className={`grid ${GRID} gap-2.5 px-3.5 pb-2.5 text-2xs font-extrabold uppercase tracking-wider text-ink-faint`}
+        >
+          <span>{showHealth ? "OK" : "ON"}</span>
+          <span>ID</span>
+          <span>Label</span>
+          <span>IP</span>
+          <span>Port</span>
+          <span>User</span>
+          <span>Vendor</span>
+          <span>Actions</span>
+        </div>
+        <div className="space-y-2">
+          {nvrs.map((n) => (
+            <NvrRow key={n.id} nvr={n} showHealth={showHealth} health={health[n.id]} />
+          ))}
+        </div>
       </div>
     </div>
   );
