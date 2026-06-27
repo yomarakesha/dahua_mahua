@@ -2,10 +2,10 @@
 
 Lifespan responsibilities (in order):
   1. Ensure a bootstrap admin exists (only if the user table is empty).
-  2. If `mediamtx_managed=True`, spawn MediaMTX as a child process.
-  3. Reconcile MediaMTX paths from the DB — idempotent and tolerant of an
-     unreachable MediaMTX (we just log and move on; admins can retry from
-     POST /mediamtx/reconcile).
+  2. Reconcile relay streams from the DB — go2rtc by default (settings.relay),
+     idempotent and tolerant of an unreachable relay (we log and move on; admins
+     can retry from POST /mediamtx/reconcile, which is relay-aware).
+  3. (Legacy) if `mediamtx_managed=True`, spawn MediaMTX as a child process.
 
 Routers live under `settings.api_prefix` (default `/api/v1`).
 """
