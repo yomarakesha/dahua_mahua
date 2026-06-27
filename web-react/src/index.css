@@ -69,7 +69,15 @@ dss-mse video {
   }
   .dss-btn {
     @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm
-      font-medium transition select-none disabled:opacity-50 disabled:pointer-events-none;
+      font-medium transition-colors select-none disabled:opacity-50 disabled:pointer-events-none
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40
+      focus-visible:ring-offset-1 focus-visible:ring-offset-bg;
+  }
+  /* Keyboard focus ring for bare interactive controls (icon buttons, toggles,
+     tree rows, pagers) that aren't a .dss-btn — add the `dss-focus` class. */
+  .dss-focus {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40
+      focus-visible:ring-offset-1 focus-visible:ring-offset-bg;
   }
   .dss-btn-primary {
     @apply dss-btn bg-accent text-deep hover:bg-accent-bright;

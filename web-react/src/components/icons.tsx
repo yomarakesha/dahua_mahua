@@ -71,12 +71,6 @@ export const PlayIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
     <path d="M6 4l14 8-14 8z" />
   </Ic>
 );
-export const SparkleIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
-  <Ic {...p}>
-    <path d="M5 3v4M3 5h4M19 17v4M17 19h4" />
-    <path d="M12 3l2.5 5.5L20 11l-5.5 2.5L12 19l-2.5-5.5L4 11l5.5-2.5z" />
-  </Ic>
-);
 export const RefreshIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
   <Ic {...p}>
     <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />

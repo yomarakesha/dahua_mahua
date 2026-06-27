@@ -27,8 +27,6 @@ export default function LiveWall() {
   const [page, setPage] = useState(0);
   const [fullscreen, setFullscreen] = useState<Camera | null>(null);
 
-  const time = useClock();
-
   const cellCount = cols * rows;
   const patrolInterval = PATROL[patrolIdx];
 
@@ -180,7 +178,6 @@ export default function LiveWall() {
         streams={visibleStreams}
         cameras={total}
         nvrLabel={selectedNvrName(nvrs ?? [], selectedNvrId)}
-        time={time}
       />
 
       {fullscreen && (
@@ -201,16 +198,21 @@ function selectedNvrName(
 // Honest counts only: the app doesn't track per-stream connection health, so we
 // show what's real — streams playing on this page and total cameras — rather
 // than fabricated Online/Connecting/Error figures.
+// The clock ticks every second — isolate it in its own leaf so it doesn't
+// re-render LiveWall (and re-create 64 tiles) once per second.
+function Clock() {
+  const time = useClock();
+  return <>{time}</>;
+}
+
 function StatusBar({
   streams,
   cameras,
   nvrLabel,
-  time,
 }: {
   streams: number;
   cameras: number;
   nvrLabel: string;
-  time: string;
 }) {
   return (
     <div className="flex h-8 flex-none items-center gap-5 border-t border-white/[.06] bg-gradient-to-b from-[#0c1014] to-[#090c0f] px-4 font-mono text-xs">
@@ -220,7 +222,7 @@ function StatusBar({
       </span>
       <span className="text-ink-faint">Cameras: {cameras}</span>
       <span className="ml-auto truncate text-[#3f4951]">
-        {nvrLabel} · {time}
+        {nvrLabel} · <Clock />
       </span>
     </div>
   );

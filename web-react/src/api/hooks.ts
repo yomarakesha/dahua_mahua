@@ -12,7 +12,6 @@ import type {
   NvrHealthResult,
   NvrTestResult,
   NvrUpdate,
-  Region,
   User,
   UserCreate,
   UserUpdate,
@@ -22,7 +21,6 @@ export const qk = {
   nvrs: ["nvrs"] as const,
   nvrHealth: ["nvrs", "health"] as const,
   cameras: ["cameras"] as const,
-  regions: ["regions"] as const,
   events: ["events"] as const,
   users: ["users"] as const,
 };
@@ -34,9 +32,6 @@ export function useNvrs() {
 }
 export function useCameras() {
   return useQuery({ queryKey: qk.cameras, queryFn: () => http.get<Camera[]>("/cameras") });
-}
-export function useRegions() {
-  return useQuery({ queryKey: qk.regions, queryFn: () => http.get<Region[]>("/regions") });
 }
 export function useNvrHealth(enabled = true) {
   return useQuery({

@@ -281,7 +281,10 @@ export class VideoRTC extends HTMLElement {
         if (m) {
             // AAC from v13, FLAC from v14, OPUS - unsupported
             const skip = m[1] < '13' ? 'mp4a.40.2' : m[1] < '14' ? 'flac' : 'opus';
-            this.CODECS.splice(this.CODECS.indexOf(skip));
+            // DSS: splice(idx) with one arg deletes the codec AND everything after
+            // it (upstream bug). Remove only the matched codec.
+            const _i = this.CODECS.indexOf(skip);
+            if (_i !== -1) this.CODECS.splice(_i, 1);
         }
 
         if (this.background) return;

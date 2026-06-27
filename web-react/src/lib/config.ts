@@ -23,7 +23,6 @@ const httpProto = window.location.protocol === "https:" ? "https:" : "http:";
 export const CONFIG = {
   backendBase: `${httpProto}//${host}:8000/api/v1`,
   go2rtcWsBase: `${wsProto}//${host}:1984`,
-  gridPresets: [1, 4, 9, 16, 25, 36, 64] as const,
   patrolIntervals: [5, 10, 15, 30, 60] as const,
 } as const;
 

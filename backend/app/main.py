@@ -143,6 +143,9 @@ async def lifespan(app: FastAPI):
     finally:
         await source_watch.stop()
         await shutdown_client()
+        # go2rtc client owns an httpx pool created lazily during reconcile; close it.
+        from app.services import go2rtc_api
+        await go2rtc_api.close_client()
         if settings.mediamtx_managed:
             from app.services import mediamtx_proc
             mediamtx_proc.stop()

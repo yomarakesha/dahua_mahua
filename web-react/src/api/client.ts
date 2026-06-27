@@ -15,7 +15,15 @@ export function setToken(tok: string | null) {
 }
 export function getMe(): Me | null {
   const raw = localStorage.getItem(STORAGE.me);
-  return raw ? (JSON.parse(raw) as Me) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Me;
+  } catch {
+    // A corrupt/truncated value would otherwise throw during AuthProvider init
+    // → blank-screen app with no recovery. Clear it and treat as logged-out.
+    localStorage.removeItem(STORAGE.me);
+    return null;
+  }
 }
 export function setMe(me: Me | null) {
   if (me) localStorage.setItem(STORAGE.me, JSON.stringify(me));
