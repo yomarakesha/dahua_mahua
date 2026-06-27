@@ -21,19 +21,20 @@ export default function UsersPage() {
 
   return (
     <div className="flex h-full flex-col bg-bg">
-      <header className="flex h-14 flex-none items-center gap-3 border-b border-white/[.06] px-5">
-        <h1 className="text-base font-bold text-ink-bright">Users</h1>
-        <span className="text-2xs text-ink-faint">Accounts &amp; per-camera access</span>
-        <button
-          type="button"
-          onClick={() => setEditing("new")}
-          className="dss-btn-primary ml-auto"
-        >
-          <PlusIcon size={15} /> Add user
-        </button>
-      </header>
-
       <div className="min-h-0 flex-1 overflow-auto p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="min-w-0">
+            <h1 className="text-base font-bold text-ink-bright">Users</h1>
+            <p className="text-2xs text-ink-faint">Accounts &amp; per-camera access</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditing("new")}
+            className="dss-btn-primary ml-auto"
+          >
+            <PlusIcon size={15} /> Add user
+          </button>
+        </div>
         <div className="dss-panel overflow-hidden">
           <table className="w-full text-left text-sm">
             <thead>

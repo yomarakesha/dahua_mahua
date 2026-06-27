@@ -110,6 +110,8 @@ export function LiveTopbar({
       <label className="ml-auto flex h-[34px] w-[240px] items-center gap-2.5 rounded-lg border border-white/[.07] bg-bg px-3.5 focus-within:border-accent/30">
         <SearchIcon size={14} className="flex-none text-ink-faint" />
         <input
+          type="search"
+          aria-label="Search cameras"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search cameras…"

@@ -411,11 +411,14 @@ function Toggle({
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={title}
       title={title}
       disabled={disabled}
       onClick={onClick}
       className={[
-        "flex h-[18px] w-[18px] items-center justify-center rounded transition disabled:opacity-50",
+        "dss-focus flex h-[18px] w-[18px] items-center justify-center rounded transition-colors disabled:opacity-50",
         on
           ? "bg-accent text-green-tint"
           : "border border-white/[.18] bg-bg text-transparent hover:border-white/30",

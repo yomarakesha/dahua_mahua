@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, PlusIcon } from "@/components/icons";
+import { ChevronRight } from "@/components/icons";
 import type { Camera, Nvr } from "@/api/types";
 
 interface Props {
@@ -142,17 +142,10 @@ export function LiveSidebar({
             );
           })
         )}
-
-        <div className="mt-1.5 flex items-center justify-between px-1 pb-1 pt-3.5">
-          <span className="text-xs font-extrabold tracking-[1.4px] text-ink-faint">GROUPS</span>
-          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-white/[.05] text-ink-dim">
-            <PlusIcon size={12} />
-          </span>
-        </div>
       </div>
 
       <div className="rounded-xl border border-accent/[.16] bg-accent/[.06] p-3">
-        <div className="mb-2 text-2xs font-bold tracking-[1px] text-ink-dim">GRID USAGE</div>
+        <div className="mb-2 text-2xs font-bold tracking-[1px] text-ink-dim">PAGE FILL</div>
         <div className="mb-1.5 flex items-center gap-2">
           <div className="h-[5px] flex-1 overflow-hidden rounded-[3px] bg-white/[.07]">
             <div

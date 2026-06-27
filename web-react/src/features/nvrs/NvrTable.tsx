@@ -76,11 +76,14 @@ function NvrRow({
         ) : (
           <button
             type="button"
+            role="switch"
+            aria-checked={nvr.enabled}
+            aria-label={nvr.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
             title={nvr.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
             disabled={update.isPending}
             onClick={() => update.mutate({ id: nvr.id, body: { enabled: !nvr.enabled } })}
             className={[
-              "relative h-5 w-9 rounded-full transition",
+              "dss-focus relative h-5 w-9 rounded-full transition-colors",
               nvr.enabled ? "bg-accent/90 shadow-glow" : "bg-white/10",
             ].join(" ")}
           >

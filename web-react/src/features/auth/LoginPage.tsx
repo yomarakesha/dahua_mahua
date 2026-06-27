@@ -69,13 +69,9 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* footer meta lines */}
-      <div className="absolute bottom-7 left-6 font-mono text-xs tracking-wide text-ink-faint sm:left-9">
-        v3.2.0 · secure channel established
-      </div>
-      <div className="absolute bottom-7 right-6 flex items-center gap-2 font-mono text-xs text-ink-dim sm:right-9">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_8px_#2ecc71]" />
-        SERVER ONLINE
+      {/* footer meta — honest: the server host this client is pointed at */}
+      <div className="absolute bottom-7 right-6 font-mono text-xs tracking-wide text-ink-faint sm:right-9">
+        {window.location.host}
       </div>
 
       {/* sign-in card */}
@@ -170,18 +166,28 @@ export default function LoginPage() {
           </button>
         </div>
 
-        {error && <div className="mb-3 text-sm text-danger">{error}</div>}
+        {error && (
+          <div
+            aria-live="polite"
+            className="mb-3 rounded-md border border-danger/25 bg-danger/[.10] px-3 py-2 text-sm text-danger"
+          >
+            {error}
+          </div>
+        )}
 
         {/* submit */}
         <button
           type="submit"
           disabled={pending}
-          className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl text-[15px] font-extrabold tracking-wide text-deep shadow-[0_10px_28px_rgba(46,204,113,.30),inset_0_1px_0_rgba(255,255,255,.3)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+          className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold tracking-wide text-deep shadow-[0_10px_28px_rgba(46,204,113,.28),inset_0_1px_0_rgba(255,255,255,.3)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
           style={{ background: "linear-gradient(180deg,#34d97e,#22b864)" }}
         >
           {pending ? "Signing in…" : "Sign in"}
           {!pending && (
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+            <svg
+              width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
+              className="transition-transform group-hover:translate-x-0.5"
+            >
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
           )}
