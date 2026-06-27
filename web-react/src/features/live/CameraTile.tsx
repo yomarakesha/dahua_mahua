@@ -1,5 +1,5 @@
-import { memo } from "react";
-import { MsePlayer } from "@/components/video/MsePlayer";
+import { memo, useState } from "react";
+import { MsePlayer, type PlayerStatus } from "@/components/video/MsePlayer";
 import { streamName } from "@/api/types";
 import type { Camera } from "@/api/types";
 
@@ -20,6 +20,7 @@ interface Props {
  */
 export const CameraTile = memo(function CameraTile({ cam, onOpen }: Props) {
   const quality = cam.has_sub ? "sub" : cam.has_main ? "main" : null;
+  const [status, setStatus] = useState<PlayerStatus>("connecting");
 
   return (
     <button
@@ -28,7 +29,11 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen }: Props) {
       className="group relative overflow-hidden rounded border border-white/[.06] bg-black text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/40"
     >
       {quality ? (
-        <MsePlayer src={streamName(cam, quality)} className="absolute inset-0 h-full w-full" />
+        <MsePlayer
+          src={streamName(cam, quality)}
+          onStatus={setStatus}
+          className="absolute inset-0 h-full w-full"
+        />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-deep">
           <span className="font-mono text-3xs uppercase tracking-wider text-ink-faint">
@@ -40,7 +45,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen }: Props) {
       {/* legibility gradient */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/55" />
 
-      {quality && (
+      {quality && status === "live" && (
         <div className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_6px_#2ecc71]" />
           <span

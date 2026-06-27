@@ -1,9 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CONFIG } from "@/lib/config";
 import { registerDssMse } from "./dss-mse";
 import type { VideoRTC } from "@/lib/vendor/video-rtc.js";
 
 registerDssMse();
+
+export type PlayerStatus = "connecting" | "live" | "error";
+type Status = PlayerStatus;
 
 interface Props {
   /** go2rtc stream name, e.g. `nvr-…_ch3` (sub) or `nvr-…_ch3_main`. */
@@ -19,6 +22,9 @@ interface Props {
    * old-design behavior that kept the 4MP main smooth. Used for fullscreen mains.
    */
   mode?: "mse" | "webrtc";
+  /** Notified when the stream status changes (so the parent can reflect it, e.g.
+   *  hide a "LIVE" badge when the feed is lost). */
+  onStatus?: (status: Status) => void;
 }
 
 /**
@@ -26,10 +32,14 @@ interface Props {
  * `.src` when the stream changes, and tears it down on unmount (the element owns
  * its WebSocket + MediaSource/PeerConnection + reconnect lifecycle).
  */
-export function MsePlayer({ src, className, muted = true, mode = "mse" }: Props) {
+export function MsePlayer({ src, className, muted = true, mode = "mse", onStatus }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const elRef = useRef<VideoRTC | null>(null);
   const firstSrcRef = useRef(true);
+  const [status, setStatus] = useState<Status>("connecting");
+  useEffect(() => {
+    onStatus?.(status);
+  }, [status, onStatus]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -77,7 +87,42 @@ export function MsePlayer({ src, className, muted = true, mode = "mse" }: Props)
       }
     }
     firstSrcRef.current = false;
+    setStatus("connecting");
     el.src = new URL(`${CONFIG.go2rtcWsBase}/api/ws?src=${encodeURIComponent(src)}`);
+  }, [src]);
+
+  // Status overlay — a purely additive OBSERVER of the <video> (never touches the
+  // connection). Drives the connecting-spinner / "signal lost" badge so the wall
+  // shows which feeds are down instead of a frozen frame.
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el) return;
+    let lastCt = -1;
+    let stall = 0;
+    let played = false;
+    let connectTicks = 0;
+    const id = window.setInterval(() => {
+      const v = el.video;
+      if (!v) return;
+      if (v.error) {
+        setStatus("error");
+        return;
+      }
+      const advancing = v.currentTime !== lastCt && v.readyState >= 2;
+      lastCt = v.currentTime;
+      if (advancing) {
+        stall = 0;
+        played = true;
+        setStatus("live");
+      } else if (played) {
+        // stalled mid-stream → signal lost after ~4.5s
+        if (++stall >= 3) setStatus("error");
+      } else {
+        // never connected → give up the spinner after ~15s
+        if (++connectTicks >= 10) setStatus("error");
+      }
+    }, 1500);
+    return () => window.clearInterval(id);
   }, [src]);
 
   // Apply mute to the underlying <video>. The element starts muted (so autoplay
@@ -135,5 +180,24 @@ export function MsePlayer({ src, className, muted = true, mode = "mse" }: Props)
     return () => window.clearInterval(id);
   }, [src]);
 
-  return <div ref={hostRef} className={className} />;
+  return (
+    <div className={`${className ?? ""} overflow-hidden`}>
+      <div ref={hostRef} className="absolute inset-0" />
+      {status !== "live" && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
+          {status === "connecting" ? (
+            <span className="flex items-center gap-2 font-mono text-3xs uppercase tracking-wider text-ink-faint">
+              <span className="h-3 w-3 animate-spin rounded-full border border-ink-faint/50 border-t-transparent" />
+              connecting
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 rounded border border-danger/40 bg-danger/[.14] px-2 py-1 font-mono text-3xs font-bold uppercase tracking-wider text-danger">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" />
+              signal lost
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
