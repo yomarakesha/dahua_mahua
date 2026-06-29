@@ -116,23 +116,33 @@ def _encoder_flags(settings: Any) -> str:
 
 
 def udp_pipe_source(rtsp_url: str, settings: Any) -> str:
-    """go2rtc `exec:` source that pulls `rtsp_url` over RTSP/UDP and copies it to
-    go2rtc via an MPEG-TS stdout PIPE (no `{output}` ⇒ go2rtc reads stdout).
+    """go2rtc `exec:` source for the 4MP main: pull over RTSP/UDP, RE-ENCODE to a
+    short GOP, and hand it to go2rtc via an MPEG-TS stdout PIPE (no `{output}`).
 
-    Why this exact shape (measured 2026-06-29, ch5/ch12 4MP):
+    Why this exact shape (measured 2026-06-29, ch4/ch5/ch12 4MP):
       • UDP: these cameras collapse the 4MP main to ~2-7fps over RTSP/TCP (weak
-        camera TCP stack, head-of-line block on any loss) but deliver ~22fps over
-        UDP. So we MUST pull over UDP.
+        camera TCP stack, head-of-line block on loss) but deliver ~22fps over UDP.
       • PIPE (not `-f rtsp {output}`): the loopback RTSP republish throttled the
-        4MP stream back to ~3-8fps (go2rtc's read of the second hop). The stdout
-        MPEG-TS pipe go2rtc reads directly → full ~22fps.
-      • `-c copy`: full 4MP, no transcode → negligible CPU.
-    No token may contain a space (go2rtc splits the command on spaces; the URL has
-    none)."""
+        4MP stream back to ~3-8fps; the stdout MPEG-TS pipe go2rtc reads directly
+        → full ~22fps.
+      • RE-ENCODE (not `-c copy`): the camera segment drops ~2% of UDP packets under
+        load. A raw copy hands that corruption straight to the browser, where the
+        camera's 2s GOP smears it for ~2s (rainbow blocks). Re-encoding lets ffmpeg
+        CONCEAL the lost-packet errors and emits a clean short-GOP (`reencode_keyframe
+        _seconds`) stream the browser decodes without propagation. Full 4MP (no
+        scale/fps cap); ~1 CPU core per actively-viewed main. The real cure for the
+        loss is camera-side (shorter I-frame interval) / the camera-segment switch.
+    No token may contain a space (go2rtc splits the command on spaces)."""
     ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    enc = _encoder_flags(settings)
+    kf = settings.reencode_keyframe_seconds
+    maxrate = int(getattr(settings, "main_reencode_maxrate_kbps", 8000) or 0)
+    rate = f" -maxrate {maxrate}k -bufsize {maxrate}k" if maxrate > 0 else ""
     return (
         f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp "
-        f"-i {rtsp_url} -c copy -f mpegts -"
+        f"-i {rtsp_url} -an {enc}{rate} "
+        f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p "
+        "-f mpegts -"
     )
 
 

@@ -114,12 +114,17 @@ class Settings(BaseSettings):
     # client. On these Dahua cameras that collapses the 4MP main to ~2-7fps (weak
     # camera TCP stack: any loss → head-of-line block + tiny send window), while
     # the SAME camera delivers ~22fps over UDP (measured 2026-06-29, ch5/ch12).
-    # When true, direct mains are pulled over RTSP/UDP and copied into go2rtc via an
-    # MPEG-TS stdout pipe (full 4MP, no transcode). UDP fixes the camera delivery
-    # (~22fps vs ~2fps over TCP — weak camera TCP stack); the pipe avoids the
-    # loopback RTSP republish that throttled the 4MP stream. via-NVR mains stay raw.
-    # Negligible CPU (copy, not re-encode). See go2rtc_reencode.udp_pipe_source.
+    # When true, direct mains are pulled over RTSP/UDP and RE-ENCODED to a short GOP
+    # into go2rtc via an MPEG-TS stdout pipe (full 4MP, no scale/fps cap). UDP fixes
+    # the camera delivery (~22fps vs ~2fps over TCP); the pipe avoids the loopback
+    # RTSP republish that throttled it; the re-encode conceals the camera segment's
+    # ~2% UDP packet loss (a raw copy hands that corruption to the browser, where the
+    # 2s camera GOP smears it). ~1 CPU core per viewed main. via-NVR mains stay raw.
+    # See go2rtc_reencode.udp_pipe_source.
     main_pull_udp: bool = True
+    # Target bitrate (VBV) for the UDP main re-encode. 8 Mbps keeps 4MP sharp; the
+    # client link is LAN. 0 = uncapped (CRF).
+    main_reencode_maxrate_kbps: int = 8000
     # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
     # ("insecure producer"); they're only honoured from the static YAML. So when
     # re-encoding we write streams into this file and reload go2rtc instead of

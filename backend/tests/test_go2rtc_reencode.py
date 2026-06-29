@@ -52,25 +52,26 @@ def test_via_nvr_main_is_never_reencoded():
 
 def test_qualities_filter_targets_only_chosen_quality():
     s = _settings(reencode_qualities="sub")
-    # sub re-encoded (TCP input); direct main = UDP copy via MPEG-TS pipe
+    # sub re-encoded (TCP input); direct main = UDP re-encode via MPEG-TS pipe
     assert build_go2rtc_source("nvr1_ch2", URL, s).startswith("exec:ffmpeg")
     main = build_go2rtc_source("nvr1_ch2_main", URL, s)
-    assert "-rtsp_transport udp -i" in main and main.rstrip().endswith("-c copy -f mpegts -")
+    assert "-rtsp_transport udp -i" in main and main.rstrip().endswith("-f mpegts -")
 
     s = _settings(reencode_qualities="main")
     assert build_go2rtc_source("nvr1_ch2", URL, s) == URL  # sub raw
     # main_pull_udp (UDP pipe) takes precedence over the re-encode filter
-    assert build_go2rtc_source("nvr1_ch2_main", URL, s).rstrip().endswith("-c copy -f mpegts -")
+    assert build_go2rtc_source("nvr1_ch2_main", URL, s).rstrip().endswith("-f mpegts -")
 
 
-def test_direct_main_pulls_udp_copy_via_pipe():
+def test_direct_main_reencodes_udp_via_pipe():
     s = _settings(reencode_qualities="sub")
     main = build_go2rtc_source("nvr1_ch2_main", URL, s)
     assert main.startswith("exec:ffmpeg")
-    assert "-rtsp_transport udp -i" in main      # UDP pull
+    assert "-rtsp_transport udp -i" in main           # UDP pull
     assert f"-i {URL} " in main
-    assert "-c copy" in main and "-c:v" not in main  # copy, not transcode
-    assert main.rstrip().endswith("-f mpegts -")     # stdout pipe, not RTSP {output}
+    assert "-c:v" in main                              # re-encoded (conceals loss)
+    assert "-force_key_frames" in main                # short GOP
+    assert main.rstrip().endswith("-f mpegts -")       # stdout pipe, not RTSP {output}
     assert "{output}" not in main
     # subs keep re-encode over TCP; via-NVR main stays raw
     assert "-rtsp_transport tcp -i" in build_go2rtc_source("nvr1_ch2", URL, s)
