@@ -115,35 +115,85 @@ def _encoder_flags(settings: Any) -> str:
     return f"-c:v {vcodec}"
 
 
-def udp_pipe_source(rtsp_url: str, settings: Any) -> str:
-    """go2rtc `exec:` source for the 4MP main: pull over RTSP/UDP, RE-ENCODE to a
-    short GOP, and hand it to go2rtc via an MPEG-TS stdout PIPE (no `{output}`).
+# ── Direct-main source builders (selected by settings.main_stream_mode) ───────
+# All but "native" produce an `exec:` source (UDP pull). See settings.main_stream_mode
+# for the trade-offs. Keeping every method we validated means switching strategy is
+# a config change, not a code rewrite. No token may contain a space (go2rtc splits
+# the command on spaces; the RTSP URL has none).
 
-    Why this exact shape (measured 2026-06-29, ch4/ch5/ch12 4MP):
-      • UDP: these cameras collapse the 4MP main to ~2-7fps over RTSP/TCP (weak
-        camera TCP stack, head-of-line block on loss) but deliver ~22fps over UDP.
-      • PIPE (not `-f rtsp {output}`): the loopback RTSP republish throttled the
-        4MP stream back to ~3-8fps; the stdout MPEG-TS pipe go2rtc reads directly
-        → full ~22fps.
-      • RE-ENCODE (not `-c copy`): the camera segment drops ~2% of UDP packets under
-        load. A raw copy hands that corruption straight to the browser, where the
-        camera's 2s GOP smears it for ~2s (rainbow blocks). Re-encoding lets ffmpeg
-        CONCEAL the lost-packet errors and emits a clean short-GOP (`reencode_keyframe
-        _seconds`) stream the browser decodes without propagation. Full 4MP (no
-        scale/fps cap); ~1 CPU core per actively-viewed main. The real cure for the
-        loss is camera-side (shorter I-frame interval) / the camera-segment switch.
-    No token may contain a space (go2rtc splits the command on spaces)."""
-    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+def _main_reencode_flags(settings: Any) -> tuple[str, str]:
+    """(encoder flags, VBV rate flags) shared by the re-encode main modes."""
     enc = _encoder_flags(settings)
-    kf = settings.reencode_keyframe_seconds
     maxrate = int(getattr(settings, "main_reencode_maxrate_kbps", 8000) or 0)
     rate = f" -maxrate {maxrate}k -bufsize {maxrate}k" if maxrate > 0 else ""
+    return enc, rate
+
+
+def main_native(rtsp_url: str, settings: Any) -> str:
+    """Raw RTSP via go2rtc's native (TCP) client. Collapses to ~2fps on these cams."""
+    return rtsp_url
+
+
+def main_copy_pipe(rtsp_url: str, settings: Any) -> str:
+    """UDP pull, `-c copy`, MPEG-TS stdout pipe. Full 4MP + sharp, ~0 CPU; UDP loss
+    shows as corruption (best paired with a short camera I-frame interval)."""
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    return f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp -i {rtsp_url} -c copy -f mpegts -"
+
+
+def main_reencode_pipe(rtsp_url: str, settings: Any) -> str:
+    """UDP pull, re-encode to a short GOP, MPEG-TS stdout pipe. Conceals UDP loss;
+    ~1 CPU core/main. Full 4MP (no scale/fps cap). The safe default."""
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    enc, rate = _main_reencode_flags(settings)
+    kf = settings.reencode_keyframe_seconds
     return (
-        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp "
-        f"-i {rtsp_url} -an {enc}{rate} "
-        f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p "
-        "-f mpegts -"
+        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp -i {rtsp_url} -an {enc}{rate} "
+        f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p -f mpegts -"
     )
+
+
+def main_reencode_rtsp(rtsp_url: str, settings: Any) -> str:
+    """UDP pull, re-encode, RTSP republish to {output}. The republish throttles 4MP
+    to ~3-8fps — kept for reference / non-pipe go2rtc builds."""
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    enc, rate = _main_reencode_flags(settings)
+    kf = settings.reencode_keyframe_seconds
+    return (
+        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp -i {rtsp_url} -an {enc}{rate} "
+        f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p -f rtsp -rtsp_transport tcp {{output}}"
+    )
+
+
+def main_copy_rtsp(rtsp_url: str, settings: Any) -> str:
+    """UDP pull, `-c copy`, RTSP republish to {output}. ~2.6fps; reference only."""
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    return (
+        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp -i {rtsp_url} "
+        f"-c copy -f rtsp -rtsp_transport tcp {{output}}"
+    )
+
+
+MAIN_MODE_BUILDERS = {
+    "native": main_native,
+    "copy_pipe": main_copy_pipe,
+    "reencode_pipe": main_reencode_pipe,
+    "reencode_rtsp": main_reencode_rtsp,
+    "copy_rtsp": main_copy_rtsp,
+}
+
+
+def main_mode_is_exec(settings: Any) -> bool:
+    """True if the chosen main mode produces an exec: source (everything but native).
+    Such sources are API-rejected by go2rtc → the reconcile must use file mode."""
+    mode = (getattr(settings, "main_stream_mode", "reencode_pipe") or "reencode_pipe").lower()
+    return mode != "native"
+
+
+def build_main_source(rtsp_url: str, settings: Any) -> str:
+    """Build a direct-main go2rtc source per settings.main_stream_mode."""
+    mode = (getattr(settings, "main_stream_mode", "reencode_pipe") or "reencode_pipe").lower()
+    return MAIN_MODE_BUILDERS.get(mode, main_reencode_pipe)(rtsp_url, settings)
 
 
 def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None = None) -> str:
@@ -201,11 +251,10 @@ def build_go2rtc_source(name: str, rtsp_url: str, settings: Any) -> str:
     if is_via_nvr(name):
         return rtsp_url
     quality = quality_of_stream(name)
-    # Direct 4MP main: pull over UDP into go2rtc via an MPEG-TS pipe (see
-    # udp_pipe_source). UDP fixes the camera delivery; the pipe avoids the RTSP
-    # republish that throttled the 4MP stream. Full 4MP, no transcode.
-    if quality == StreamQuality.main and getattr(settings, "main_pull_udp", True):
-        return udp_pipe_source(rtsp_url, settings)
+    # Direct main: built per settings.main_stream_mode (native / copy_pipe /
+    # reencode_pipe / reencode_rtsp / copy_rtsp) — switchable without code changes.
+    if quality == StreamQuality.main:
+        return build_main_source(rtsp_url, settings)
     if reencode_enabled_for(settings, quality):
         return reencode_source(rtsp_url, settings, quality)
     return rtsp_url

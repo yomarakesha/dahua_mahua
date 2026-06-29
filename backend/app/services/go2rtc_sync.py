@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.go2rtc_api import Go2rtcClient, Go2rtcError, get_client
 from app.services.go2rtc_config import read_streams, write_streams
-from app.services.go2rtc_reencode import build_go2rtc_source
+from app.services.go2rtc_reencode import build_go2rtc_source, main_mode_is_exec
 from app.services.path_sync import _desired_paths, _is_dss_managed
 from app.settings import get_settings
 
@@ -76,7 +76,7 @@ async def reconcile(
     """
     client = client or get_client()
     settings = get_settings()
-    if settings.reencode_enabled or getattr(settings, "main_pull_udp", True):
+    if settings.reencode_enabled or main_mode_is_exec(settings):
         return await _reconcile_via_file(session, settings, client)
 
     t0 = time.perf_counter()

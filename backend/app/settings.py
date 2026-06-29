@@ -114,16 +114,22 @@ class Settings(BaseSettings):
     # client. On these Dahua cameras that collapses the 4MP main to ~2-7fps (weak
     # camera TCP stack: any loss → head-of-line block + tiny send window), while
     # the SAME camera delivers ~22fps over UDP (measured 2026-06-29, ch5/ch12).
-    # When true, direct mains are pulled over RTSP/UDP and RE-ENCODED to a short GOP
-    # into go2rtc via an MPEG-TS stdout pipe (full 4MP, no scale/fps cap). UDP fixes
-    # the camera delivery (~22fps vs ~2fps over TCP); the pipe avoids the loopback
-    # RTSP republish that throttled it; the re-encode conceals the camera segment's
-    # ~2% UDP packet loss (a raw copy hands that corruption to the browser, where the
-    # 2s camera GOP smears it). ~1 CPU core per viewed main. via-NVR mains stay raw.
-    # See go2rtc_reencode.udp_pipe_source.
-    main_pull_udp: bool = True
-    # Target bitrate (VBV) for the UDP main re-encode. 8 Mbps keeps 4MP sharp; the
-    # client link is LAN. 0 = uncapped (CRF).
+    # How direct (non-via-NVR) MAIN streams are pulled into go2rtc. Switchable
+    # without code changes — each mode is a builder in go2rtc_reencode. Findings
+    # 2026-06-29 (these Dahua cams: 4MP collapses to ~2fps over TCP, ~22fps over UDP;
+    # the camera segment drops ~2% of UDP packets under load):
+    #   native        — raw RTSP, go2rtc's native TCP client. Original; ~2fps here.
+    #   copy_pipe     — UDP pull, -c copy, MPEG-TS stdout pipe. Full 4MP + sharp, ~0
+    #                   CPU, but UDP loss shows as corruption (worse with a long
+    #                   camera GOP). Good once cameras are set to a ~1s I-frame.
+    #   reencode_pipe — UDP pull, re-encode to a short GOP, MPEG-TS pipe. Conceals
+    #                   the UDP loss; ~1 CPU core/main. [DEFAULT, safe]
+    #   reencode_rtsp — UDP pull, re-encode, RTSP republish to {output}. The republish
+    #                   throttles 4MP to ~3-8fps; kept for reference.
+    #   copy_rtsp     — UDP pull, -c copy, RTSP republish. ~2.6fps; reference.
+    main_stream_mode: str = "reencode_pipe"
+    # Target bitrate (VBV) for the re-encode main modes. 8 Mbps keeps 4MP sharp on a
+    # LAN. 0 = uncapped (CRF).
     main_reencode_maxrate_kbps: int = 8000
     # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
     # ("insecure producer"); they're only honoured from the static YAML. So when
