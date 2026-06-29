@@ -109,6 +109,15 @@ class Settings(BaseSettings):
     # clean stream and the browser still receives reliable MSE/TCP. Only affects
     # re-encoded streams; the republish to go2rtc stays TCP.
     reencode_input_rtsp_transport: str = "tcp"  # "tcp" | "udp"
+    # Direct MAIN streams aren't re-encoded (raw passthrough), so the transport
+    # setting above doesn't reach them — they pull over go2rtc's native RTSP/TCP
+    # client. On these Dahua cameras that collapses the 4MP main to ~2-7fps (weak
+    # camera TCP stack: any loss → head-of-line block + tiny send window), while
+    # the SAME camera delivers ~22fps over UDP (measured 2026-06-29, ch5/ch12).
+    # When true, direct mains are pulled via a thin `exec:ffmpeg -rtsp_transport
+    # udp -c copy` remux (no re-encode → negligible CPU, full 4MP, audio kept);
+    # the republish to go2rtc stays TCP. via-NVR mains are left raw.
+    main_pull_udp: bool = True
     # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
     # ("insecure producer"); they're only honoured from the static YAML. So when
     # re-encoding we write streams into this file and reload go2rtc instead of

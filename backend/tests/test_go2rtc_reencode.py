@@ -52,13 +52,33 @@ def test_via_nvr_main_is_never_reencoded():
 
 def test_qualities_filter_targets_only_chosen_quality():
     s = _settings(reencode_qualities="sub")
-    # sub re-encoded, main left raw
+    # sub re-encoded; direct main NOT re-encoded but still pulled over UDP (copy)
     assert build_go2rtc_source("nvr1_ch2", URL, s).startswith("exec:ffmpeg")
-    assert build_go2rtc_source("nvr1_ch2_main", URL, s) == URL
+    main = build_go2rtc_source("nvr1_ch2_main", URL, s)
+    assert "-rtsp_transport udp" in main and "-c copy" in main
 
     s = _settings(reencode_qualities="main")
-    assert build_go2rtc_source("nvr1_ch2", URL, s) == URL
-    assert build_go2rtc_source("nvr1_ch2_main", URL, s).startswith("exec:ffmpeg")
+    assert build_go2rtc_source("nvr1_ch2", URL, s) == URL  # sub raw
+    # re-encode takes precedence over the UDP copy passthrough for the main
+    assert "-c:v" in build_go2rtc_source("nvr1_ch2_main", URL, s)
+
+
+def test_direct_main_pulls_over_udp_copy_when_not_reencoded():
+    # No re-encode for the main → thin UDP copy remux (full 4MP, no transcode).
+    s = _settings(reencode_enabled=False)
+    main = build_go2rtc_source("nvr1_ch2_main", URL, s)
+    assert main.startswith("exec:ffmpeg")
+    assert "-rtsp_transport udp" in main
+    assert "-c copy" in main and "-c:v" not in main  # copy, not transcode
+    assert f"-i {URL} " in main
+    assert main.rstrip().endswith("-f rtsp -rtsp_transport tcp {output}")
+    # via-NVR main stays raw (the NVR relay is the problem, not the transport)
+    assert build_go2rtc_source("nvr1_ch2_main_nvr", URL, s) == URL
+
+
+def test_main_pull_udp_can_be_disabled():
+    s = _settings(reencode_enabled=False, main_pull_udp=False)
+    assert build_go2rtc_source("nvr1_ch2_main", URL, s) == URL
 
 
 def test_qsv_command_forces_short_gop_and_targets_go2rtc_output():
