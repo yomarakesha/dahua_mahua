@@ -52,28 +52,28 @@ def test_via_nvr_main_is_never_reencoded():
 
 def test_qualities_filter_targets_only_chosen_quality():
     s = _settings(reencode_qualities="sub")
-    # sub re-encoded (TCP input); direct main re-encoded over a UDP pull
+    # sub re-encoded (TCP input); direct main = UDP copy via MPEG-TS pipe
     assert build_go2rtc_source("nvr1_ch2", URL, s).startswith("exec:ffmpeg")
     main = build_go2rtc_source("nvr1_ch2_main", URL, s)
-    assert main.startswith("exec:ffmpeg") and "-rtsp_transport udp -i" in main
+    assert "-rtsp_transport udp -i" in main and main.rstrip().endswith("-c copy -f mpegts -")
 
     s = _settings(reencode_qualities="main")
     assert build_go2rtc_source("nvr1_ch2", URL, s) == URL  # sub raw
-    assert build_go2rtc_source("nvr1_ch2_main", URL, s).startswith("exec:ffmpeg")
+    # main_pull_udp (UDP pipe) takes precedence over the re-encode filter
+    assert build_go2rtc_source("nvr1_ch2_main", URL, s).rstrip().endswith("-c copy -f mpegts -")
 
 
-def test_direct_main_reencodes_over_udp():
-    # The 4MP main is always re-encoded over a UDP pull (TCP collapses it).
-    s = _settings(reencode_qualities="sub")  # main NOT in the re-encode filter…
+def test_direct_main_pulls_udp_copy_via_pipe():
+    s = _settings(reencode_qualities="sub")
     main = build_go2rtc_source("nvr1_ch2_main", URL, s)
     assert main.startswith("exec:ffmpeg")
-    assert "-rtsp_transport udp -i" in main  # UDP pull
-    assert "-c:v" in main                     # …yet still re-encoded (short GOP)
-    assert "-force_key_frames" in main
+    assert "-rtsp_transport udp -i" in main      # UDP pull
     assert f"-i {URL} " in main
-    # subs keep the configured (TCP) input transport
+    assert "-c copy" in main and "-c:v" not in main  # copy, not transcode
+    assert main.rstrip().endswith("-f mpegts -")     # stdout pipe, not RTSP {output}
+    assert "{output}" not in main
+    # subs keep re-encode over TCP; via-NVR main stays raw
     assert "-rtsp_transport tcp -i" in build_go2rtc_source("nvr1_ch2", URL, s)
-    # via-NVR main stays raw (the NVR relay is the problem, not the transport)
     assert build_go2rtc_source("nvr1_ch2_main_nvr", URL, s) == URL
 
 
@@ -84,7 +84,8 @@ def test_main_pull_udp_can_be_disabled():
 
 
 def test_qsv_command_forces_short_gop_and_targets_go2rtc_output():
-    cmd = build_go2rtc_source("nvr1_ch2_main", URL, _settings())
+    # main_pull_udp off → the main takes the re-encode path (else it's a UDP pipe)
+    cmd = build_go2rtc_source("nvr1_ch2_main", URL, _settings(main_pull_udp=False))
     assert cmd.startswith("exec:ffmpeg ")
     assert f"-i {URL} " in cmd  # source URL kept as one space-free token
     assert "-c:v h264_qsv -async_depth 1" in cmd
@@ -96,17 +97,18 @@ def test_qsv_command_forces_short_gop_and_targets_go2rtc_output():
 
 
 def test_bitrate_cap_off_by_default_and_applied_when_set():
-    # uncapped (0) → no VBV flags
-    assert "-maxrate" not in build_go2rtc_source("nvr1_ch2_main", URL, _settings())
+    # uncapped (0) → no VBV flags  (main_pull_udp off → re-encode path)
+    assert "-maxrate" not in build_go2rtc_source("nvr1_ch2_main", URL, _settings(main_pull_udp=False))
     # capped → VBV maxrate + ~1s bufsize, before the keyframe forcing
-    s = _settings(reencode_maxrate_kbps=6000)
+    s = _settings(reencode_maxrate_kbps=6000, main_pull_udp=False)
     cmd = build_go2rtc_source("nvr1_ch2_main", URL, s)
     assert "-maxrate 6000k -bufsize 6000k" in cmd
     assert cmd.index("-maxrate") < cmd.index("-force_key_frames")
 
 
 def test_main_scale_and_fps_apply_to_main_only():
-    s = _settings(reencode_main_scale="1920:-2", reencode_main_fps=15)
+    # scale/fps are re-encode levers, so exercise the main's re-encode path
+    s = _settings(reencode_main_scale="1920:-2", reencode_main_fps=15, main_pull_udp=False)
     main = build_go2rtc_source("nvr1_ch2_main", URL, s)
     sub = build_go2rtc_source("nvr1_ch2", URL, s)
     # main downscaled + fps-capped
@@ -114,7 +116,7 @@ def test_main_scale_and_fps_apply_to_main_only():
     # sub left at source resolution / fps
     assert "scale=" not in sub and "-r 15" not in sub
     # default: no scale/fps anywhere
-    plain = build_go2rtc_source("nvr1_ch2_main", URL, _settings())
+    plain = build_go2rtc_source("nvr1_ch2_main", URL, _settings(main_pull_udp=False))
     assert "scale=" not in plain and "-r " not in plain
 
 
