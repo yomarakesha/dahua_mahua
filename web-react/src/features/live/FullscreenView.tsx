@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { MsePlayer, type PlayerStatus } from "@/components/video/MsePlayer";
+import { WebCodecsPlayer } from "@/components/video/WebCodecsPlayer";
+import { WebCodecsEngine } from "@/lib/video/webcodecs-engine";
 import { streamName } from "@/api/types";
 import { XIcon, VolumeOn, VolumeOff, ServerIcon, CameraIcon } from "@/components/icons";
 import type { Camera } from "@/api/types";
@@ -22,22 +24,43 @@ export function FullscreenView({ cam, onClose }: Props) {
   // as a per-camera fallback when a camera isn't directly reachable.
   const [viaNvr, setViaNvr] = useState(false);
 
-  // TIER 1 — Transport for the 4MP main. Try WebRTC first (UDP/RTP: drops late
-  // frames to stay live under congestion, like Smart PSS/iVMS — fixes the busy-
-  // network freeze), and auto-fall-back to MSE if WebRTC can't establish (Safari,
-  // a blocked :8556, ICE failure). `key={transport}` remounts the player on switch.
-  const [transport, setTransport] = useState<"webrtc" | "mse">("webrtc");
+  // Transport for the 4MP main. WebCodecs first (hardware decode + drop-late frame
+  // policy over TCP — keeps keyframes intact AND skips late frames, so it survives
+  // a congested LAN at full 4MP like Smart PSS/iVMS), auto-falling back to buffered
+  // MSE when WebCodecs can't go live (unsupported browser, or it errors out).
+  //
+  // TIER 1 / WebRTC is DISABLED: on this network the 4MP keyframes are too big for
+  // UDP — one lost packet in a ~100-packet IDR and the decoder never assembles a
+  // clean keyframe (measured framesDecoded=0, pliCount=17). MsePlayer still has the
+  // mode="webrtc" path if we ever want to revisit it. See webcodecs-engine.ts.
+  const wcSupported = WebCodecsEngine.isSupported();
   const [status, setStatus] = useState<PlayerStatus>("connecting");
+  // Set once WebCodecs fails/times out → stick to MSE for this view.
+  const [forceMse, setForceMse] = useState(false);
 
-  // Fallback: if WebRTC hasn't gone live within 7s (or errored), drop to MSE once.
+  const quality = cam.has_main ? "main" : cam.has_sub ? "sub" : null;
+
+  // WebCodecs is video-only, so it's used only for the 4MP main and only while
+  // sound is off; enabling audio or any failure routes to MSE.
+  const transport: "webcodecs" | "mse" =
+    wcSupported && quality === "main" && !audioOn && !forceMse ? "webcodecs" : "mse";
+
+  // Reset the fallback when the source changes (Direct ↔ Via-NVR) so WebCodecs
+  // gets a fresh try on the new stream.
   useEffect(() => {
-    if (transport !== "webrtc") return;
+    setForceMse(false);
+    setStatus("connecting");
+  }, [viaNvr]);
+
+  // Fallback: if WebCodecs hasn't gone live within 6s (or errored), drop to MSE.
+  useEffect(() => {
+    if (transport !== "webcodecs") return;
     if (status === "live") return;
     if (status === "error") {
-      setTransport("mse");
+      setForceMse(true);
       return;
     }
-    const t = window.setTimeout(() => setTransport("mse"), 10000);
+    const t = window.setTimeout(() => setForceMse(true), 6000);
     return () => window.clearTimeout(t);
   }, [transport, status]);
 
@@ -48,8 +71,6 @@ export function FullscreenView({ cam, onClose }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-
-  const quality = cam.has_main ? "main" : cam.has_sub ? "sub" : null;
 
   return (
     <div
@@ -63,13 +84,13 @@ export function FullscreenView({ cam, onClose }: Props) {
         {quality === "main" && (
           <span
             title={
-              transport === "webrtc"
-                ? "WebRTC — real-time, drops late frames under load"
-                : "MSE — buffered TCP fallback"
+              transport === "webcodecs"
+                ? "WebCodecs — hardware decode, drops late frames to stay live under load"
+                : "MSE — buffered TCP (audio, or WebCodecs fallback)"
             }
             className={[
               "rounded px-1.5 py-0.5 font-mono text-3xs font-bold uppercase tracking-wider",
-              transport === "webrtc"
+              transport === "webcodecs"
                 ? "bg-accent/[.12] text-accent-light"
                 : "bg-white/[.06] text-ink-dim",
             ].join(" ")}
@@ -93,7 +114,13 @@ export function FullscreenView({ cam, onClose }: Props) {
           <button
             type="button"
             onClick={() => setAudioOn((v) => !v)}
-            title={audioOn ? "Mute" : "Enable sound"}
+            title={
+              audioOn
+                ? "Mute"
+                : transport === "webcodecs"
+                  ? "Enable sound (switches to buffered MSE — WebCodecs is video-only)"
+                  : "Enable sound"
+            }
             className={[
               "flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
               audioOn
@@ -121,17 +148,26 @@ export function FullscreenView({ cam, onClose }: Props) {
       >
         <div className="relative h-full w-full overflow-hidden rounded-xl border border-white/[.08] bg-black">
           {quality ? (
-            <MsePlayer
-              key={transport}
-              src={streamName(cam, quality, viaNvr)}
-              muted={!audioOn}
-              // Tier 1: WebRTC first (real-time, drops late frames → survives a
-              // congested LAN at full 4MP), auto-falling back to MSE (TCP, reliable)
-              // when WebRTC can't establish. See the transport/status effect above.
-              mode={transport}
-              onStatus={setStatus}
-              className="absolute inset-0 h-full w-full"
-            />
+            transport === "webcodecs" ? (
+              // 4MP main: WebCodecs hardware decode + drop-late frames → stays live
+              // under congestion at full resolution. Falls back to MSE (effect above)
+              // if it can't go live.
+              <WebCodecsPlayer
+                key="webcodecs"
+                src={streamName(cam, quality, viaNvr)}
+                onStatus={setStatus}
+                className="absolute inset-0 h-full w-full"
+              />
+            ) : (
+              <MsePlayer
+                key="mse"
+                src={streamName(cam, quality, viaNvr)}
+                muted={!audioOn}
+                mode="mse"
+                onStatus={setStatus}
+                className="absolute inset-0 h-full w-full"
+              />
+            )
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="font-mono text-xs uppercase tracking-wider text-ink-faint">
