@@ -135,9 +135,15 @@ export default function LiveWall() {
                 gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
               }}
             >
-              {pageCams.map((cam) => (
-                <CameraTile key={cam.id} cam={cam} onOpen={setFullscreen} />
-              ))}
+              {/* While a fullscreen main is open, unmount the grid tiles so their
+                  ~16 sub pulls stop — they're hidden behind the overlay anyway, and
+                  freeing the camera segment cuts the UDP packet loss that corrupts
+                  the 4MP main (the segment is shared; concurrent pulls add loss).
+                  Tiles remount (reconnect) when fullscreen closes. */}
+              {!fullscreen &&
+                pageCams.map((cam) => (
+                  <CameraTile key={cam.id} cam={cam} onOpen={setFullscreen} />
+                ))}
             </div>
           )}
 
