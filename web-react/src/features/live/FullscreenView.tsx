@@ -24,33 +24,29 @@ export function FullscreenView({ cam, onClose }: Props) {
   // as a per-camera fallback when a camera isn't directly reachable.
   const [viaNvr, setViaNvr] = useState(false);
 
-  // Transport for the 4MP main. WebCodecs first (hardware decode + drop-late frame
-  // policy over TCP — keeps keyframes intact AND skips late frames, so it survives
-  // a congested LAN at full 4MP like Smart PSS/iVMS), auto-falling back to buffered
-  // MSE when WebCodecs can't go live (unsupported browser, or it errors out).
-  //
-  // TIER 1 / WebRTC is DISABLED: on this network the 4MP keyframes are too big for
-  // UDP — one lost packet in a ~100-packet IDR and the decoder never assembles a
-  // clean keyframe (measured framesDecoded=0, pliCount=17). MsePlayer still has the
-  // mode="webrtc" path if we ever want to revisit it. See webcodecs-engine.ts.
+  // Transport for the main. MSE is the DEFAULT (buffered TCP — stable now that
+  // go2rtc delivers a clean short-GOP main, and it carries AUDIO). WebCodecs
+  // (hardware decode + drop-late) is an opt-in toggle for the 4MP-under-congestion
+  // case, but it's video-only so it's off by default and any audio/failure routes
+  // back to MSE. The grid is always MSE. (WebRTC remains disabled — MsePlayer keeps
+  // a mode="webrtc" path if ever revisited. See webcodecs-engine.ts.)
   const wcSupported = WebCodecsEngine.isSupported();
   const [status, setStatus] = useState<PlayerStatus>("connecting");
+  const [preferWebCodecs, setPreferWebCodecs] = useState(false); // MSE default
   // Set once WebCodecs fails/times out → stick to MSE for this view.
   const [forceMse, setForceMse] = useState(false);
 
   const quality = cam.has_main ? "main" : cam.has_sub ? "sub" : null;
-
-  // WebCodecs is video-only, so it's used only for the 4MP main and only while
-  // sound is off; enabling audio or any failure routes to MSE.
+  const canWebCodecs = wcSupported && quality === "main";
   const transport: "webcodecs" | "mse" =
-    wcSupported && quality === "main" && !audioOn && !forceMse ? "webcodecs" : "mse";
+    preferWebCodecs && canWebCodecs && !audioOn && !forceMse ? "webcodecs" : "mse";
 
-  // Reset the fallback when the source changes (Direct ↔ Via-NVR) so WebCodecs
-  // gets a fresh try on the new stream.
+  // Reset the fallback when the source or engine preference changes, so WebCodecs
+  // gets a fresh try.
   useEffect(() => {
     setForceMse(false);
     setStatus("connecting");
-  }, [viaNvr]);
+  }, [viaNvr, preferWebCodecs]);
 
   // Fallback: if WebCodecs hasn't gone live within 6s (or errored), drop to MSE.
   useEffect(() => {
@@ -81,22 +77,23 @@ export function FullscreenView({ cam, onClose }: Props) {
         <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_#2ecc71]" />
         <span className="text-base font-bold text-ink-bright">{cam.display_name}</span>
         <span className="font-mono text-2xs text-ink-faint">ch{cam.channel}</span>
-        {quality === "main" && (
-          <span
-            title={
-              transport === "webcodecs"
-                ? "WebCodecs — hardware decode, drops late frames to stay live under load"
-                : "MSE — buffered TCP (audio, or WebCodecs fallback)"
-            }
+        {canWebCodecs && (
+          <button
+            type="button"
+            onClick={() => {
+              setPreferWebCodecs((v) => !v);
+              setForceMse(false);
+            }}
+            title="Video engine — MSE (buffered, with audio) ⇄ WebCodecs (drop-late, video-only)"
             className={[
-              "rounded px-1.5 py-0.5 font-mono text-3xs font-bold uppercase tracking-wider",
+              "rounded px-1.5 py-0.5 font-mono text-3xs font-bold uppercase tracking-wider transition",
               transport === "webcodecs"
-                ? "bg-accent/[.12] text-accent-light"
-                : "bg-white/[.06] text-ink-dim",
+                ? "bg-accent/[.12] text-accent-light hover:bg-accent/[.18]"
+                : "bg-white/[.06] text-ink-dim hover:bg-white/[.1]",
             ].join(" ")}
           >
             {transport}
-          </span>
+          </button>
         )}
 
         <div className="ml-auto flex items-center gap-2">

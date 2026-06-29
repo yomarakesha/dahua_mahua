@@ -493,8 +493,13 @@ export class VideoRTC extends HTMLElement {
                 // setLiveSeekableRange throw "Type error" in a tight loop that
                 // storms window.onerror and degrades the page. Guard + bail; the
                 // next updateend (after reconnect) resumes cleanly.
-                if (!sb.updating && sb.buffered && sb.buffered.length && ms.readyState === 'open') {
-                    try {
+                // NOTE: reading sb.buffered / sb.updating THROWS (InvalidStateError)
+                // once the SourceBuffer is detached from the MediaSource — a reconnect /
+                // stream switch can tear the MS down mid-updateend. So the guard must live
+                // INSIDE the try, or it escapes as an uncaught error (storms onerror).
+                // ms.readyState stays safe to read (returns 'closed' when torn down).
+                try {
+                    if (ms.readyState === 'open' && !sb.updating && sb.buffered.length) {
                         const end = sb.buffered.end(sb.buffered.length - 1);
                         // DSS live-buffer policy — the actual freeze fix.
                         //
@@ -544,9 +549,9 @@ export class VideoRTC extends HTMLElement {
                             this.video.playbackRate =
                                 1 + Math.max(-0.08, Math.min(0.08, err * 0.04));
                         }
-                    } catch (e) {
-                        // transient MSE state — ignore; updateend will retry
                     }
+                } catch (e) {
+                    // transient MSE state (SB removed mid-reconnect) — ignore; retries
                 }
             });
 
