@@ -115,7 +115,13 @@ def _encoder_flags(settings: Any) -> str:
     return f"-c:v {vcodec}"
 
 
-def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None = None) -> str:
+def reencode_source(
+    rtsp_url: str,
+    settings: Any,
+    quality: StreamQuality | None = None,
+    *,
+    input_transport: str | None = None,
+) -> str:
     """Build the go2rtc `exec:ffmpeg` source that re-encodes `rtsp_url` to a short
     GOP and republishes into go2rtc's `{output}` RTSP sink.
 
@@ -131,7 +137,7 @@ def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None 
     # Camera-pull transport. "udp" survives a lossy link (loss → glitches, not a
     # stall) where "tcp" head-of-line-blocks and collapses to a few fps. The
     # republish below stays tcp regardless (reliable hop to go2rtc).
-    in_tr = (getattr(settings, "reencode_input_rtsp_transport", "tcp") or "tcp").lower()
+    in_tr = (input_transport or getattr(settings, "reencode_input_rtsp_transport", "tcp") or "tcp").lower()
     # VBV bitrate cap: keeps the 0.5s-GOP I-frame spikes from swamping the client
     # (bufsize ~= 1s of maxrate → smooth, low-latency). 0 = unconstrained CRF.
     maxrate = int(getattr(settings, "reencode_maxrate_kbps", 0) or 0)
@@ -153,26 +159,6 @@ def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None 
     )
 
 
-# go2rtc ffmpeg `input` template (added to the config's `ffmpeg:` section) that
-# pulls RTSP over UDP. Mirrors go2rtc's built-in `rtsp` template but swaps
-# -rtsp_transport tcp → udp. Referenced by `#input=rtspudp` on main sources.
-FFMPEG_UDP_INPUT_TEMPLATE = "-fflags nobuffer -flags low_delay -rtsp_transport udp -i {input}"
-
-
-def udp_passthrough_source(rtsp_url: str) -> str:
-    """Build a go2rtc `ffmpeg:` PIPE source that pulls `rtsp_url` over RTSP/UDP and
-    copies it (no transcode) to go2rtc via a pipe.
-
-    For the 4MP main on these cameras, go2rtc's native RTSP (TCP) client collapses
-    to ~2-7fps — the camera's weak TCP stack head-of-line-blocks on any loss; the
-    same camera streams ~22fps over UDP. We use the `ffmpeg:` pipe source (not an
-    `exec:` + RTSP republish, whose second loopback RTSP hop throttled the 4MP copy
-    back to ~2fps with `read tcp …:8553 i/o timeout`). `#video=copy` = full 4MP at
-    negligible CPU; `#input=rtspudp` selects the UDP input template added to the
-    config's `ffmpeg:` section (see ensure_ffmpeg_section)."""
-    return f"ffmpeg:{rtsp_url}#input=rtspudp#video=copy"
-
-
 def is_via_nvr(name: str) -> bool:
     """`…_main_nvr` = the via-NVR fallback variant (force_relay)."""
     return name.endswith("_main_nvr")
@@ -190,10 +176,14 @@ def build_go2rtc_source(name: str, rtsp_url: str, settings: Any) -> str:
     if is_via_nvr(name):
         return rtsp_url
     quality = quality_of_stream(name)
+    # Direct 4MP main: these cameras collapse it over RTSP/TCP (~2-7fps — weak
+    # camera TCP stack, head-of-line block on any loss) but deliver ~22fps over
+    # UDP. A raw `-c copy` of the camera's 2s-GOP main throttled go2rtc's loopback
+    # RTSP ingest (huge keyframe bursts → read i/o timeout), so we RE-ENCODE over a
+    # UDP pull: short 0.5s GOP + small regular frames republish cleanly — the exact
+    # path the subs already use, just at full 4MP resolution (no scale/fps cap).
+    if quality == StreamQuality.main and getattr(settings, "main_pull_udp", True):
+        return reencode_source(rtsp_url, settings, quality, input_transport="udp")
     if reencode_enabled_for(settings, quality):
         return reencode_source(rtsp_url, settings, quality)
-    # Direct, non-re-encoded main: pull over UDP (TCP collapses these cameras'
-    # 4MP main to a few fps). Copy-only pipe source — full 4MP, negligible CPU.
-    if quality == StreamQuality.main and getattr(settings, "main_pull_udp", True):
-        return udp_passthrough_source(rtsp_url)
     return rtsp_url

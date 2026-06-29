@@ -52,29 +52,34 @@ def test_via_nvr_main_is_never_reencoded():
 
 def test_qualities_filter_targets_only_chosen_quality():
     s = _settings(reencode_qualities="sub")
-    # sub re-encoded; direct main NOT re-encoded but still pulled over UDP (copy)
+    # sub re-encoded (TCP input); direct main re-encoded over a UDP pull
     assert build_go2rtc_source("nvr1_ch2", URL, s).startswith("exec:ffmpeg")
     main = build_go2rtc_source("nvr1_ch2_main", URL, s)
-    assert main.startswith("ffmpeg:") and "#input=rtspudp" in main and "#video=copy" in main
+    assert main.startswith("exec:ffmpeg") and "-rtsp_transport udp -i" in main
 
     s = _settings(reencode_qualities="main")
     assert build_go2rtc_source("nvr1_ch2", URL, s) == URL  # sub raw
-    # re-encode takes precedence over the UDP copy passthrough for the main
-    assert "-c:v" in build_go2rtc_source("nvr1_ch2_main", URL, s)
+    assert build_go2rtc_source("nvr1_ch2_main", URL, s).startswith("exec:ffmpeg")
 
 
-def test_direct_main_pulls_over_udp_copy_when_not_reencoded():
-    # No re-encode for the main → go2rtc ffmpeg: pipe source, UDP in, copy (4MP).
-    s = _settings(reencode_enabled=False)
+def test_direct_main_reencodes_over_udp():
+    # The 4MP main is always re-encoded over a UDP pull (TCP collapses it).
+    s = _settings(reencode_qualities="sub")  # main NOT in the re-encode filter…
     main = build_go2rtc_source("nvr1_ch2_main", URL, s)
-    assert main == f"ffmpeg:{URL}#input=rtspudp#video=copy"
-    assert "exec:" not in main and "-c:v" not in main  # pipe + copy, not transcode
+    assert main.startswith("exec:ffmpeg")
+    assert "-rtsp_transport udp -i" in main  # UDP pull
+    assert "-c:v" in main                     # …yet still re-encoded (short GOP)
+    assert "-force_key_frames" in main
+    assert f"-i {URL} " in main
+    # subs keep the configured (TCP) input transport
+    assert "-rtsp_transport tcp -i" in build_go2rtc_source("nvr1_ch2", URL, s)
     # via-NVR main stays raw (the NVR relay is the problem, not the transport)
     assert build_go2rtc_source("nvr1_ch2_main_nvr", URL, s) == URL
 
 
 def test_main_pull_udp_can_be_disabled():
-    s = _settings(reencode_enabled=False, main_pull_udp=False)
+    # main_pull_udp off + main not in re-encode filter → raw passthrough
+    s = _settings(reencode_qualities="sub", main_pull_udp=False)
     assert build_go2rtc_source("nvr1_ch2_main", URL, s) == URL
 
 

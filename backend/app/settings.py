@@ -114,9 +114,11 @@ class Settings(BaseSettings):
     # client. On these Dahua cameras that collapses the 4MP main to ~2-7fps (weak
     # camera TCP stack: any loss → head-of-line block + tiny send window), while
     # the SAME camera delivers ~22fps over UDP (measured 2026-06-29, ch5/ch12).
-    # When true, direct mains are pulled via a thin `exec:ffmpeg -rtsp_transport
-    # udp -c copy` remux (no re-encode → negligible CPU, full 4MP, audio kept);
-    # the republish to go2rtc stays TCP. via-NVR mains are left raw.
+    # When true, direct mains are RE-ENCODED over a UDP pull (short 0.5s GOP, full
+    # 4MP resolution — no scale/fps cap). UDP fixes the camera delivery; the
+    # short-GOP re-encode republishes cleanly to go2rtc (a raw `-c copy` of the
+    # camera's 2s-GOP main throttled go2rtc's loopback ingest). via-NVR mains stay
+    # raw. Costs ~1 CPU core per actively-viewed main (on-demand).
     main_pull_udp: bool = True
     # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
     # ("insecure producer"); they're only honoured from the static YAML. So when
