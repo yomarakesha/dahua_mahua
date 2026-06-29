@@ -78,6 +78,12 @@ export class WebCodecsEngine {
   private rafId = 0;
   private queue: VideoFrame[] = [];
 
+  // Diagnostics (enable with `localStorage.dssDebug = "1"`, reload). Lets us tell
+  // real corruption (low decoded/s) from intentional drop-late skips (high
+  // dropped/s while staying live) — there is NO transport packet loss (TCP).
+  private dbg = { fed: 0, decoded: 0, rendered: 0, dropped: 0 };
+  private dbgTimer = 0;
+
   constructor(canvas: HTMLCanvasElement, cb: EngineCallbacks = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
@@ -97,11 +103,25 @@ export class WebCodecsEngine {
     this.setStatus("connecting");
     this.openWs(wsUrl);
     this.rafId = requestAnimationFrame(this.render);
+    let debugOn = false;
+    try { debugOn = localStorage.getItem("dssDebug") === "1"; } catch { /* ignore */ }
+    if (debugOn) {
+      this.dbgTimer = window.setInterval(() => {
+        const d = this.dbg;
+        // eslint-disable-next-line no-console
+        console.log(
+          `[webcodecs] fed=${d.fed}/s decoded=${d.decoded}/s rendered=${d.rendered}/s ` +
+          `dropped-late=${d.dropped}/s queue=${this.queue.length}`,
+        );
+        this.dbg = { fed: 0, decoded: 0, rendered: 0, dropped: 0 };
+      }, 1000);
+    }
   }
 
   destroy(): void {
     this.destroyed = true;
     cancelAnimationFrame(this.rafId);
+    if (this.dbgTimer) window.clearInterval(this.dbgTimer);
     for (const f of this.queue) safeClose(f);
     this.queue = [];
     if (this.decoder) {
@@ -206,6 +226,7 @@ export class WebCodecsEngine {
           data: s.data,
         }),
       );
+      this.dbg.fed++;
     } catch (e) {
       this.fail(`decode: ${(e as Error).message}`);
     }
@@ -213,9 +234,10 @@ export class WebCodecsEngine {
 
   private onDecoded(frame: VideoFrame): void {
     if (this.destroyed) return safeClose(frame);
+    this.dbg.decoded++;
     this.queue.push(frame);
     // Bound the queue: if decode outran render, drop the OLDEST (stay live).
-    while (this.queue.length > MAX_QUEUE) safeClose(this.queue.shift()!);
+    while (this.queue.length > MAX_QUEUE) { safeClose(this.queue.shift()!); this.dbg.dropped++; }
     if (!this.firstFrame) {
       this.firstFrame = true;
       this.setStatus("live");
@@ -230,9 +252,10 @@ export class WebCodecsEngine {
     this.rafId = requestAnimationFrame(this.render);
     if (!this.queue.length || !this.ctx) return;
     const frame = this.queue.pop()!; // newest
-    while (this.queue.length) safeClose(this.queue.shift()!); // drop older
+    while (this.queue.length) { safeClose(this.queue.shift()!); this.dbg.dropped++; } // drop older
     try {
       this.ctx.drawImage(frame, 0, 0, this.canvas.width, this.canvas.height);
+      this.dbg.rendered++;
     } catch { /* ignore transient draw errors */ }
     safeClose(frame);
   };

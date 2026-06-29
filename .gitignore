@@ -54,3 +54,4 @@ Thumbs.db
 
 # go2rtc runtime (binary + live config with credentials); template is go2rtc.base.yaml
 .go2rtc/
+docs/rtcstats_dump*.gz
