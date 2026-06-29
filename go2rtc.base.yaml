@@ -14,5 +14,13 @@ rtsp:
   listen: ":8553"      # off MediaMTX's :8554 so both can run during migration
 webrtc:
   listen: ":8556"      # go2rtc also offers WebRTC as a low-latency alternative
+  # Explicit ICE candidates = the server's VIEWER-FACING LAN IP(s). Without this,
+  # go2rtc auto-advertises EVERY local IP (incl. the camera network 192.168.20.x,
+  # unreachable from viewers) → the browser stalls on dead candidates and WebRTC
+  # never connects on the LAN. List the IP(s) clients use to reach the panel; the
+  # camera-subnet IP is deliberately excluded. (LAN → no STUN needed.)
+  candidates:
+    - 10.10.1.152:8556
+    - 192.168.1.13:8556
 log:
   level: warn
