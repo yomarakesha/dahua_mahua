@@ -39,9 +39,16 @@ const ADVERTISE_CODECS = [
   "avc1.42e033", "avc1.42e032", "avc1.42e029", "avc1.42e028", "avc1.42e01f", "avc1.42e01e",
 ].join();
 
-// Cap on decoded frames held before render. Render drains to the newest each rAF,
-// so this only bounds a burst that arrives between ticks.
-const MAX_QUEUE = 3;
+// Jitter buffer depths (in frames). The renderer plays in order at the source
+// rate; it only skips ahead when it falls behind, so a burst of frames arriving
+// together is played out smoothly instead of being dropped.
+//   TARGET — normal cushion; below this we pace strictly to source fps.
+//   MAX    — hard latency cap; above this we drop oldest to snap back to live.
+const TARGET_DEPTH = 2;
+const MAX_DEPTH = 6;
+// Absolute memory guard (frames are GPU-backed; never let the queue grow wild).
+const HARD_CAP = 30;
+const DEFAULT_FRAME_MS = 40; // 25 fps until measured from timestamps
 
 export interface EngineCallbacks {
   onStatus?: (s: EngineStatus) => void;
@@ -77,6 +84,10 @@ export class WebCodecsEngine {
   private destroyed = false;
   private rafId = 0;
   private queue: VideoFrame[] = [];
+  // Render pacing state.
+  private lastPresentMs = 0;
+  private frameIntervalMs = DEFAULT_FRAME_MS;
+  private lastFrameTs = -1; // µs, last decoded frame timestamp (for fps measurement)
 
   // Diagnostics (enable with `localStorage.dssDebug = "1"`, reload). Lets us tell
   // real corruption (low decoded/s) from intentional drop-late skips (high
@@ -235,29 +246,46 @@ export class WebCodecsEngine {
   private onDecoded(frame: VideoFrame): void {
     if (this.destroyed) return safeClose(frame);
     this.dbg.decoded++;
-    this.queue.push(frame);
-    // Bound the queue: if decode outran render, drop the OLDEST (stay live).
-    while (this.queue.length > MAX_QUEUE) { safeClose(this.queue.shift()!); this.dbg.dropped++; }
+    // Measure source frame interval from decode timestamps (EMA) so pacing tracks
+    // the real fps (25/15/30…) instead of a fixed guess.
+    if (this.lastFrameTs >= 0) {
+      const dMs = (frame.timestamp - this.lastFrameTs) / 1000;
+      if (dMs > 5 && dMs < 200) this.frameIntervalMs = this.frameIntervalMs * 0.8 + dMs * 0.2;
+    }
+    this.lastFrameTs = frame.timestamp;
+    this.queue.push(frame); // FIFO — render() paces & drops, not us
+    while (this.queue.length > HARD_CAP) { safeClose(this.queue.shift()!); this.dbg.dropped++; }
     if (!this.firstFrame) {
       this.firstFrame = true;
       this.setStatus("live");
     }
   }
 
-  // Drop-late renderer: each frame, paint the NEWEST decoded frame and discard
-  // the rest. This is the whole point — never wait on a late frame, always show
-  // the freshest, like the native viewers.
+  // Paced renderer with catch-up. Plays frames in ORDER at the measured source
+  // rate (a small jitter buffer absorbs bursts → smooth), and only skips ahead
+  // when it falls behind — so a clump of frames arriving together is played out,
+  // not thrown away. When latency exceeds MAX_DEPTH it snaps back to live.
   private render = (): void => {
     if (this.destroyed) return;
     this.rafId = requestAnimationFrame(this.render);
-    if (!this.queue.length || !this.ctx) return;
-    const frame = this.queue.pop()!; // newest
-    while (this.queue.length) { safeClose(this.queue.shift()!); this.dbg.dropped++; } // drop older
+    if (!this.ctx || !this.queue.length) return;
+
+    // Hard latency cap: too far behind → drop oldest to snap to live.
+    while (this.queue.length > MAX_DEPTH) { safeClose(this.queue.shift()!); this.dbg.dropped++; }
+
+    const now = performance.now();
+    const due = now - this.lastPresentMs >= this.frameIntervalMs * 0.85;
+    const behind = this.queue.length > TARGET_DEPTH;
+    // Pace to source fps unless we're behind (then drain every tick to catch up).
+    if (!due && !behind) return;
+
+    const frame = this.queue.shift()!; // oldest — in-order playback
     try {
       this.ctx.drawImage(frame, 0, 0, this.canvas.width, this.canvas.height);
       this.dbg.rendered++;
     } catch { /* ignore transient draw errors */ }
     safeClose(frame);
+    this.lastPresentMs = now;
   };
 
   private onFmp4(data: ArrayBuffer): void {
