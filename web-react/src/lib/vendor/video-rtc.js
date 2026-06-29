@@ -71,7 +71,12 @@ export class VideoRTC extends HTMLElement {
          */
         this.pcConfig = {
             bundlePolicy: 'max-bundle',
-            iceServers: [{urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302']}],
+            // DSS: NO STUN — this is a LAN deployment. Public STUN (cloudflare/google)
+            // is unreachable from the office LAN (no internet route), so ICE would wait
+            // for the STUN timeout before falling back to the direct host candidate —
+            // delaying the WebRTC connect past our MSE-fallback window. Empty iceServers
+            // = host-to-host candidates only = instant connect on a LAN.
+            iceServers: [],
             sdpSemantics: 'unified-plan',  // important for Chromecast 1
         };
 

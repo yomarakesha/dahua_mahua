@@ -37,7 +37,7 @@ export function FullscreenView({ cam, onClose }: Props) {
       setTransport("mse");
       return;
     }
-    const t = window.setTimeout(() => setTransport("mse"), 7000);
+    const t = window.setTimeout(() => setTransport("mse"), 10000);
     return () => window.clearTimeout(t);
   }, [transport, status]);
 
