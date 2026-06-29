@@ -47,7 +47,7 @@ async def _reconcile_via_file(
         log.info("go2rtc file reconcile: no change (%d streams)", len(desired))
         return {"mode": "file", "changed": False, "streams": len(desired)}
 
-    write_streams(path, desired)
+    write_streams(path, desired, ffmpeg_bin=settings.reencode_ffmpeg_bin or "ffmpeg")
     try:
         await client.restart()
         reloaded = True

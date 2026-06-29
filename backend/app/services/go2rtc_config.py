@@ -48,10 +48,30 @@ def read_streams(path: str) -> dict[str, str]:
     return out
 
 
-def write_streams(path: str, desired: dict[str, str]) -> None:
+def ensure_ffmpeg_section(cfg: dict[str, Any], ffmpeg_bin: str | None) -> None:
+    """Merge the `ffmpeg:` section needed by UDP main sources (`ffmpeg:…#input=
+    rtspudp`): set `bin` (ffmpeg isn't on PATH on the server) and the `rtspudp`
+    input template. Preserves any other ffmpeg keys/templates already present."""
+    from app.services.go2rtc_reencode import FFMPEG_UDP_INPUT_TEMPLATE
+
+    ff = cfg.get("ffmpeg")
+    if not isinstance(ff, dict):
+        ff = {}
+    if ffmpeg_bin:
+        ff["bin"] = ffmpeg_bin
+    ff["rtspudp"] = FFMPEG_UDP_INPUT_TEMPLATE
+    cfg["ffmpeg"] = ff
+
+
+def write_streams(path: str, desired: dict[str, str], *, ffmpeg_bin: str | None = None) -> None:
     """Replace the `streams:` section with `desired` (one source per stream),
-    preserving every other section. Atomic via temp-file + os.replace."""
+    preserving every other section. Atomic via temp-file + os.replace.
+
+    `ffmpeg_bin` (when given) also ensures the `ffmpeg:` section the UDP main
+    sources depend on."""
     cfg = _load(path)
+    if ffmpeg_bin is not None:
+        ensure_ffmpeg_section(cfg, ffmpeg_bin)
     # List form (`- src`) matches go2rtc's own persisted style and stays valid
     # for exec sources whose string contains characters YAML would otherwise
     # need to quote — pyyaml handles the quoting.

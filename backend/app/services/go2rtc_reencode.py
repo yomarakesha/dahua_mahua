@@ -153,21 +153,24 @@ def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None 
     )
 
 
-def udp_passthrough_source(rtsp_url: str, settings: Any) -> str:
-    """Build a thin go2rtc `exec:ffmpeg` source that pulls `rtsp_url` over RTSP/UDP
-    and republishes it UNCHANGED (`-c copy`) into go2rtc's `{output}` sink.
+# go2rtc ffmpeg `input` template (added to the config's `ffmpeg:` section) that
+# pulls RTSP over UDP. Mirrors go2rtc's built-in `rtsp` template but swaps
+# -rtsp_transport tcp → udp. Referenced by `#input=rtspudp` on main sources.
+FFMPEG_UDP_INPUT_TEMPLATE = "-fflags nobuffer -flags low_delay -rtsp_transport udp -i {input}"
+
+
+def udp_passthrough_source(rtsp_url: str) -> str:
+    """Build a go2rtc `ffmpeg:` PIPE source that pulls `rtsp_url` over RTSP/UDP and
+    copies it (no transcode) to go2rtc via a pipe.
 
     For the 4MP main on these cameras, go2rtc's native RTSP (TCP) client collapses
-    to ~2-7fps — the camera's weak TCP stack head-of-line-blocks on any loss. The
-    same camera streams ~22fps over UDP. `-c copy` keeps full 4MP + audio at
-    negligible CPU (a remux, not a transcode); the republish hop stays TCP so the
-    browser still gets reliable MSE/WebCodecs. No token may contain a space."""
-    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
-    return (
-        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp "
-        f"-i {rtsp_url} -c copy "
-        "-f rtsp -rtsp_transport tcp {output}"
-    )
+    to ~2-7fps — the camera's weak TCP stack head-of-line-blocks on any loss; the
+    same camera streams ~22fps over UDP. We use the `ffmpeg:` pipe source (not an
+    `exec:` + RTSP republish, whose second loopback RTSP hop throttled the 4MP copy
+    back to ~2fps with `read tcp …:8553 i/o timeout`). `#video=copy` = full 4MP at
+    negligible CPU; `#input=rtspudp` selects the UDP input template added to the
+    config's `ffmpeg:` section (see ensure_ffmpeg_section)."""
+    return f"ffmpeg:{rtsp_url}#input=rtspudp#video=copy"
 
 
 def is_via_nvr(name: str) -> bool:
@@ -190,7 +193,7 @@ def build_go2rtc_source(name: str, rtsp_url: str, settings: Any) -> str:
     if reencode_enabled_for(settings, quality):
         return reencode_source(rtsp_url, settings, quality)
     # Direct, non-re-encoded main: pull over UDP (TCP collapses these cameras'
-    # 4MP main to a few fps). Copy-only remux — full 4MP, negligible CPU.
+    # 4MP main to a few fps). Copy-only pipe source — full 4MP, negligible CPU.
     if quality == StreamQuality.main and getattr(settings, "main_pull_udp", True):
-        return udp_passthrough_source(rtsp_url, settings)
+        return udp_passthrough_source(rtsp_url)
     return rtsp_url
