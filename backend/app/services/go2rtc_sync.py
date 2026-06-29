@@ -9,7 +9,9 @@ unchanged; only the delivery transport differs (buffered MSE vs WebRTC).
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import subprocess
 import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +34,39 @@ async def _desired_sources(session: AsyncSession, settings) -> dict[str, str]:
     }
 
 
+async def _apply_go2rtc_reload(settings, client: Go2rtcClient) -> bool:
+    """Make go2rtc pick up the just-written config.
+
+    go2rtc's POST /api/restart only reloads the config DISPLAY — it does NOT
+    re-init the stream registry, so new/changed streams never load (and the source
+    watchdog then sees phantom failures and auto-disables the NVR). When
+    `go2rtc_restart_cmd` is set we HARD-restart the go2rtc process via that command
+    (e.g. `Restart-Service dahua-go2rtc`); otherwise fall back to the soft API
+    restart (dev). Returns True if a reload was applied."""
+    cmd = (getattr(settings, "go2rtc_restart_cmd", "") or "").strip()
+    if cmd:
+        try:
+            # Blocking (service restart ~5-8s) → run off the event loop.
+            r = await asyncio.to_thread(
+                subprocess.run, cmd, shell=True, capture_output=True, text=True, timeout=45,
+            )
+            if r.returncode == 0:
+                log.info("go2rtc hard-restarted via go2rtc_restart_cmd")
+                return True
+            log.error(
+                "go2rtc hard restart cmd exited %d: %s — falling back to API restart",
+                r.returncode, (r.stderr or r.stdout or "").strip()[:200],
+            )
+        except Exception as e:  # noqa: BLE001
+            log.error("go2rtc hard restart cmd failed (%s); falling back to API restart", e)
+    try:
+        await client.restart()
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.error("go2rtc reload: wrote config but API restart failed: %s", e)
+        return False
+
+
 async def _reconcile_via_file(
     session: AsyncSession, settings, client: Go2rtcClient
 ) -> dict:
@@ -48,12 +83,7 @@ async def _reconcile_via_file(
         return {"mode": "file", "changed": False, "streams": len(desired)}
 
     write_streams(path, desired)
-    try:
-        await client.restart()
-        reloaded = True
-    except Exception as e:  # noqa: BLE001
-        log.error("go2rtc file reconcile: wrote config but restart failed: %s", e)
-        reloaded = False
+    reloaded = await _apply_go2rtc_reload(settings, client)
     dt = (time.perf_counter() - t0) * 1000
     log.info(
         "go2rtc file reconcile in %.0fms: wrote %d streams, reloaded=%s",

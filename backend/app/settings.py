@@ -137,6 +137,16 @@ class Settings(BaseSettings):
     # PUT /api/streams. Path is relative to the process CWD (the repo root, where
     # start.ps1/start-mac.sh copy go2rtc.base.yaml → .go2rtc/go2rtc.yaml).
     go2rtc_config_path: str = ".go2rtc/go2rtc.yaml"
+    # go2rtc's POST /api/restart only reloads the config DISPLAY — it does NOT
+    # re-init the stream registry, so newly added / changed streams (an NVR
+    # enable/add/cred-change) never actually load until the go2rtc PROCESS is
+    # restarted. That gap silently breaks new NVRs and feeds the source watchdog
+    # phantom failures (it then auto-disables the NVR). When set, the reconcile runs
+    # this command to HARD-restart go2rtc after a config change instead of the soft
+    # API reload. On the Windows server (services run as LocalSystem):
+    #   GO2RTC_RESTART_CMD=powershell -NoProfile -Command "Restart-Service dahua-go2rtc"
+    # Empty (dev) → fall back to the soft API restart.
+    go2rtc_restart_cmd: str = ""
 
     # ── Source-on-demand timings ─────────────────────────────────────────────
     sub_start_timeout: str = "10s"
