@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MsePlayer } from "@/components/video/MsePlayer";
+import { MsePlayer, type PlayerStatus } from "@/components/video/MsePlayer";
 import { streamName } from "@/api/types";
 import { XIcon, VolumeOn, VolumeOff, ServerIcon, CameraIcon } from "@/components/icons";
 import type { Camera } from "@/api/types";
@@ -22,6 +22,25 @@ export function FullscreenView({ cam, onClose }: Props) {
   // as a per-camera fallback when a camera isn't directly reachable.
   const [viaNvr, setViaNvr] = useState(false);
 
+  // TIER 1 — Transport for the 4MP main. Try WebRTC first (UDP/RTP: drops late
+  // frames to stay live under congestion, like Smart PSS/iVMS — fixes the busy-
+  // network freeze), and auto-fall-back to MSE if WebRTC can't establish (Safari,
+  // a blocked :8556, ICE failure). `key={transport}` remounts the player on switch.
+  const [transport, setTransport] = useState<"webrtc" | "mse">("webrtc");
+  const [status, setStatus] = useState<PlayerStatus>("connecting");
+
+  // Fallback: if WebRTC hasn't gone live within 7s (or errored), drop to MSE once.
+  useEffect(() => {
+    if (transport !== "webrtc") return;
+    if (status === "live") return;
+    if (status === "error") {
+      setTransport("mse");
+      return;
+    }
+    const t = window.setTimeout(() => setTransport("mse"), 7000);
+    return () => window.clearTimeout(t);
+  }, [transport, status]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -41,6 +60,23 @@ export function FullscreenView({ cam, onClose }: Props) {
         <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_#2ecc71]" />
         <span className="text-base font-bold text-ink-bright">{cam.display_name}</span>
         <span className="font-mono text-2xs text-ink-faint">ch{cam.channel}</span>
+        {quality === "main" && (
+          <span
+            title={
+              transport === "webrtc"
+                ? "WebRTC — real-time, drops late frames under load"
+                : "MSE — buffered TCP fallback"
+            }
+            className={[
+              "rounded px-1.5 py-0.5 font-mono text-3xs font-bold uppercase tracking-wider",
+              transport === "webrtc"
+                ? "bg-accent/[.12] text-accent-light"
+                : "bg-white/[.06] text-ink-dim",
+            ].join(" ")}
+          >
+            {transport}
+          </span>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           {quality === "main" && (
@@ -86,15 +122,14 @@ export function FullscreenView({ cam, onClose }: Props) {
         <div className="relative h-full w-full overflow-hidden rounded-xl border border-white/[.08] bg-black">
           {quality ? (
             <MsePlayer
+              key={transport}
               src={streamName(cam, quality, viaNvr)}
               muted={!audioOn}
-              // MSE (over the WebSocket = TCP) for the main. On a lossy link this is
-              // FAR more robust than WebRTC/UDP: TCP retransmits dropped packets
-              // invisibly (~ms on a LAN) so every frame arrives intact. WebRTC can't
-              // recover loss and corrupts frames — measured 0.8% link loss → 81%
-              // frames dropped. mode="webrtc" stays available for a clean link (lower
-              // latency); MSE is the safe default.
-              mode="mse"
+              // Tier 1: WebRTC first (real-time, drops late frames → survives a
+              // congested LAN at full 4MP), auto-falling back to MSE (TCP, reliable)
+              // when WebRTC can't establish. See the transport/status effect above.
+              mode={transport}
+              onStatus={setStatus}
               className="absolute inset-0 h-full w-full"
             />
           ) : (

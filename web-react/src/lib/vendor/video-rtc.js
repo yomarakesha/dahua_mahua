@@ -577,9 +577,19 @@ export class VideoRTC extends HTMLElement {
 
         pc.addEventListener('connectionstatechange', () => {
             if (pc.connectionState === 'connected') {
-                const tracks = pc.getTransceivers()
-                    .filter(tr => tr.currentDirection === 'recvonly') // skip inactive
-                    .map(tr => tr.receiver.track);
+                const recvTr = pc.getTransceivers()
+                    .filter(tr => tr.currentDirection === 'recvonly'); // skip inactive
+                // DSS: bias the receiver jitter buffer toward "stay live, drop late
+                // frames" (native-VMS behavior) instead of buffering under congestion
+                // — the whole reason we use WebRTC for the 4MP main. ~150ms, NOT 0
+                // (0 stutters at high resolution). Standardised knob; guarded for old
+                // browsers. See MDN RTCRtpReceiver.jitterBufferTarget.
+                for (const tr of recvTr) {
+                    try {
+                        if ('jitterBufferTarget' in tr.receiver) tr.receiver.jitterBufferTarget = 150;
+                    } catch (e) { /* unsupported — ignore */ }
+                }
+                const tracks = recvTr.map(tr => tr.receiver.track);
                 /** @type {HTMLVideoElement} */
                 const video2 = document.createElement('video');
                 video2.addEventListener('loadeddata', () => this.onpcvideo(video2), {once: true});
