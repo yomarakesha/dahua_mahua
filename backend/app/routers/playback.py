@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import Response
 from sqlalchemy import select
 
 from app.crypto import decrypt_password
@@ -38,6 +39,7 @@ from app.services.lockouts import get_active_lockout
 from app.services.playback.index_parser import Clip
 from app.services.playback.media_find import MediaFindError, find_clips
 from app.services.playback.nvr_budget import BudgetExhausted, get_budget
+from app.services.playback.snapshot import SnapshotError, grab_frame
 from app.services.playback.session import (
     PlaybackSession,
     SessionState,
@@ -812,3 +814,84 @@ async def recording_availability(
 
     _cache_set(cache_key, result)
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Thumbnail endpoint — /playback/{nvr_id}/{channel}/thumb?at=<epoch>  (Task 9)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Returns a single JPEG frame extracted by ffmpeg from the NVR recording at the
+# requested footage epoch.  Used by the timeline drag-preview (throttled: emit on
+# drag-settle/end, not every pointermove — Contract #7).
+#
+# Auth:  per-camera RBAC (Contract #1) — load Camera by (nvr_id, channel),
+#        authorize with user_can_access_camera.  Missing NVR or camera → 404.
+# Snapshot does NOT acquire NvrBudget — it is a short-lived one-shot (< 15 s).
+# Credential hygiene (Contract #12): password and credentialed URL never logged.
+
+
+@router.get("/{nvr_id}/{channel}/thumb")
+async def playback_thumb(
+    nvr_id: str,
+    channel: int,
+    at: int,            # footage epoch (UTC seconds)
+    session: SessionDep,
+    user: CurrentUser,
+) -> Response:
+    """Return a JPEG frame at the given footage epoch.
+
+    Returns:
+        JPEG bytes with ``Content-Type: image/jpeg``.
+
+    Error responses:
+        400 — invalid channel (< 1) or epoch (≤ 0).
+        404 — NVR or camera not found, or user has no per-camera access.
+        502 — ffmpeg failed, timed out, or returned empty output.
+
+    Rate note: not cached — callers must throttle (drag-preview: fire on
+    drag-settle/end, not every pointermove).
+    """
+    # ── Input validation (400) ─────────────────────────────────────────────
+    try:
+        validate_channel(channel)
+        validate_footage_epoch(at)
+    except PlaybackUrlError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    # ── Per-camera RBAC (Contract #1) — no SSRF: IP comes from DB row ─────
+    nvr = (
+        await session.execute(select(Nvr).where(Nvr.id == nvr_id))
+    ).scalar_one_or_none()
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
+
+    # ── Extract frame via ffmpeg ──────────────────────────────────────────
+    settings = get_settings()
+    password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
+    try:
+        jpeg = await grab_frame(
+            ip=nvr.ip,
+            rtsp_port=nvr.port,          # Contract #9: nvr.port is the RTSP port
+            user=nvr.rtsp_username,
+            pw=password,
+            channel=channel,
+            footage_epoch=at,
+            tz_offset_minutes=settings.playback_tz_offset_minutes,
+            ffbin=settings.reencode_ffmpeg_bin,
+        )
+    except SnapshotError as exc:
+        # Log exc text only — it never contains the password (Contract #12).
+        log.warning(
+            "Snapshot failed nvr=%s ch=%d at=%d: %s",
+            nvr_id, channel, at, exc,
+        )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Snapshot unavailable"
+        ) from exc
+
+    return Response(content=jpeg, media_type="image/jpeg")
