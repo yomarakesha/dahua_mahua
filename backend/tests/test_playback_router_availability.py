@@ -110,14 +110,14 @@ EARLY_CLIP = Clip(
     start=datetime(2026, 1, 1, 6, 0, 0),
     end=datetime(2026, 1, 1, 10, 0, 0),
     type="Timing",
-    stream="dav",
+    stream="Main",
 )
 
 DAYTIME_CLIP = Clip(
     start=datetime(2026, 1, 15, 8, 0, 0),
     end=datetime(2026, 1, 15, 12, 0, 0),
     type="Event",
-    stream="dav",
+    stream="Main",
 )
 
 # Crosses midnight Jan 31 → Feb 1; must contribute BOTH day strings.
@@ -125,7 +125,7 @@ MIDNIGHT_CROSSING_CLIP = Clip(
     start=datetime(2026, 1, 31, 23, 30, 0),
     end=datetime(2026, 2, 1, 0, 30, 0),
     type="Timing",
-    stream="dav",
+    stream="Main",
 )
 
 
@@ -162,13 +162,13 @@ def test_helper_deduplicates_same_day():
         start=datetime(2026, 1, 15, 8, 0),
         end=datetime(2026, 1, 15, 10, 0),
         type="T",
-        stream="dav",
+        stream="Main",
     )
     clip_b = Clip(
         start=datetime(2026, 1, 15, 14, 0),
         end=datetime(2026, 1, 15, 16, 0),
         type="T",
-        stream="dav",
+        stream="Main",
     )
     days = clips_to_day_strings([clip_a, clip_b])
     assert days == ["2026-01-15"]

@@ -49,6 +49,21 @@ assumptions. Each row notes how the design adapts.
 The spike produces a short findings note that pins these numbers; the spec's "TBD-from-spike"
 values get filled in before implementation.
 
+### 2a. Spike findings — VERIFIED 2026-06-30 (NVR `192.168.20.15`, ch1, 4MP cams)
+
+Run live against the old NVR over the wired path. These are measured, not assumed.
+
+| # | Finding | Impact on design |
+|---|---------|------------------|
+| **V3** | **Continuous recording.** `Flags[0]=Timing`, back-to-back 1-hour file segments, zero gaps (e.g. 12:00→13:00→…→17:00→17:27 open). | Timeline is one continuous span per day, not sparse event clips. `merge_into_clips` collapses the hour-segments into a single clip — correct. |
+| **V4** | **MAIN-ONLY recording.** Every record is `VideoStream=Main` (4 MP). Filtering `condition.VideoStream=Sub`/`=2` is **ignored** — the NVR always returns Main. **There is no recorded sub-stream to scrub.** | ❌ Kills the "scrub the cheap sub, snapshot the main" plan (V4 fallback row). **Playback MUST use the 4 MP main.** |
+| **V1/delivery** | **4 MP main playback is delivery-limited** (same wall as live): RTSP-**TCP = 0.22× realtime** (reliable, all frames) — far too slow to play; RTSP-**UDP = 0.89× realtime but ~25 % frame loss** (153 of 205 frames → corruption). | Client-side fast-forward by "pull everything, play faster" is **impossible** — we can't even deliver 1× over TCP. The session service must pull over **UDP and re-mux/re-encode** (same engine as the live main, conceals UDP loss) to reach ~realtime. FF **must** be server-side (NVR `Scale` or backend frame-decimation) — confirms §5's backend-owned-speed decision. |
+| **protocol** | `factory.create` → `result=<id>`; **`findFile` returns a bare `OK` body** (not `result=true`); `findNextFile` items carry `StartTime`/`EndTime`/`Type=dav` (container)/`Flags[0]` (Timing)/**`VideoStream`** (Main/Sub). `condition.Channel` is **1-based** in the query (`Channel=1`), but results report **0-based** `Channel=0`. | Phase-1 code corrected: `_is_ok()` now accepts `OK`; parser reads stream from `VideoStream`, not `Type`. Callers pass 1-based channel. |
+
+**Still unmeasured** (deferred, not blocking Phase 1): V1 whether the NVR honours RTSP `Scale` for true fast-play (ffmpeg can't send it — needs a custom RTSP `PLAY` or backend decimation); V2 exact GOP length; V5 retention depth; V6/V7/V9 on the new NVR; concurrent-playback ceiling. Pin these when building the Phase-2 session service.
+
+**Net architectural consequence:** the playback session is essentially the **live-main pipeline pointed at `/cam/playback`** — UDP pull → re-mux/re-encode → MSE — because the only recorded stream is the same hard-to-deliver 4 MP main. There is no cheap proxy stream; "smooth scrub on the sub" is off the table.
+
 ## 3. Architecture (revised)
 
 A self-contained playback pipeline. **It shares the NVR's scarce stream/auth budget with

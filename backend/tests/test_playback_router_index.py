@@ -110,13 +110,13 @@ TWO_CLIPS = [
         start=datetime(2026, 1, 1, 8, 0, 0),
         end=datetime(2026, 1, 1, 12, 0, 0),
         type="Timing",
-        stream="dav",
+        stream="Main",
     ),
     Clip(
         start=datetime(2026, 1, 1, 14, 0, 0),
         end=datetime(2026, 1, 1, 20, 0, 0),
         type="Event",
-        stream="dav",
+        stream="Main",
     ),
 ]
 
@@ -157,13 +157,13 @@ def test_index_json_shape_and_epoch(client, monkeypatch):
     assert c0["start_epoch"] == _epoch(TWO_CLIPS[0].start, TZ_OFFSET)
     assert c0["end_epoch"] == _epoch(TWO_CLIPS[0].end, TZ_OFFSET)
     assert c0["type"] == "Timing"
-    assert c0["stream"] == "dav"
+    assert c0["stream"] == "Main"
 
     c1 = data["clips"][1]
     assert c1["start_epoch"] == _epoch(TWO_CLIPS[1].start, TZ_OFFSET)
     assert c1["end_epoch"] == _epoch(TWO_CLIPS[1].end, TZ_OFFSET)
     assert c1["type"] == "Event"
-    assert c1["stream"] == "dav"
+    assert c1["stream"] == "Main"
 
     # Regression guard: find_clips must receive the HTTP port (80), NOT nvr.port
     # (RTSP, seeded as 554).  A regression to nvr.port would hit :554 over HTTP.

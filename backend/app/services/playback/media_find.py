@@ -80,11 +80,19 @@ def _parse_object_id(body: str) -> str:
 
 
 def _is_ok(body: str) -> bool:
-    """Return True if the response contains ``result=true``."""
+    """Return True for a Dahua findFile success response.
+
+    Firmwares differ: some reply ``result=true``, but the NVRs in this
+    deployment (verified 192.168.20.15, 2026-06-30) return a bare ``OK``
+    body.  Accept both, else findFile always looks like a failure.
+    """
+    stripped = body.strip()
+    if stripped.upper().startswith("OK"):
+        return True
     for line in body.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("result="):
-            return stripped.split("=", 1)[1].strip().lower() == "true"
+        line = line.strip()
+        if line.startswith("result="):
+            return line.split("=", 1)[1].strip().lower() == "true"
     return False
 
 

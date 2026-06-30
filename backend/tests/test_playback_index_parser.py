@@ -15,12 +15,16 @@ from app.services.playback.index_parser import (
     parse_find_records,
 )
 
+# Mirrors the real NVR body (verified 192.168.20.15, 2026-06-30): the stream is
+# carried by VideoStream (Main/Sub), Type=dav is the container, Flags[0] is the
+# semantic record type. items[1] omits VideoStream to exercise the "" fallback.
 SAMPLE = (
-    "items[0].Channel=1\r\n"
+    "items[0].Channel=0\r\n"
     "items[0].StartTime=2026-06-29 08:00:00\r\n"
     "items[0].EndTime=2026-06-29 08:30:00\r\n"
     "items[0].Type=dav\r\n"
     "items[0].Flags[0]=Timing\r\n"
+    "items[0].VideoStream=Main\r\n"
     "items[1].StartTime=2026-06-29 08:30:00\r\n"
     "items[1].EndTime=2026-06-29 09:00:00\r\n"
     "items[1].Flags[0]=Event\r\n"
@@ -53,9 +57,9 @@ def test_parse_empty_body():
 
 def test_parse_stream_field_present():
     recs = parse_find_records(SAMPLE)
-    # items[0] has Type=dav → stream must be "dav"
-    # items[1] has no Type key → stream must fall back to ""
-    assert recs[0].stream == "dav"
+    # items[0] has VideoStream=Main → stream must be "Main"
+    # items[1] has no VideoStream key → stream must fall back to ""
+    assert recs[0].stream == "Main"
     assert recs[1].stream == ""
 
 

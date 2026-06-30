@@ -4,20 +4,21 @@ The NVR replies to `mediaFileFind.findNextFile` with a flat key=value body
 where each recording is a numbered `items[N].<field>=<value>` entry.  This
 module is pure logic — no network, no I/O — so it can be unit-tested offline.
 
-Typical body fragment (CRLF line endings)::
+Real body fragment from a Dahua NVR (192.168.20.15, verified 2026-06-30,
+CRLF line endings)::
 
-    items[0].Channel=1
-    items[0].StartTime=2026-06-29 08:00:00
-    items[0].EndTime=2026-06-29 08:30:00
+    items[0].Channel=0
+    items[0].StartTime=2026-06-30 16:00:00
+    items[0].EndTime=2026-06-30 17:00:00
     items[0].Type=dav
     items[0].Flags[0]=Timing
-    items[1].StartTime=2026-06-29 08:30:00
-    items[1].EndTime=2026-06-29 09:00:00
-    items[1].Flags[0]=Event
+    items[0].VideoStream=Main
 
 The `Flags[0]` value (e.g. ``Timing``, ``Event``) is the semantic record type;
-`Type` (e.g. ``dav``) is the container format and is used as the `stream` tag
-when no explicit stream indicator is present.
+`VideoStream` (e.g. ``Main``, ``Sub``) is the recorded stream; `Type`
+(e.g. ``dav``) is just the container format.  These NVRs record the Main
+stream only — ``condition.VideoStream`` filters are ignored and always return
+``Main`` (verified against the live NVR).
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ class FindRecord:
     start: datetime
     end: datetime
     type: str    # semantic type, e.g. "Timing" or "Event"
-    stream: str  # container/stream tag, e.g. "dav"
+    stream: str  # recorded stream, e.g. "Main" or "Sub"
 
 
 @dataclass(slots=True)
@@ -89,8 +90,8 @@ def parse_find_records(body: str) -> list[FindRecord]:
 
         # Semantic type comes from Flags[0]; fall back to Type then empty string
         rec_type = fields.get("Flags[0]") or fields.get("Type", "")
-        # Stream tag: use the container Type field (e.g. "dav"), else empty
-        stream = fields.get("Type", "")
+        # Recorded stream: VideoStream (e.g. "Main"/"Sub"); empty if absent
+        stream = fields.get("VideoStream", "")
 
         records.append(FindRecord(start=start, end=end, type=rec_type, stream=stream))
 

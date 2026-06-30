@@ -51,17 +51,20 @@ def _patch_client(mock_client: AsyncMock):
 
 # ── Sample NVR bodies ─────────────────────────────────────────────────────────
 
-# Two adjacent Timing/dav records — should merge into a single Clip
+# Two adjacent Timing/Main records — should merge into a single Clip.
+# Mirrors the real NVR body: stream carried by VideoStream, Type=dav is container.
 _PAGE_TWO_RECORDS = (
-    "items[0].Channel=1\r\n"
+    "items[0].Channel=0\r\n"
     "items[0].StartTime=2026-06-29 08:00:00\r\n"
     "items[0].EndTime=2026-06-29 08:30:00\r\n"
     "items[0].Type=dav\r\n"
     "items[0].Flags[0]=Timing\r\n"
+    "items[0].VideoStream=Main\r\n"
     "items[1].StartTime=2026-06-29 08:30:00\r\n"
     "items[1].EndTime=2026-06-29 09:00:00\r\n"
     "items[1].Type=dav\r\n"
     "items[1].Flags[0]=Timing\r\n"
+    "items[1].VideoStream=Main\r\n"
 )
 
 _PAGE_EMPTY = ""
@@ -74,7 +77,7 @@ async def test_happy_path_returns_merged_clips():
     """create → findFile → findNextFile(2 records, <batch) → close → destroy → 1 merged Clip."""
     client = _mock_client([
         _resp("result=1\r\n"),           # factory.create  → id=1
-        _resp("result=true\r\n"),        # findFile        → ok
+        _resp("OK\r\n"),                 # findFile → bare "OK" (real NVR contract)
         _resp(_PAGE_TWO_RECORDS),        # findNextFile p1 → 2 records (< batch=100, done)
         _resp("result=ok\r\n"),          # close
         _resp("result=ok\r\n"),          # destroy
@@ -95,7 +98,7 @@ async def test_happy_path_returns_merged_clips():
     assert c.start == datetime(2026, 6, 29, 8, 0, 0)
     assert c.end == datetime(2026, 6, 29, 9, 0, 0)
     assert c.type == "Timing"
-    assert c.stream == "dav"
+    assert c.stream == "Main"
 
     # The findFile URL must use %20 for the space in the time strings (RFC 3986)
     call_urls = [str(ca.args[0]) for ca in client.get.call_args_list]
