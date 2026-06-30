@@ -150,6 +150,30 @@ export interface CameraIpImportResult {
   message: string;
 }
 
+// ── Playback recording types ──────────────────────────────────────────────────
+
+/** One merged clip span from GET /playback/{nvr_id}/{ch}/index */
+export interface RecordingClip {
+  start_epoch: number;   // UTC epoch seconds (inclusive)
+  end_epoch: number;     // UTC epoch seconds (exclusive)
+  type: string;          // e.g. "dav" (container type from NVR)
+  stream: string;        // "Main" (always Main per spike V4)
+}
+
+/** Full response from GET /playback/{nvr_id}/{ch}/index?date=YYYY-MM-DD */
+export interface RecordingIndex {
+  tz_offset_minutes: number;   // NVR local = UTC + tz_offset_minutes
+  day_start_epoch: number;     // epoch of 00:00:00 NVR-local
+  day_end_epoch: number;       // epoch of 00:00:00 NVR-local next day
+  clips: RecordingClip[];
+}
+
+/** Response from GET /playback/{nvr_id}/{ch}/availability?month=YYYY-MM */
+export interface RecordingAvailability {
+  days_with_recordings: string[];  // sorted ["YYYY-MM-DD", ...]
+  oldest_epoch: number | null;     // epoch of oldest clip start, null if empty month
+}
+
 /**
  * go2rtc stream name for a camera. sub = `{nvr}_ch{N}`, main = `…_main` (direct
  * from the camera IP). `viaNvr` selects the relay variant `…_main_nvr` (pulled
