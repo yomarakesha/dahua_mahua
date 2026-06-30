@@ -6,6 +6,8 @@ import {
   useRecordingIndex,
 } from "@/api/hooks";
 import { CameraIcon } from "@/components/icons";
+import Timeline from "./Timeline";
+import type { PlayerState } from "./types";
 
 type Speed = 1 | 2 | 4 | 8;
 
@@ -29,6 +31,12 @@ export default function PlaybackPage() {
   /** Footage epoch (UTC seconds) committed by the Timeline on drag-release. */
   const [seekTarget, setSeekTarget] = useState<number | null>(null);
   const [speed, setSpeed] = useState<Speed>(1);
+  /**
+   * Player state — Task 14 will set this via PlaybackPlayer's onStateChange.
+   * Defaults to "loading"; Timeline disables drag/seek when "error".
+   */
+  const [playerState, setPlayerState] = useState<PlayerState>("loading");
+  void setPlayerState; // consumed by Task 14 player wiring
 
   // ── Data ────────────────────────────────────────────────────────────────────
 
@@ -250,19 +258,30 @@ export default function PlaybackPage() {
       </div>
 
       {/* ── Timeline ────────────────────────────────────────────────────────── */}
-      <div
-        className="flex h-20 flex-none items-center justify-center border-t border-white/[.06] bg-[#0c1014] text-xs text-ink-dim/40"
-        data-testid="timeline-placeholder"
-      >
-        {/*
-          Task 13 — swap this div for:
-            <Timeline
-              indexData={indexData}
-              seekTarget={seekTarget}
-              onSeek={(epoch) => setSeekTarget(epoch)}
-            />
-        */}
-        timeline here
+      <div className="flex-none border-t border-white/[.06] bg-[#0c1014] py-2">
+        {indexData ? (
+          <Timeline
+            dayStartEpoch={indexData.day_start_epoch}
+            dayEndEpoch={indexData.day_end_epoch}
+            clips={indexData.clips}
+            tzOffsetMinutes={indexData.tz_offset_minutes}
+            playheadEpoch={seekTarget}
+            onSeek={(epoch) => setSeekTarget(epoch)}
+            playerState={playerState}
+          />
+        ) : (
+          /*
+           * Placeholder shown before indexData arrives.
+           * data-testid preserved for PlaybackPage.test.tsx which mocks
+           * useRecordingIndex to return null data.
+           */
+          <div
+            className="flex h-16 items-center justify-center text-xs text-ink-dim/40"
+            data-testid="timeline-placeholder"
+          >
+            {hasSelection ? "Loading recording index…" : "timeline here"}
+          </div>
+        )}
       </div>
     </div>
   );
