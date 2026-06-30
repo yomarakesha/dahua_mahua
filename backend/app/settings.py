@@ -232,18 +232,13 @@ class Settings(BaseSettings):
     # overridden per NVR in the database; this is the deploy-wide fallback.
     playback_rtsp_default_port: int = 554
 
-    # Global cap on concurrent playback sessions across all NVRs.  When the
-    # cap is reached, the WS endpoint closes with code 4429 ("resource
-    # exhausted"; Contract #2).  Tune to the number of simultaneous operators.
-    playback_max_concurrent_sessions: int = 4
-
     # Per-NVR playback slot limit (NvrBudget, Task 6).  Defaults to 2 pending
     # V9 verification of how many concurrent RTSP pulls the NVR supports.
     playback_nvr_budget: int = 2
 
-    # Hard global cap used by NvrBudget (Task 6).  Mirrors
-    # playback_max_concurrent_sessions; kept separate so both concepts can be
-    # tuned independently without touching the other.
+    # Hard global cap on concurrent playback sessions across all NVRs
+    # (NvrBudget, Task 6).  When reached, the WS endpoint closes with code
+    # 4429 ("resource exhausted"; Contract #2).
     playback_global_cap: int = 4
 
     # Size of the fMP4 ring buffer (number of chunks).  When full, the oldest
@@ -251,14 +246,23 @@ class Settings(BaseSettings):
     # blocks on a slow WS client (Contract #11).
     playback_ring_buffer_chunks: int = 32
 
-    # WS idle timeout: close the session if no message arrives from the client
-    # within this window (seconds).  The client must send ``{"keepalive": true}``
-    # at least this often to keep the session alive.
-    playback_idle_timeout_seconds: int = 30
+    # Idle timeout: close a PAUSED/idle session after this many seconds with no
+    # activity (the reaper, Task 7).  The client sends ``{"keepalive": true}``
+    # (~every 30s) to keep a paused session alive, so this must exceed that
+    # interval and cover the spec §10 5-minute-pause check.
+    playback_idle_timeout_seconds: int = 300
+
+    # Hard maximum session lifetime (seconds) regardless of activity (reaper,
+    # Task 7).
+    playback_max_lifetime_seconds: int = 3600
 
     # How often to emit a ``{"type": "clock", "wall_ts": <epoch>}`` heartbeat
     # to the client so it can correct playhead drift (Contract #3).
-    playback_clock_interval_seconds: float = 5.0
+    playback_clock_interval_seconds: float = 2.0
+
+    # Rate-limit: max playback WS session OPEN attempts per user per minute
+    # (Task 8); excess attempts are rejected with code 4429.
+    playback_rate_limit_per_minute: int = 10
 
     # ── Bootstrap ────────────────────────────────────────────────────────────
     # On first startup, create this user if no users exist. Operator must
