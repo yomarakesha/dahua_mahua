@@ -18,19 +18,37 @@ so that the NVR's mediaFileFind CGI isn't hammered by concurrent viewers.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
+import uuid as _uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, status
+import jwt
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 
 from app.crypto import decrypt_password
 from app.deps import CurrentUser, SessionDep, user_can_access_camera
-from app.models import Camera, Nvr
+from app.models import Camera, Nvr, User
+from app.security import decode_token
+from app.services.lockouts import get_active_lockout
 from app.services.playback.index_parser import Clip
 from app.services.playback.media_find import MediaFindError, find_clips
+from app.services.playback.nvr_budget import BudgetExhausted, get_budget
+from app.services.playback.session import (
+    PlaybackSession,
+    SessionState,
+    _active_sessions,
+)
+from app.services.playback.url_builder import (
+    PlaybackUrlError,
+    validate_channel,
+    validate_footage_epoch,
+    validate_speed,
+)
 from app.settings import get_settings
 
 log = logging.getLogger("dss.playback")
@@ -234,6 +252,324 @@ async def recording_index(
 
     _cache_set(cache_key, result)
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Playback WebSocket — /playback/{nvr_id}/{channel}/stream  (Task 8)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Persistent control channel: JWT-authenticated handshake (BEFORE accept),
+# per-camera RBAC (Contract #1), per-NVR/global budget (Task 6), one
+# PlaybackSession (Task 7), and a small JSON control protocol multiplexed with
+# binary fMP4 fragments.
+#
+# Close codes (Contract #2):
+#   4001 — unauthenticated (missing/bad token, unknown/inactive user)
+#   4003 — forbidden (no per-camera access)
+#   4004 — NVR/camera not found or disabled (or a bad channel/start target)
+#   4429 — resource exhausted (lockout / rate-limit / NVR or global budget cap)
+#
+# Credential hygiene (Contract #12): the NVR password and credentialed RTSP URL
+# never appear in any WS payload or log line.
+
+# MVP hard-codes the libx264 Baseline MIME (Contract #14); validate in integration.
+_INIT_CODEC = "avc1.42E01E"
+
+# How long the fragment-sender waits for the pinned fMP4 init segment after a
+# (re)spawn before giving up and streaming fragments without it.
+_INIT_SEGMENT_TIMEOUT = 10.0
+
+# Per-user session-open rate limiter (Task 8 / spec §7): {user_id: deque[monotonic]}.
+_RATE_WINDOW = 60.0
+_rate_limits: dict[str, deque] = {}
+
+
+def _check_rate_limit(user_id: str) -> bool:
+    """Sliding 60 s window of session-open attempts per user.
+
+    Returns ``True`` if the attempt is within budget (and records it), ``False``
+    if the user has exceeded ``settings.playback_rate_limit_per_minute``.
+    """
+    limit = get_settings().playback_rate_limit_per_minute
+    now = time.monotonic()
+    dq = _rate_limits.setdefault(user_id, deque())
+    while dq and now - dq[0] > _RATE_WINDOW:
+        dq.popleft()
+    if len(dq) >= limit:
+        return False
+    dq.append(now)
+    return True
+
+
+def _classify_session_end(returncode: int | None) -> str:
+    """Decide clean end-of-stream vs crash from ffmpeg's exit code (Task-8 #2).
+
+    The session does NOT self-transition to a terminal state when ffmpeg exits
+    on its own, so the WS layer makes this call.  A clean exit (``rc == 0``) is
+    an EOF (end of the requested recording span); anything else — a non-zero
+    code or a signal death we did not initiate — is treated as a crash.
+
+    Pure + mockable: unit-tested without a live NVR.
+    """
+    return "eof" if returncode == 0 else "error"
+
+
+async def _dispatch(msg: dict, sess: PlaybackSession, ws: WebSocket) -> None:
+    """Dispatch one parsed client control message.
+
+    Validators run BEFORE any session mutation (so a bad ``speed``/``seek`` is
+    rejected before ffmpeg is touched).  Raises ``PlaybackUrlError`` on invalid
+    input; the receive loop turns that into a sanitised ``{type:"error"}`` rather
+    than tearing down the socket.
+    """
+    if "seek" in msg:
+        epoch = validate_footage_epoch(msg["seek"])
+        await sess.seek(epoch)
+        await ws.send_json({"type": "reinit", "t0": sess.t0})
+    elif "speed" in msg:
+        speed = validate_speed(int(msg["speed"]))
+        await sess.set_speed(speed)
+        await ws.send_json({"type": "reinit", "t0": sess.t0})
+    elif "pause" in msg:
+        await sess.pause()
+    elif "play" in msg:
+        await sess.resume(sess.footage_now())
+        await ws.send_json({"type": "reinit", "t0": sess.t0})
+    elif "keepalive" in msg:
+        now = time.monotonic()
+        sess._last_keepalive = now
+        # Keep a PAUSED session off the idle reaper's chopping block.
+        if sess.state == SessionState.PAUSED:
+            sess._paused_at = now
+    elif "stream" in msg:
+        # Contract #5: NVR records main-only; silently ignore stream switches.
+        log.debug("stream switch requested (%r) — ignored (main-only NVR)", msg["stream"])
+    else:
+        log.warning("Unknown playback control message: %r", msg)
+
+
+async def _clock_sender(ws: WebSocket, sess: PlaybackSession, interval: float) -> None:
+    """Emit ``{type:"clock", wall_ts:<footage epoch>}`` while PLAYING (Contract #3)."""
+    while sess.state not in (SessionState.CLOSED, SessionState.ERROR):
+        await asyncio.sleep(interval)
+        if sess.state == SessionState.PLAYING:
+            await ws.send_json({"type": "clock", "wall_ts": sess.footage_now()})
+
+
+async def _fragment_sender(ws: WebSocket, sess: PlaybackSession) -> None:
+    """Stream fMP4 fragments, pinning the init segment after each (re)spawn.
+
+    Ordering guarantee (Task-8 review #3): on every new ``_spawn_gen`` the
+    pinned init segment (ftyp+moov) is sent FIRST, then media fragments from the
+    back-pressure ring.  When the ring drains AND the ffmpeg process has exited
+    on its own while PLAYING, we classify clean-EOF vs crash (Task-8 review #2),
+    signal the client, and return — the endpoint then closes the session.
+
+    INTEGRATION: the exact fMP4 byte-boundary alignment of the pinned init
+    segment is an on-network check (no live NVR here).
+    """
+    last_gen = -1
+    while not sess._closing and sess.state not in (SessionState.CLOSED, SessionState.ERROR):
+        if sess._spawn_gen != last_gen:
+            init = await sess.wait_init_segment(timeout=_INIT_SEGMENT_TIMEOUT)
+            last_gen = sess._spawn_gen
+            if init:
+                await ws.send_bytes(init)
+        try:
+            chunk = await asyncio.wait_for(sess._ring.get(), timeout=0.5)
+        except asyncio.TimeoutError:
+            # Ring empty: has ffmpeg ended on its own (not a seek/pause kill)?
+            proc = sess._proc
+            if (
+                sess.state == SessionState.PLAYING
+                and proc is not None
+                and proc.returncode is not None
+                and sess._ring.empty()
+            ):
+                kind = _classify_session_end(proc.returncode)
+                if kind == "eof":
+                    await ws.send_json({"type": "eof"})
+                else:
+                    await ws.send_json(
+                        {"type": "error", "reason": "playback stream ended unexpectedly"}
+                    )
+                return
+            continue
+        await ws.send_bytes(chunk)
+
+
+async def _receive_loop(ws: WebSocket, sess: PlaybackSession) -> None:
+    """Read client control JSON and dispatch it; bad input → sanitised error."""
+    while True:
+        msg = await ws.receive_json()  # raises WebSocketDisconnect on close
+        if not isinstance(msg, dict):
+            log.warning("Ignoring non-object playback control message")
+            continue
+        try:
+            await _dispatch(msg, sess, ws)
+        except PlaybackUrlError as exc:
+            # str(exc) is a fixed validator message — no credentials (Contract #12).
+            await ws.send_json({"type": "error", "reason": str(exc)})
+
+
+async def _control_loop(ws: WebSocket, sess: PlaybackSession, clock_interval: float) -> None:
+    """Run receive + clock + fragment coroutines until any one finishes.
+
+    A client disconnect surfaces from ``_receive_loop`` as ``WebSocketDisconnect``;
+    end-of-stream/crash surfaces from ``_fragment_sender``.  Whichever finishes
+    first cancels the others, and we re-raise so the endpoint's ``finally`` runs.
+    """
+    recv = asyncio.create_task(_receive_loop(ws, sess), name="pb-recv")
+    clock = asyncio.create_task(_clock_sender(ws, sess, clock_interval), name="pb-clock")
+    frag = asyncio.create_task(_fragment_sender(ws, sess), name="pb-frag")
+    tasks = {recv, clock, frag}
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for t in pending:
+        t.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    # Surface the first finisher's exception (e.g. WebSocketDisconnect).
+    for t in done:
+        exc = t.exception()
+        if exc is not None:
+            raise exc
+
+
+@router.websocket("/{nvr_id}/{channel}/stream")
+async def playback_stream(
+    websocket: WebSocket,
+    nvr_id: str,
+    channel: int,
+    session: SessionDep,
+    token: str | None = None,   # JWT from ?token= (browsers can't set WS headers)
+    t: int | None = None,       # initial footage epoch (UTC seconds) to play from
+) -> None:
+    """Persistent playback WebSocket — auth handshake + control protocol.
+
+    The full auth + budget gauntlet runs BEFORE ``websocket.accept()`` so no
+    ffmpeg is ever spawned for an unauthenticated/forbidden/over-budget client
+    (Contract #2).  See the module banner for close-code semantics.
+    """
+    # ── 1. JWT (Contract #2: validate BEFORE accept) ──────────────────────────
+    if not token:
+        await websocket.close(code=4001)
+        return
+    try:
+        payload = decode_token(token)
+    except jwt.PyJWTError:
+        await websocket.close(code=4001)
+        return
+    sub = payload.get("sub")
+    try:
+        user_id = _uuid.UUID(str(sub))
+    except (TypeError, ValueError):
+        await websocket.close(code=4001)
+        return
+    user = (
+        await session.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if user is None or not user.is_active:
+        await websocket.close(code=4001)
+        return
+
+    # ── 2. Validate channel + start target (before any ffmpeg op) ─────────────
+    try:
+        validate_channel(channel)
+        start_epoch = validate_footage_epoch(t) if t is not None else None
+    except PlaybackUrlError:
+        await websocket.close(code=4004)
+        return
+    if start_epoch is None:
+        # A playback session needs a start position; treat a missing one as a
+        # bad target rather than accepting and immediately erroring.
+        await websocket.close(code=4004)
+        return
+
+    # ── 3. Per-camera RBAC (Contract #1) ──────────────────────────────────────
+    nvr = (
+        await session.execute(select(Nvr).where(Nvr.id == nvr_id))
+    ).scalar_one_or_none()
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or not nvr.enabled or camera is None or not camera.enabled:
+        await websocket.close(code=4004)
+        return
+    if not user_can_access_camera(user, camera):
+        await websocket.close(code=4003)
+        return
+
+    # ── 4. Lockout (mirror the NVR firmware ban) ──────────────────────────────
+    if await get_active_lockout(nvr.ip) is not None:
+        await websocket.close(code=4429)
+        return
+
+    # ── 5. Per-user rate limit ────────────────────────────────────────────────
+    if not _check_rate_limit(str(user.id)):
+        log.warning("playback rate-limit hit user=%s nvr=%s", user.id, nvr_id)
+        await websocket.close(code=4429)
+        return
+
+    # ── 6. Budget (Task 6) — acquire BEFORE accept so we can reject with 4429 ──
+    budget_cm = get_budget().session(nvr_id)
+    try:
+        await budget_cm.__aenter__()
+    except BudgetExhausted:
+        await websocket.close(code=4429)
+        return
+
+    # ── 7. Accept + run the session ───────────────────────────────────────────
+    settings = get_settings()
+    sess: PlaybackSession | None = None
+    opened_at = time.monotonic()
+    try:
+        await websocket.accept()
+        password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
+        sess = PlaybackSession(
+            nvr_id=nvr_id,
+            nvr_ip=nvr.ip,
+            rtsp_port=nvr.port,  # Contract #9: nvr.port is the RTSP port
+            rtsp_user=nvr.rtsp_username,
+            rtsp_pw=password,
+            channel=channel,
+            tz_offset_minutes=settings.playback_tz_offset_minutes,
+            # Open-ended window from the seek target; the client re-seeks to
+            # move around.  Bounding the RTSP endtime is an integration concern.
+            clip_end_epoch=start_epoch + 86400,
+            ffbin=settings.reencode_ffmpeg_bin,
+            keyframe_seconds=settings.reencode_keyframe_seconds,
+            maxrate_kbps=settings.reencode_maxrate_kbps,
+            ring_buffer_chunks=settings.playback_ring_buffer_chunks,
+        )
+        await sess.open(start_epoch)  # registers in _active_sessions
+        log.info(
+            "playback_start nvr=%s ch=%d user=%s session=%s",
+            nvr_id, channel, user.id, sess.session_id,
+        )
+        await websocket.send_json({"type": "init", "t0": sess.t0, "codec": _INIT_CODEC})
+        await _control_loop(websocket, sess, settings.playback_clock_interval_seconds)
+    except WebSocketDisconnect:
+        pass
+    except BaseException:  # noqa: BLE001 — ensure cleanup on any failure path
+        log.warning("playback session error nvr=%s ch=%d", nvr_id, channel, exc_info=True)
+        try:
+            await websocket.send_json({"type": "error", "reason": "internal error"})
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        sid = sess.session_id if sess is not None else "?"
+        if sess is not None:
+            await sess.close()  # no orphan ffmpeg; removes from _active_sessions
+        await budget_cm.__aexit__(None, None, None)
+        log.info(
+            "playback_stop nvr=%s ch=%d user=%s session=%s duration=%ds",
+            nvr_id, channel, user.id, sid, int(time.monotonic() - opened_at),
+        )
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @router.get("/{nvr_id}/{channel}/availability")

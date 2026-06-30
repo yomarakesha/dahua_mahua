@@ -319,11 +319,27 @@ class PlaybackSession:
     _ring: asyncio.Queue | None = None
     _started_at: float = field(default_factory=time.monotonic)
     _paused_at: float = 0.0
+    _last_keepalive: float = 0.0
     _closing: bool = False
+
+    # ── fMP4 init-segment pinning (Contract #11 + Task-8 review #3) ──────────
+    # The back-pressure ring drops the OLDEST chunk under load, which could
+    # discard the fMP4 init segment (ftyp+moov) the client needs first.  The
+    # first chunk after each (re)spawn is captured here and pinned OUT of the
+    # droppable ring; the WS layer sends it right after each init/reinit JSON
+    # signal so the client can always initialise its decoder.
+    _init_segment: bytes | None = None
+    _init_event: asyncio.Event | None = None
+    _need_init_capture: bool = False
+    # Bumped on every (re)spawn so the WS fragment-sender knows a fresh init
+    # segment is pending and must be (re)sent before subsequent fragments.
+    _spawn_gen: int = 0
 
     def __post_init__(self) -> None:
         if self._ring is None:
             self._ring = asyncio.Queue(maxsize=self.ring_buffer_chunks)
+        if self._init_event is None:
+            self._init_event = asyncio.Event()
 
     # ── public API ─────────────────────────────────────────────────────────
 
@@ -404,6 +420,21 @@ class PlaybackSession:
         """Current footage epoch (UTC) based on wall clock + speed."""
         return footage_epoch_at(self.t0, self._wall_start, self.speed, time.monotonic())
 
+    async def wait_init_segment(self, timeout: float = 10.0) -> bytes | None:
+        """Return the pinned fMP4 init segment for the current spawn.
+
+        Blocks (up to *timeout*) until the drain loop has captured the first
+        chunk after the latest ``_spawn``.  Returns ``None`` on timeout (the WS
+        layer then proceeds without a pinned init — fragments still flow).  The
+        init segment is captured separately from the back-pressure ring so a
+        slow client can never lose it (Contract #11, Task-8 review #3).
+        """
+        try:
+            await asyncio.wait_for(self._init_event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        return self._init_segment
+
     async def drain_queue(self) -> AsyncIterator[bytes]:
         """Yield fMP4 byte chunks from the ring buffer until CLOSED or ERROR."""
         while self.state not in (SessionState.CLOSED, SessionState.ERROR):
@@ -453,6 +484,12 @@ class PlaybackSession:
         self._proc = proc
         self.t0 = start_epoch
         self._wall_start = time.monotonic()
+        # Arm init-segment capture for this spawn (Task-8 review #3): the first
+        # chunk off stdout is the fMP4 init segment and must never be dropped.
+        self._init_segment = None
+        self._need_init_capture = True
+        self._init_event.clear()
+        self._spawn_gen += 1
         _assign_job_object(proc.pid)
         self._drain_task = asyncio.create_task(
             self._drain_loop(proc), name=f"playback-drain-{self.session_id}"
@@ -488,6 +525,15 @@ class PlaybackSession:
                 chunk = await proc.stdout.read(_READ_CHUNK)
                 if not chunk:
                     break
+                if self._need_init_capture:
+                    # Pin the first chunk (fMP4 ftyp+moov) out of the droppable
+                    # ring so a slow client can't lose its decoder init segment.
+                    # NOTE: exact byte-boundary alignment (does this read end on
+                    # the moov boundary?) is an on-network INTEGRATION check.
+                    self._init_segment = chunk
+                    self._need_init_capture = False
+                    self._init_event.set()
+                    continue
                 self._enqueue(chunk)
         except asyncio.CancelledError:
             raise
