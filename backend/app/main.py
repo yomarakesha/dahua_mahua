@@ -29,6 +29,7 @@ from app.routers import (
     events,
     mediamtx as mediamtx_router,
     nvrs,
+    playback as playback_router,
     regions,
     streams,
     users,
@@ -173,7 +174,7 @@ def create_app() -> FastAPI:
     )
 
     prefix = settings.api_prefix
-    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery, client_log):
+    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery, client_log, playback_router):
         app.include_router(r.router, prefix=prefix)
 
     @app.get("/healthz", tags=["meta"])

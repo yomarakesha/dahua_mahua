@@ -184,6 +184,13 @@ class Settings(BaseSettings):
     # sources time to connect.
     source_watch_startup_grace_seconds: float = 45.0
 
+    # ── Playback ─────────────────────────────────────────────────────────────
+    # UTC offset of the NVR's internal clock (minutes east of UTC). Used when
+    # converting NVR-local naive recording timestamps to UTC epoch seconds.
+    # NOTE: live NVR-clock querying is wired by a later spike task; for now
+    # this value is the Phase-1 source of the offset (configurable per deploy).
+    playback_tz_offset_minutes: int = 0
+
     # ── Bootstrap ────────────────────────────────────────────────────────────
     # On first startup, create this user if no users exist. Operator must
     # change the password on first login.
