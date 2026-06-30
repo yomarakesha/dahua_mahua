@@ -21,6 +21,8 @@ from app.routers.playback import (
     _dispatch,
     _egress_loop,
     _EGRESS_STOP,
+    _emit_structural,
+    _enqueue_clock,
     _fragment_producer,
 )
 from app.services.playback.session import SessionState
@@ -285,3 +287,141 @@ def test_classify_crash_on_nonzero_returncode():
 def test_classify_crash_on_signal_death():
     # A natural signal death (not our own kill) is a crash from the WS layer's POV.
     assert _classify_session_end(-11) == "error"
+
+
+# ── Held-chunk generation validation across respawns ─────────────────────────
+# A chunk fetched just after a respawn is "held" so the reinit + new init segment
+# are emitted ahead of it.  But the producer must re-validate the held chunk's
+# generation after the (wide) init-wait: a SECOND respawn during that await means
+# the held chunk is now stale and emitting it after the fresh init would corrupt
+# the MSE source buffer.
+
+
+class _HeldProducerSession:
+    """Drives _fragment_producer with a wait_init_segment that can be PARKED so a
+    test can inject a second respawn while the producer waits for the init seg."""
+
+    def __init__(self) -> None:
+        self.state = SessionState.PLAYING
+        self._closing = False
+        self._spawn_gen = 1
+        self.t0 = 1000
+        self.ring_buffer_chunks = 8
+        self._ring: asyncio.Queue = asyncio.Queue()
+        self._proc = None
+        self._init_by_gen = {1: b"INIT-G1", 2: b"INIT-G2", 3: b"INIT-G3"}
+        # The 1st wait_init_segment call (gen-0 init) returns immediately; the
+        # 2nd call (the post-held reinit) parks on `release` so a test can advance
+        # _spawn_gen mid-await and signal entry via `wait_entered`.
+        self._calls = 0
+        self.wait_entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.gate_second_call = True
+
+    async def wait_init_segment(self, timeout: float = 10.0) -> bytes | None:
+        self._calls += 1
+        if self.gate_second_call and self._calls == 2:
+            self.wait_entered.set()
+            await self.release.wait()
+        return self._init_by_gen.get(self._spawn_gen)
+
+
+@pytest.mark.asyncio
+async def test_double_respawn_drops_stale_held_chunk():
+    """Rapid double-seek: a gen-2 chunk is held, then a SECOND respawn (gen 3)
+    lands during the init-wait.  The stale gen-2 chunk MUST be dropped — only
+    init(g1)→seg1, then reinit(g3)→seg3→frag(g3) reach the wire, in order."""
+    sess = _HeldProducerSession()
+    out: asyncio.Queue = asyncio.Queue()
+
+    task = asyncio.create_task(_fragment_producer(sess, out))
+    await asyncio.sleep(0.05)  # let it emit init(g1) + INIT-G1 and park on the ring
+
+    # First respawn (gen 1 -> 2): feed a gen-2 chunk; the producer reads it,
+    # sees the new generation and HOLDS it, then parks in the 2nd init-wait.
+    sess._spawn_gen = 2
+    sess.t0 = 2000
+    sess._ring.put_nowait(b"STALE-FRAG-G2")
+    await asyncio.wait_for(sess.wait_entered.wait(), timeout=1.0)
+
+    # Second respawn (gen 2 -> 3) WHILE the producer is parked waiting for the
+    # gen-2 init segment.  The held gen-2 chunk is now stale.
+    sess._spawn_gen = 3
+    sess.t0 = 3000
+    sess._ring.put_nowait(b"FRAG-G3")
+    sess.release.set()
+
+    await asyncio.sleep(0.05)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    items = _drain(out)
+    assert items == [
+        {"type": "init", "t0": 1000, "codec": _INIT_CODEC},
+        b"INIT-G1",
+        {"type": "reinit", "t0": 3000},
+        b"INIT-G3",
+        b"FRAG-G3",
+    ]
+    assert b"STALE-FRAG-G2" not in items  # the stale held chunk was dropped
+
+
+@pytest.mark.asyncio
+async def test_single_respawn_emits_held_chunk():
+    """Non-regression: with only ONE respawn during the init-wait, the held chunk
+    is NOT stale and IS emitted — init(g1)→seg1, reinit(g2)→seg2→held-frag(g2)."""
+    sess = _HeldProducerSession()
+    out: asyncio.Queue = asyncio.Queue()
+
+    task = asyncio.create_task(_fragment_producer(sess, out))
+    await asyncio.sleep(0.05)  # let it emit init(g1) + INIT-G1 and park on the ring
+
+    # Single respawn (gen 1 -> 2): feed a gen-2 chunk; producer holds it and parks
+    # in the 2nd init-wait.  No further respawn occurs, so the held chunk is live.
+    sess._spawn_gen = 2
+    sess.t0 = 2000
+    sess._ring.put_nowait(b"HELD-FRAG-G2")
+    await asyncio.wait_for(sess.wait_entered.wait(), timeout=1.0)
+    sess.release.set()  # release the init-wait WITHOUT a second respawn
+
+    await asyncio.sleep(0.05)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    items = _drain(out)
+    assert items == [
+        {"type": "init", "t0": 1000, "codec": _INIT_CODEC},
+        b"INIT-G1",
+        {"type": "reinit", "t0": 2000},
+        b"INIT-G2",
+        b"HELD-FRAG-G2",  # held chunk emitted because its gen still matches
+    ]
+
+
+# ── Egress-queue drop policy ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_egress_full_drops_clock_never_evicts_structural():
+    """A full egress queue + a clock tick → the tick is DROPPED and nothing is
+    evicted; a structural message never evicts a queued item (it awaits room)."""
+    out: asyncio.Queue = asyncio.Queue(maxsize=2)
+    out.put_nowait({"type": "reinit", "t0": 1})  # structural at the FIFO front
+    out.put_nowait(b"FRAG")
+
+    # Clock tick on a full queue: dropped, queue untouched.
+    _enqueue_clock(out, {"type": "clock", "wall_ts": 9})
+    assert out.qsize() == 2
+    assert list(out._queue) == [{"type": "reinit", "t0": 1}, b"FRAG"]
+
+    # A structural message on a full queue must NOT evict — it parks until room.
+    task = asyncio.create_task(_emit_structural(out, {"type": "eof"}))
+    await asyncio.sleep(0.02)
+    assert not task.done()  # still waiting for room
+    assert list(out._queue)[0] == {"type": "reinit", "t0": 1}  # front not evicted
+
+    # Free one slot (as the egress loop would) → the structural message lands.
+    assert out.get_nowait() == {"type": "reinit", "t0": 1}
+    await asyncio.wait_for(task, timeout=1.0)
+    rest = _drain(out)
+    assert b"FRAG" in rest and {"type": "eof"} in rest

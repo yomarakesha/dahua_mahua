@@ -319,29 +319,39 @@ def _classify_session_end(returncode: int | None) -> str:
 _EGRESS_STOP = object()
 
 
-def _enqueue_signal(outbound: "asyncio.Queue", item) -> None:
-    """Best-effort, non-blocking enqueue of a small control signal or the pinned
-    init segment (reinit / init / clock / eof / error / sentinel).
+def _enqueue_clock(outbound: "asyncio.Queue", item) -> None:
+    """Best-effort enqueue of a 2 s clock tick (Contract #3).
 
-    These items must never make a producer block, and the reinit→init pair must
-    be enqueued with NO awaited suspension between them so the 2 s clock tick (or
-    a dispatch error) can never interleave between them.  ``put_nowait`` never
-    suspends; if the bounded egress queue is momentarily full (slow client) we
-    drop the OLDEST queued item to make room — same drop-oldest discipline as the
-    session ring.  Media fragments instead use the awaited ``put`` path so they
-    get genuine back-pressure (see ``_fragment_producer``).
+    A clock tick is disposable: if the bounded egress queue is momentarily full
+    (slow client) we DROP THE TICK rather than evict a queued item — the queue
+    may hold a structural message (reinit / init segment / eof / error) or a
+    media fragment that must never be discarded.  ``put_nowait`` never suspends.
     """
     try:
         outbound.put_nowait(item)
     except asyncio.QueueFull:
-        try:
-            outbound.get_nowait()  # drop oldest
-        except asyncio.QueueEmpty:
-            pass
-        try:
-            outbound.put_nowait(item)
-        except asyncio.QueueFull:
-            pass
+        pass  # drop the tick; never evict a queued item
+
+
+async def _emit_structural(outbound: "asyncio.Queue", *items) -> None:
+    """Enqueue one or more structural messages that must NEVER be dropped or
+    evicted (reinit / init segment / eof / error / the egress sentinel).
+
+    When several items are passed (a ``reinit``/``init`` JSON + its pinned init
+    segment) they land CONTIGUOUSLY on the wire: we first wait — without evicting
+    anything — until the bounded queue has room for the whole group, then enqueue
+    them back-to-back with ``put_nowait`` and NO awaited suspension between them,
+    so a clock tick (or any other producer) can never interleave the pair.
+    Structural messages are small and rare, so this awaited back-pressure is
+    cheap.  An unbounded queue (``maxsize == 0``) always has room.
+    """
+    n = len(items)
+    maxsize = outbound.maxsize
+    if maxsize:
+        while maxsize - outbound.qsize() < n:
+            await asyncio.sleep(0.005)  # let the egress loop drain; never evict
+    for it in items:
+        outbound.put_nowait(it)
 
 
 async def _dispatch(msg: dict, sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
@@ -387,7 +397,7 @@ async def _dispatch(msg: dict, sess: PlaybackSession, outbound: "asyncio.Queue")
             log.warning("Unknown playback control message: %r", msg)
     except PlaybackUrlError as exc:
         # str(exc) is a fixed validator message — no credentials (Contract #12).
-        _enqueue_signal(outbound, {"type": "error", "reason": str(exc)})
+        await _emit_structural(outbound, {"type": "error", "reason": str(exc)})
 
 
 async def _egress_loop(ws: WebSocket, outbound: "asyncio.Queue") -> None:
@@ -414,7 +424,7 @@ async def _clock_sender(sess: PlaybackSession, outbound: "asyncio.Queue", interv
     while sess.state not in (SessionState.CLOSED, SessionState.ERROR):
         await asyncio.sleep(interval)
         if sess.state == SessionState.PLAYING:
-            _enqueue_signal(outbound, {"type": "clock", "wall_ts": sess.footage_now()})
+            _enqueue_clock(outbound, {"type": "clock", "wall_ts": sess.footage_now()})
 
 
 async def _fragment_producer(sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
@@ -438,23 +448,40 @@ async def _fragment_producer(sess: PlaybackSession, outbound: "asyncio.Queue") -
     """
     last_gen = -1
     held: bytes | None = None  # a fetched chunk that must wait behind a pending reinit
+    held_gen = -1              # the _spawn_gen the held chunk was fetched at
     while not sess._closing and sess.state not in (SessionState.CLOSED, SessionState.ERROR):
         if sess._spawn_gen != last_gen:
-            gen = sess._spawn_gen
             init = await sess.wait_init_segment(timeout=_INIT_SEGMENT_TIMEOUT)
-            # reinit/init JSON + the pinned init segment go onto the queue
-            # back-to-back via put_nowait → guaranteed contiguous on the wire.
-            if last_gen == -1:
-                _enqueue_signal(outbound, {"type": "init", "t0": sess.t0, "codec": _INIT_CODEC})
-            else:
-                _enqueue_signal(outbound, {"type": "reinit", "t0": sess.t0})
+            # A respawn during the (wide) init-wait advances _spawn_gen and makes
+            # wait_init_segment return the NEWER gen's init, so snapshot the gen
+            # AFTER the await — it is the generation the init segment we are about
+            # to emit actually corresponds to, not a pre-await snapshot.
+            gen = sess._spawn_gen
+            # reinit/init JSON + the pinned init segment are emitted as ONE
+            # contiguous group so no clock tick can interleave the pair.
+            head = (
+                {"type": "init", "t0": sess.t0, "codec": _INIT_CODEC}
+                if last_gen == -1
+                else {"type": "reinit", "t0": sess.t0}
+            )
             if init:
-                _enqueue_signal(outbound, init)
+                await _emit_structural(outbound, head, init)
+            else:
+                await _emit_structural(outbound, head)
             last_gen = gen
-            # fall through to flush any chunk held across the gen boundary
+            # fall through to flush / drop any chunk held across the gen boundary
         if held is not None:
+            if held_gen != sess._spawn_gen:
+                # A newer spawn superseded this chunk while we waited for the new
+                # init segment (rapid double-seek): its init + fragments win, so
+                # DROP the now-stale held chunk — emitting an old-timeline fragment
+                # after a fresh init segment corrupts the MSE source buffer.
+                held = None
+                held_gen = -1
+                continue
             await outbound.put(held)
             held = None
+            held_gen = -1
             continue
         try:
             chunk = await asyncio.wait_for(sess._ring.get(), timeout=0.5)
@@ -469,9 +496,9 @@ async def _fragment_producer(sess: PlaybackSession, outbound: "asyncio.Queue") -
             ):
                 kind = _classify_session_end(proc.returncode)
                 if kind == "eof":
-                    _enqueue_signal(outbound, {"type": "eof"})
+                    await _emit_structural(outbound, {"type": "eof"})
                 else:
-                    _enqueue_signal(
+                    await _emit_structural(
                         outbound,
                         {"type": "error", "reason": "playback stream ended unexpectedly"},
                     )
@@ -479,9 +506,12 @@ async def _fragment_producer(sess: PlaybackSession, outbound: "asyncio.Queue") -
             continue
         if sess._spawn_gen != last_gen:
             # A respawn happened while we were blocked on the (now-cleared) ring,
-            # so this chunk belongs to the NEW generation: hold it and loop so the
-            # reinit + new init segment are emitted ahead of it (review #2).
+            # so this chunk belongs to the NEW generation: tag it with that gen,
+            # hold it, and loop so the reinit + new init segment are emitted ahead
+            # of it.  If yet another respawn lands during the next init-wait, the
+            # held-gen check above drops this now-stale chunk (review follow-up).
             held = chunk
+            held_gen = sess._spawn_gen
             continue
         # Media fragments use the awaited put: when the egress queue fills (slow
         # client) the producer blocks here, the session ring fills, and it drops
@@ -522,7 +552,7 @@ async def _control_loop(ws: WebSocket, sess: PlaybackSession, clock_interval: fl
     await asyncio.gather(*pending, return_exceptions=True)
     # Let the egress drain whatever is already queued (e.g. a final eof/error),
     # then stop on the sentinel.  Bounded so a dead socket can't hang shutdown.
-    _enqueue_signal(outbound, _EGRESS_STOP)
+    await _emit_structural(outbound, _EGRESS_STOP)
     try:
         await asyncio.wait_for(egress, timeout=2.0)
     except (asyncio.TimeoutError, Exception):  # noqa: BLE001
