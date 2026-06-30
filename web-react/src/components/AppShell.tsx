@@ -2,7 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { logout } from "@/api/client";
 import { useAuth } from "@/lib/auth";
 import { LogoWordmark } from "./Logo";
-import { GridIcon, ServerIcon, GearIcon, PowerIcon, UsersIcon } from "./icons";
+import { GridIcon, ServerIcon, GearIcon, PowerIcon, UsersIcon, FilmIcon } from "./icons";
 import type { ComponentType } from "react";
 
 interface NavItem {
@@ -14,6 +14,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: "/", label: "Live", Icon: GridIcon },
+  { to: "/playback", label: "Playback", Icon: FilmIcon },
   { to: "/nvrs", label: "NVRs", Icon: ServerIcon, adminOnly: true },
   { to: "/users", label: "Users", Icon: UsersIcon, adminOnly: true },
   { to: "/settings", label: "Settings", Icon: GearIcon },
