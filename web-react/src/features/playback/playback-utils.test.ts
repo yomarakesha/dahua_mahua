@@ -6,7 +6,10 @@ import {
   dayToEpochs,
   epochToNvrTimeStr,
   formatNvrDatetime,
+  httpToWsBase,
+  buildPlaybackWsUrl,
 } from "./playback-utils";
+import { CONFIG } from "@/lib/config";
 import type { RecordingClip } from "@/api/types";
 
 // ── footageEpoch ──────────────────────────────────────────────────────────────
@@ -193,5 +196,45 @@ describe("formatNvrDatetime", () => {
     // 2026-02-03 04:05:06 UTC+0
     const epoch = Date.UTC(2026, 1, 3, 4, 5, 6) / 1000;
     expect(formatNvrDatetime(epoch, 0)).toBe("2026-02-03 04:05:06");
+  });
+});
+
+// ── httpToWsBase ───────────────────────────────────────────────────────────────
+
+describe("httpToWsBase", () => {
+  it("rewrites https:// → wss:// (Caddy TLS origin)", () => {
+    expect(httpToWsBase("https://10.10.1.152:8443/api/v1")).toBe(
+      "wss://10.10.1.152:8443/api/v1",
+    );
+  });
+
+  it("rewrites http:// → ws:// (dev origin)", () => {
+    expect(httpToWsBase("http://10.10.1.152:8000/api/v1")).toBe(
+      "ws://10.10.1.152:8000/api/v1",
+    );
+  });
+
+  it("only touches the leading scheme, not later 'http' substrings", () => {
+    expect(httpToWsBase("https://h/api?u=http://x")).toBe("wss://h/api?u=http://x");
+  });
+});
+
+// ── buildPlaybackWsUrl ───────────────────────────────────────────────────────────
+
+describe("buildPlaybackWsUrl", () => {
+  it("targets the /playback/{nvr}/{channel}/stream WS path", () => {
+    const url = buildPlaybackWsUrl("nvr-1", 3, "tok");
+    expect(url).toBe(`${httpToWsBase(CONFIG.backendBase)}/playback/nvr-1/3/stream?token=tok`);
+  });
+
+  it("derives a ws(s):// URL from the backend origin", () => {
+    const url = buildPlaybackWsUrl("nvr-1", 1, "tok");
+    expect(url.startsWith("ws://") || url.startsWith("wss://")).toBe(true);
+  });
+
+  it("percent-encodes the token (browsers can't set WS auth headers)", () => {
+    const url = buildPlaybackWsUrl("nvr-1", 1, "a b/c+&=*");
+    expect(url).toContain("token=a%20b%2Fc%2B%26%3D*");
+    expect(url).not.toContain("a b/c");
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   useNvrs,
   useCameras,
@@ -7,7 +7,8 @@ import {
 } from "@/api/hooks";
 import { CameraIcon } from "@/components/icons";
 import Timeline from "./Timeline";
-import type { PlayerState } from "./types";
+import PlaybackPlayer from "./PlaybackPlayer";
+import type { FootageAnchor, PlayerState } from "./types";
 
 type Speed = 1 | 2 | 4 | 8;
 
@@ -32,11 +33,16 @@ export default function PlaybackPage() {
   const [seekTarget, setSeekTarget] = useState<number | null>(null);
   const [speed, setSpeed] = useState<Speed>(1);
   /**
-   * Player state — Task 14 will set this via PlaybackPlayer's onStateChange.
+   * Player state — set via PlaybackPlayer's onStateChange.
    * Defaults to "loading"; Timeline disables drag/seek when "error".
    */
   const [playerState, setPlayerState] = useState<PlayerState>("loading");
-  void setPlayerState; // consumed by Task 14 player wiring
+  /** Live footage-time playhead (epoch) emitted by the player for the Timeline. */
+  const [playhead, setPlayhead] = useState<number | null>(null);
+  /** Latest FootageAnchor, lifted for Task 15's snapshot footage-time mapping. */
+  const [, setAnchor] = useState<FootageAnchor | null>(null);
+  /** Shared <video> ref so Task 15's snapshot can read pixels from the player. */
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // ── Data ────────────────────────────────────────────────────────────────────
 
@@ -78,11 +84,13 @@ export default function PlaybackPage() {
     setSelectedDate(today);
     setViewMonth(today.slice(0, 7));
     setSeekTarget(null);
+    setPlayhead(null);
   }
 
   function handleCamChange(camId: string) {
     setSelectedCamId(camId || null);
     setSeekTarget(null);
+    setPlayhead(null);
   }
 
   function handleDateChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -91,6 +99,7 @@ export default function PlaybackPage() {
     // Keep viewMonth in sync so availability refetches for the visible month
     if (val.length >= 7) setViewMonth(val.slice(0, 7));
     setSeekTarget(null);
+    setPlayhead(null);
   }
 
   // ── Derived ─────────────────────────────────────────────────────────────────
@@ -103,11 +112,18 @@ export default function PlaybackPage() {
 
   const maxDate = todayIso();
 
-  /**
-   * Task 14 sets this to true once PlaybackPlayer fires its onReady callback.
-   * Snapshot remains disabled until then (brief §"Snapshot button").
-   */
-  const playerReady = false;
+  /** Snapshot is allowed only while footage is actually rendering (playing). */
+  const playerReady = playerState === "playing";
+
+  // ── Player gating ─────────────────────────────────────────────────────────────
+  // Contract #6: when /index returns zero clips for the day, never open the WS —
+  // PlaybackPage owns the "no_coverage" state. Otherwise start at the explicit
+  // seekTarget, falling back to the first clip's start.
+  const firstClipStart = indexData?.clips[0]?.start_epoch ?? null;
+  const effectiveSeek = seekTarget ?? firstClipStart;
+  const noCoverage = !!indexData && indexData.clips.length === 0;
+  const showPlayer =
+    hasSelection && !!selectedNvrId && !!indexData && !noCoverage && effectiveSeek != null;
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -232,29 +248,33 @@ export default function PlaybackPage() {
         data-testid="player-placeholder"
         data-seek-target={seekTarget ?? ""}
       >
-        {/*
-          Task 14 — swap this div for:
-            <PlaybackPlayer
-              nvrId={selectedNvrId}
-              channel={channel}
-              indexData={indexData}
-              seekTarget={seekTarget}
-              speed={speed}
-              onSeek={(epoch) => setSeekTarget(epoch)}
-              onReady={() => setPlayerReady(true)}
-            />
-        */}
-        <div className="flex h-full items-center justify-center text-sm text-ink-dim/50">
-          {!selectedNvrId
-            ? "Select an NVR to start"
-            : !selectedCamId
-            ? "Select a camera"
-            : !selectedDate
-            ? "Select a date"
-            : indexData && indexData.clips.length === 0
-            ? "No coverage for this day"
-            : "player here"}
-        </div>
+        {showPlayer && selectedNvrId && effectiveSeek != null ? (
+          <PlaybackPlayer
+            // Fresh session per NVR/camera/day (a new day = a new VOD session, not
+            // a mid-session cross-day seek). Within a day, drag-seeks reuse the WS.
+            key={`${selectedNvrId}-${channel}-${selectedDate}`}
+            nvrId={selectedNvrId}
+            channel={channel}
+            seekTarget={effectiveSeek}
+            speed={speed}
+            videoRef={videoRef}
+            onStateChange={setPlayerState}
+            onPlayhead={setPlayhead}
+            onAnchorChange={setAnchor}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-ink-dim/50">
+            {!selectedNvrId
+              ? "Select an NVR to start"
+              : !selectedCamId
+              ? "Select a camera"
+              : !selectedDate
+              ? "Select a date"
+              : noCoverage
+              ? "No coverage for this day"
+              : "Loading recording index…"}
+          </div>
+        )}
       </div>
 
       {/* ── Timeline ────────────────────────────────────────────────────────── */}
@@ -265,7 +285,7 @@ export default function PlaybackPage() {
             dayEndEpoch={indexData.day_end_epoch}
             clips={indexData.clips}
             tzOffsetMinutes={indexData.tz_offset_minutes}
-            playheadEpoch={seekTarget}
+            playheadEpoch={playhead ?? seekTarget}
             onSeek={(epoch) => setSeekTarget(epoch)}
             playerState={playerState}
           />

@@ -4,8 +4,35 @@
  * Epoch convention throughout: UTC seconds (integer or float).
  * NVR timezone convention: NVR local = UTC + tz_offset_minutes (fixed offset, no DST).
  */
+import { CONFIG } from "@/lib/config";
 import type { FootageAnchor } from "./types";
 import type { RecordingClip } from "@/api/types";
+
+// ── Playback WebSocket URL ──────────────────────────────────────────────────────
+
+/**
+ * Swap an http(s) origin to its ws(s) equivalent (only the leading scheme).
+ * `https://…` → `wss://…`, `http://…` → `ws://…`.  Exported for unit testing.
+ */
+export function httpToWsBase(httpBase: string): string {
+  return httpBase.replace(/^http/, "ws");
+}
+
+/**
+ * Build the playback streaming WebSocket URL.
+ *
+ * CONFIG.backendBase already encodes the right origin for the page protocol:
+ *   HTTPS (Caddy :8443):  https://host:8443/api/v1  → wss://host:8443/api/v1/…
+ *   HTTP  (dev :8000):    http://host:8000/api/v1   → ws://host:8000/api/v1/…
+ * Caddy routes /api/* → backend, so this hits the FastAPI WS endpoint directly.
+ *
+ * The JWT must travel in the query string — browsers can't set WS auth headers
+ * (Contract #2) — and is percent-encoded so a token's special chars survive.
+ */
+export function buildPlaybackWsUrl(nvrId: string, channel: number, token: string): string {
+  const wsBase = httpToWsBase(CONFIG.backendBase);
+  return `${wsBase}/playback/${nvrId}/${channel}/stream?token=${encodeURIComponent(token)}`;
+}
 
 // ── Footage-time mapping ───────────────────────────────────────────────────────
 

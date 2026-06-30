@@ -1,0 +1,472 @@
+/**
+ * PlaybackPlayer — purpose-built VOD MSE player driven by backend WS signals.
+ *
+ * Owns its own MediaSource + a single persistent WebSocket (via usePlaybackSession).
+ * It deliberately does NOT reuse dss-mse / VideoRTC / WebCodecsEngine — only the
+ * `ondata → appendBuffer` one-pending-buffer queue pattern from video-rtc.js.
+ *
+ * Invariants (task-14 brief / binding contracts):
+ *  - <video>.playbackRate stays 1.0 ALWAYS (Contract #13). Speed is backend-owned
+ *    (we send {speed} and the server remaps footage time); audio muted when speed>1.
+ *  - State machine is driven by BACKEND SIGNALS + USER ACTIONS via the pure
+ *    playerReducer — never "currentTime stopped".
+ *  - No live-edge tricks: no setLiveSeekableRange, no currentTime re-centering, no
+ *    playbackRate nudging, no auto-reconnect.
+ *  - QuotaExceeded → trim ranges older than currentTime-30s, ONE retry, else error.
+ *
+ * jsdom note: MediaSource is feature-detected so the module imports cleanly under
+ * the test runner. Real MSE/WS behavior is covered by the DEFERRED Playwright
+ * checklist in the task report, not unit tests.
+ */
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { footageEpoch } from "./playback-utils";
+import { playerReducer, INITIAL_PLAYER_STATE } from "./player-machine";
+import { usePlaybackSession } from "./usePlaybackSession";
+import type { PlaybackSessionOptions } from "./usePlaybackSession";
+import type { FootageAnchor, PlayerState, ServerMsg } from "./types";
+
+type Speed = 1 | 2 | 4 | 8;
+
+/** Seconds of buffer to keep behind currentTime when trimming on QuotaExceeded. */
+const TRIM_KEEP_SECONDS = 30;
+
+export interface PlaybackPlayerProps {
+  nvrId: string;
+  channel: number;
+  /** Footage epoch to start / seek to. When it changes the player sends {seek}. */
+  seekTarget: number | null;
+  /** Playback speed (backend-owned). When changed the player sends {speed}. */
+  speed: Speed;
+  /** Optional external ref to the <video> (for Task 15 snapshot). */
+  videoRef?: React.RefObject<HTMLVideoElement>;
+  /** Notifies parent of state-machine changes (snapshot enable, overlays, …). */
+  onStateChange?: (state: PlayerState) => void;
+  /** Current footage-time playhead (epoch seconds) for the Timeline. */
+  onPlayhead?: (epoch: number) => void;
+  /** Latest FootageAnchor (for Task 15 snapshot footage-time mapping). */
+  onAnchorChange?: (anchor: FootageAnchor | null) => void;
+  /** Fired the first time playback reaches "playing". */
+  onReady?: () => void;
+}
+
+const hasMediaSource = typeof window !== "undefined" && "MediaSource" in window;
+
+export default function PlaybackPlayer({
+  nvrId,
+  channel,
+  seekTarget,
+  speed,
+  videoRef: externalVideoRef,
+  onStateChange,
+  onPlayhead,
+  onAnchorChange,
+  onReady,
+}: PlaybackPlayerProps) {
+  const internalVideoRef = useRef<HTMLVideoElement | null>(null);
+  const videoRef = externalVideoRef ?? internalVideoRef;
+
+  const [state, dispatch] = useReducer(playerReducer, INITIAL_PLAYER_STATE);
+
+  // ── MSE refs ──────────────────────────────────────────────────────────────────
+  const msRef = useRef<MediaSource | null>(null);
+  const sbRef = useRef<SourceBuffer | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+  const codecRef = useRef<string>("");
+  /** appendBuffer queue: AT MOST ONE pending buffer (video-rtc.js pattern). */
+  const pendingRef = useRef<ArrayBuffer | null>(null);
+  /** Whether a QuotaExceeded trim+retry is already in flight (Contract C2: single retry). */
+  const quotaRetryRef = useRef(false);
+  /** True until the first chunk is appended after an init/reinit (loading→playing). */
+  const firstAppendRef = useRef(false);
+
+  // ── Footage anchor ──────────────────────────────────────────────────────────────
+  const anchorRef = useRef<FootageAnchor | null>(null);
+  const speedRef = useRef<Speed>(speed);
+  speedRef.current = speed;
+
+  const setAnchor = useCallback(
+    (a: FootageAnchor | null) => {
+      anchorRef.current = a;
+      onAnchorChange?.(a);
+    },
+    [onAnchorChange],
+  );
+
+  // ── Notify parent on state change + emit onReady once ───────────────────────────
+  const readyFiredRef = useRef(false);
+  useEffect(() => {
+    onStateChange?.(state);
+    if (state === "playing" && !readyFiredRef.current) {
+      readyFiredRef.current = true;
+      onReady?.();
+    }
+  }, [state, onStateChange, onReady]);
+
+  // ── MSE append queue (drain on updateend) ───────────────────────────────────────
+  const onUpdateEnd = useCallback(() => {
+    const sb = sbRef.current;
+    const ms = msRef.current;
+    if (!sb || !ms || ms.readyState !== "open" || sb.updating) return;
+    const data = pendingRef.current;
+    if (data == null) return;
+    pendingRef.current = null;
+    try {
+      sb.appendBuffer(data);
+      onAppendSuccess();
+    } catch (e) {
+      handleAppendError(e, data);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onAppendSuccess = useCallback(() => {
+    quotaRetryRef.current = false;
+    if (firstAppendRef.current) {
+      firstAppendRef.current = false;
+      dispatch({ type: "playing" });
+    }
+  }, []);
+
+  /** Trim buffered ranges older than currentTime - 30 s (async; updateend retries). */
+  const trimBuffer = useCallback(() => {
+    const sb = sbRef.current;
+    const video = videoRef.current;
+    if (!sb || !video) return false;
+    try {
+      if (sb.buffered.length > 0) {
+        const start = sb.buffered.start(0);
+        const cutoff = video.currentTime - TRIM_KEEP_SECONDS;
+        if (cutoff > start) {
+          sb.remove(start, cutoff); // async → updateend drains pendingRef (the retry)
+          return true;
+        }
+      }
+    } catch {
+      /* SB detached mid-flight — fall through to "couldn't trim". */
+    }
+    return false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleAppendError = useCallback(
+    (e: unknown, data: ArrayBuffer) => {
+      const isQuota = e instanceof DOMException && e.name === "QuotaExceededError";
+      if (!isQuota) {
+        dispatch({ type: "error" });
+        return;
+      }
+      if (quotaRetryRef.current) {
+        // Already trimmed + retried once and still over quota (Contract C2) → give up.
+        quotaRetryRef.current = false;
+        dispatch({ type: "quota_failed" });
+        return;
+      }
+      quotaRetryRef.current = true;
+      pendingRef.current = data; // retried by onUpdateEnd after the remove completes
+      if (!trimBuffer()) {
+        // Nothing to trim → the single retry can't help.
+        quotaRetryRef.current = false;
+        pendingRef.current = null;
+        dispatch({ type: "quota_failed" });
+      }
+    },
+    [trimBuffer],
+  );
+
+  const appendData = useCallback(
+    (data: ArrayBuffer) => {
+      const sb = sbRef.current;
+      const ms = msRef.current;
+      if (!sb || !ms || ms.readyState !== "open") return;
+      if (sb.updating || pendingRef.current != null) {
+        pendingRef.current = data; // one-pending-buffer queue (drops any older pending)
+        return;
+      }
+      try {
+        sb.appendBuffer(data);
+        onAppendSuccess();
+      } catch (e) {
+        handleAppendError(e, data);
+      }
+    },
+    [handleAppendError, onAppendSuccess],
+  );
+
+  // ── MSE (re)build — on each init/reinit ──────────────────────────────────────────
+  const rebuildMse = useCallback(
+    (codec: string) => {
+      const video = videoRef.current;
+      if (!hasMediaSource || !video) return;
+
+      // Tear down any previous MediaSource/object URL.
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+      sbRef.current = null;
+      pendingRef.current = null;
+      quotaRetryRef.current = false;
+      firstAppendRef.current = true;
+      codecRef.current = codec;
+
+      const ms = new MediaSource();
+      msRef.current = ms;
+      const url = URL.createObjectURL(ms);
+      objectUrlRef.current = url;
+      video.src = url;
+      video.playbackRate = 1.0; // invariant guard (Contract #13)
+
+      ms.addEventListener(
+        "sourceopen",
+        () => {
+          try {
+            const sb = ms.addSourceBuffer(codec);
+            sb.mode = "segments";
+            sb.addEventListener("updateend", onUpdateEnd);
+            sbRef.current = sb;
+          } catch {
+            dispatch({ type: "error" }); // wrong MIME / unsupported codec
+          }
+        },
+        { once: true },
+      );
+    },
+    [onUpdateEnd, videoRef],
+  );
+
+  // ── Signal handling ──────────────────────────────────────────────────────────────
+  const handleSignal = useCallback(
+    (msg: ServerMsg) => {
+      const video = videoRef.current;
+      switch (msg.type) {
+        case "init": {
+          rebuildMse(msg.codec);
+          setAnchor({ t0: msg.t0, baseCt: video?.currentTime ?? 0, speed: speedRef.current });
+          dispatch({ type: "init" });
+          void video?.play().catch(() => {}); // autoplay may be blocked; ignore
+          break;
+        }
+        case "reinit": {
+          rebuildMse(codecRef.current); // reinit reuses the last init's codec
+          setAnchor({ t0: msg.t0, baseCt: video?.currentTime ?? 0, speed: speedRef.current });
+          dispatch({ type: "reinit" });
+          void video?.play().catch(() => {});
+          break;
+        }
+        case "clock": {
+          // Contract #3: wall_ts IS the current footage epoch — re-anchor + emit.
+          setAnchor({
+            t0: msg.wall_ts,
+            baseCt: video?.currentTime ?? 0,
+            speed: speedRef.current,
+          });
+          onPlayhead?.(msg.wall_ts);
+          break;
+        }
+        case "gap": {
+          if (msg.next !== null) {
+            sessionRef.current?.send({ seek: msg.next }); // auto-skip to next clip
+          }
+          dispatch({ type: "gap", next: msg.next });
+          break;
+        }
+        case "eof":
+          dispatch({ type: "eof" });
+          break;
+        case "error":
+          dispatch({ type: "error" });
+          break;
+        default:
+          // {stream} is a client-side main-only no-op (Contract #5); the server
+          // never emits it, so there is nothing to handle here.
+          break;
+      }
+    },
+    [rebuildMse, setAnchor, onPlayhead, videoRef],
+  );
+
+  const handleClose = useCallback(() => {
+    dispatch({ type: "ws_close" });
+  }, []);
+
+  // ── WebSocket session ──────────────────────────────────────────────────────────
+  // initialSeek is captured at open; later seeks go via send({seek}). seekTarget is
+  // intentionally read at mount only (not a session dep) so it can't re-open the WS.
+  const initialSeek = seekTarget ?? 0;
+  const sessionOpts: PlaybackSessionOptions | null = useMemo(
+    () => ({
+      nvrId,
+      channel,
+      initialSeek,
+      onSignal: handleSignal,
+      onData: appendData,
+      onClose: handleClose,
+    }),
+    // initialSeek deliberately excluded — only nvr/channel re-open the socket.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nvrId, channel, handleSignal, appendData, handleClose],
+  );
+  const session = usePlaybackSession(sessionOpts);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
+  // ── Seek prop changes → send {seek} (skip the mount value: that's initialSeek) ──
+  const seekMountedRef = useRef(false);
+  useEffect(() => {
+    if (!seekMountedRef.current) {
+      seekMountedRef.current = true;
+      return;
+    }
+    if (seekTarget != null && sessionRef.current) {
+      sessionRef.current.send({ seek: seekTarget });
+      dispatch({ type: "seek" });
+    }
+  }, [seekTarget]);
+
+  // ── Speed prop changes → send {speed}, re-await reinit ──────────────────────────
+  const speedMountedRef = useRef(false);
+  useEffect(() => {
+    if (!speedMountedRef.current) {
+      speedMountedRef.current = true;
+      return;
+    }
+    if (sessionRef.current) {
+      sessionRef.current.send({ speed });
+      setAnchor(null); // refreshed by the upcoming reinit
+      dispatch({ type: "seek" }); // speed change awaits a backend reinit (→ seeking)
+    }
+  }, [speed, setAnchor]);
+
+  // ── Audio muting: muted whenever speed > 1 (Contract #13/§4) ─────────────────────
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = speed > 1;
+  }, [speed, videoRef]);
+
+  // ── Playhead RAF loop while playing ───────────────────────────────────────────────
+  useEffect(() => {
+    if (state !== "playing") return;
+    let raf = 0;
+    const tick = () => {
+      const video = videoRef.current;
+      const anchor = anchorRef.current;
+      if (video && anchor) onPlayhead?.(footageEpoch(anchor, video.currentTime));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [state, onPlayhead, videoRef]);
+
+  // ── Teardown MSE on unmount ─────────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+      msRef.current = null;
+      sbRef.current = null;
+      pendingRef.current = null;
+    };
+  }, []);
+
+  // ── User pause/play controls ──────────────────────────────────────────────────────
+  const handlePause = useCallback(() => {
+    sessionRef.current?.send({ pause: true });
+    videoRef.current?.pause();
+    dispatch({ type: "pause" });
+  }, [videoRef]);
+
+  const handlePlay = useCallback(() => {
+    sessionRef.current?.send({ play: true });
+    void videoRef.current?.play().catch(() => {});
+    dispatch({ type: "play" });
+  }, [videoRef]);
+
+  // ── Render ────────────────────────────────────────────────────────────────────────
+  const busy = state === "loading" || state === "seeking";
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-black">
+      <video
+        ref={videoRef}
+        className="h-full w-full object-contain"
+        playsInline
+        // controls intentionally omitted — controls are WS messages, not native UI
+        data-player-state={state}
+      />
+
+      {/* ── Overlays ──────────────────────────────────────────────────────────── */}
+      {busy && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
+          <span className="flex items-center gap-2 font-mono text-3xs uppercase tracking-wider text-ink-faint">
+            <span className="h-3 w-3 animate-spin rounded-full border border-ink-faint/50 border-t-transparent" />
+            {state === "seeking" ? "seeking" : "loading"}
+          </span>
+        </div>
+      )}
+
+      {state === "paused" && (
+        <button
+          aria-label="Resume playback"
+          onClick={handlePlay}
+          className="absolute inset-0 flex items-center justify-center bg-black/30"
+        >
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/20">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" className="text-ink-soft">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </span>
+        </button>
+      )}
+
+      {state === "end" && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40">
+          <span className="rounded border border-white/15 bg-white/[.06] px-3 py-1.5 font-mono text-3xs uppercase tracking-wider text-ink-soft">
+            End of recording
+          </span>
+        </div>
+      )}
+
+      {state === "no_coverage" && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40">
+          <span className="rounded border border-white/15 bg-white/[.06] px-3 py-1.5 font-mono text-3xs uppercase tracking-wider text-ink-dim">
+            No footage
+          </span>
+        </div>
+      )}
+
+      {state === "error" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/50">
+          <span className="flex items-center gap-1.5 rounded border border-danger/40 bg-danger/[.14] px-2 py-1 font-mono text-3xs font-bold uppercase tracking-wider text-danger">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" />
+            playback error
+          </span>
+          <button
+            onClick={() => {
+              if (seekTarget != null && sessionRef.current) {
+                sessionRef.current.send({ seek: seekTarget });
+                dispatch({ type: "seek" });
+              }
+            }}
+            className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Pause control (visible while playing) */}
+      {state === "playing" && (
+        <button
+          aria-label="Pause playback"
+          onClick={handlePause}
+          className="absolute bottom-3 left-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-ink-soft ring-1 ring-white/10 transition hover:bg-black/60"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
