@@ -114,4 +114,20 @@ describe("playerReducer", () => {
     expect(playerReducer("error", { type: "play" })).toBe("error");
     expect(playerReducer("error", { type: "eof" })).toBe("error");
   });
+
+  it("error + late eof → still error (passive event must not un-stick error overlay)", () => {
+    expect(playerReducer("error", { type: "eof" })).toBe("error");
+  });
+
+  // ── reconnect (Retry forces fresh WS session) ─────────────────────────────────
+  it("error + reconnect → loading (Retry opens fresh WS, not seek over dead socket)", () => {
+    expect(playerReducer("error", { type: "reconnect" })).toBe("loading");
+  });
+
+  it("reconnect → loading from any state (defensive: e.g. double-click Retry)", () => {
+    expect(playerReducer("playing", { type: "reconnect" })).toBe("loading");
+    expect(playerReducer("seeking", { type: "reconnect" })).toBe("loading");
+    expect(playerReducer("paused",  { type: "reconnect" })).toBe("loading");
+    expect(playerReducer("end",     { type: "reconnect" })).toBe("loading");
+  });
 });

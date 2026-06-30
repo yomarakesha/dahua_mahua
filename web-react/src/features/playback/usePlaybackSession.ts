@@ -20,6 +20,12 @@ export interface PlaybackSessionOptions {
   channel: number;
   /** Initial seek target (footage epoch). Sent as {seek:N} once the WS opens. */
   initialSeek: number;
+  /**
+   * Increment to force a fresh WS session (Retry after ws_close error).
+   * Bumping this tears down any existing socket and opens a new one, which
+   * sends {seek: initialSeek} on open. Safe to omit (treated as 0).
+   */
+  reconnectNonce?: number;
   /** A typed JSON signal arrived from the server. */
   onSignal: (msg: ServerMsg) => void;
   /** A binary fMP4 fragment arrived. */
@@ -47,6 +53,11 @@ export function usePlaybackSession(
   const enabled = !!opts;
   const nvrId = opts?.nvrId;
   const channel = opts?.channel;
+  // reconnectNonce: a bump forces the effect to re-run, tearing down the old socket
+  // and opening a fresh one. optsRef.current.initialSeek is always current (caller
+  // updates opts every render when seekTarget changes), so the fresh WS seeks to the
+  // right position.
+  const reconnectNonce = opts?.reconnectNonce ?? 0;
 
   useEffect(() => {
     if (!enabled || nvrId == null || channel == null) {
@@ -116,7 +127,9 @@ export function usePlaybackSession(
       ws.close();
       setSession(null);
     };
-  }, [enabled, nvrId, channel]);
+  // reconnectNonce is intentionally in deps: a bump tears down the old socket and
+  // opens a fresh one (Retry-after-ws_close fix). nvrId/channel changes also reconnect.
+  }, [enabled, nvrId, channel, reconnectNonce]);
 
   return session;
 }

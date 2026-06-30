@@ -18,7 +18,7 @@
  * the test runner. Real MSE/WS behavior is covered by the DEFERRED Playwright
  * checklist in the task report, not unit tests.
  */
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { footageEpoch } from "./playback-utils";
 import { playerReducer, INITIAL_PLAYER_STATE } from "./player-machine";
 import { usePlaybackSession } from "./usePlaybackSession";
@@ -66,6 +66,13 @@ export default function PlaybackPlayer({
   const videoRef = externalVideoRef ?? internalVideoRef;
 
   const [state, dispatch] = useReducer(playerReducer, INITIAL_PLAYER_STATE);
+
+  // ── Reconnect nonce — increment to force a fresh WS session (Retry) ─────────────
+  // When bumped, usePlaybackSession tears down the dead socket and opens a new one
+  // that sends {seek: currentSeekTarget} on open. Dispatch "reconnect" in the same
+  // handler so the reducer immediately exits "error" → "loading" rather than staying
+  // stuck in the error overlay while the new WS handshakes.
+  const [reconnectNonce, setReconnectNonce] = useState(0);
 
   // ── MSE refs ──────────────────────────────────────────────────────────────────
   const msRef = useRef<MediaSource | null>(null);
@@ -290,21 +297,27 @@ export default function PlaybackPlayer({
   }, []);
 
   // ── WebSocket session ──────────────────────────────────────────────────────────
-  // initialSeek is captured at open; later seeks go via send({seek}). seekTarget is
-  // intentionally read at mount only (not a session dep) so it can't re-open the WS.
-  const initialSeek = seekTarget ?? 0;
+  // reconnectNonce is the ONLY explicit reconnect trigger — it tears down the old
+  // socket and opens a fresh one. Normal seek/speed changes go via send({seek/speed})
+  // over the existing socket. seekTarget is included in opts (and memo deps) so that
+  // optsRef.current.initialSeek is always fresh: when the fresh WS opens on reconnect,
+  // ws.onopen reads optsRef.current.initialSeek and seeks to the current position.
+  // seekTarget changes alone do NOT reconnect — only reconnectNonce does (the hook's
+  // effect dep is [enabled, nvrId, channel, reconnectNonce]).
   const sessionOpts: PlaybackSessionOptions | null = useMemo(
     () => ({
       nvrId,
       channel,
-      initialSeek,
+      initialSeek: seekTarget ?? 0,
+      reconnectNonce,
       onSignal: handleSignal,
       onData: appendData,
       onClose: handleClose,
     }),
-    // initialSeek deliberately excluded — only nvr/channel re-open the socket.
+    // seekTarget included so optsRef.current.initialSeek stays current for reconnects.
+    // reconnectNonce included so a Retry reopens the socket (hook's own dep).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nvrId, channel, handleSignal, appendData, handleClose],
+    [nvrId, channel, seekTarget, reconnectNonce, handleSignal, appendData, handleClose],
   );
   const session = usePlaybackSession(sessionOpts);
   const sessionRef = useRef(session);
@@ -427,14 +440,6 @@ export default function PlaybackPlayer({
         </div>
       )}
 
-      {state === "no_coverage" && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40">
-          <span className="rounded border border-white/15 bg-white/[.06] px-3 py-1.5 font-mono text-3xs uppercase tracking-wider text-ink-dim">
-            No footage
-          </span>
-        </div>
-      )}
-
       {state === "error" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/50">
           <span className="flex items-center gap-1.5 rounded border border-danger/40 bg-danger/[.14] px-2 py-1 font-mono text-3xs font-bold uppercase tracking-wider text-danger">
@@ -443,10 +448,12 @@ export default function PlaybackPlayer({
           </span>
           <button
             onClick={() => {
-              if (seekTarget != null && sessionRef.current) {
-                sessionRef.current.send({ seek: seekTarget });
-                dispatch({ type: "seek" });
-              }
+              // Bump the nonce so usePlaybackSession tears down the dead socket and
+              // opens a fresh WS (handles ws_close + all other error origins uniformly).
+              // dispatch("reconnect") moves error→loading immediately so the spinner
+              // shows while the new handshake completes — no stuck-in-seeking risk.
+              setReconnectNonce((n) => n + 1);
+              dispatch({ type: "reconnect" });
             }}
             className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
           >

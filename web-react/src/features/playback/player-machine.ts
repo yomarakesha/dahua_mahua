@@ -35,15 +35,25 @@ export type PlayerEvent =
   /** WebSocket closed (usePlaybackSession only fires onClose for UNEXPECTED closes). */
   | { type: "ws_close" }
   /** Parent (PlaybackPage) declared no coverage; player accepts being told (Contract #6). */
-  | { type: "no_coverage" };
+  | { type: "no_coverage" }
+  /**
+   * Explicit user-triggered reconnect (Retry after error). Tears down the dead
+   * socket via reconnectNonce bump and opens a fresh WS. Goes directly to "loading"
+   * (not "seeking") because the fresh session sends {seek} on open and we await
+   * the backend's "init" signal — the same path as initial mount.
+   */
+  | { type: "reconnect" };
 
 export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerState {
-  // "error" is terminal EXCEPT the explicit recovery path (user re-seek → backend
-  // re-init). Ignoring all other signals stops a late eof/gap/ws_close from
-  // silently un-sticking the error overlay.
+  // "error" is terminal EXCEPT explicit recovery paths. Ignoring all other signals
+  // stops a late eof/gap/ws_close from silently un-sticking the error overlay.
   if (state === "error") {
     switch (event.type) {
+      case "reconnect":
+        // Fresh-WS retry: go straight to loading (fresh session sends seek on open).
+        return "loading";
       case "seek":
+        // Seek over existing socket (optimistic; may be dead — prefer reconnect).
         return "seeking";
       case "init":
       case "reinit":
@@ -94,6 +104,10 @@ export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerSta
 
     case "no_coverage":
       return "no_coverage";
+
+    case "reconnect":
+      // Explicit Retry from any non-error state (e.g. double-click) → loading.
+      return "loading";
 
     default:
       return state;
