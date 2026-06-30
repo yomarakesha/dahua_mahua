@@ -53,8 +53,10 @@ def test_parse_empty_body():
 
 def test_parse_stream_field_present():
     recs = parse_find_records(SAMPLE)
-    # stream defaults to something non-empty for well-formed records
-    assert all(isinstance(r.stream, str) for r in recs)
+    # items[0] has Type=dav → stream must be "dav"
+    # items[1] has no Type key → stream must fall back to ""
+    assert recs[0].stream == "dav"
+    assert recs[1].stream == ""
 
 
 # ── merge_into_clips ─────────────────────────────────────────────────────────
@@ -135,4 +137,26 @@ def test_gap_within_tolerance_merges():
     ]
     clips = merge_into_clips(recs, gap_tolerance_s=5)
     assert len(clips) == 1
+    assert clips[0].end == datetime(2026, 6, 29, 9, 0, 0)
+
+
+def test_gap_exactly_at_tolerance_merges():
+    # gap == gap_tolerance_s (5s) must merge — condition is <=, not <
+    recs = [
+        FindRecord(
+            start=datetime(2026, 6, 29, 8, 0, 0),
+            end=datetime(2026, 6, 29, 8, 30, 0),
+            type="Timing",
+            stream="main",
+        ),
+        FindRecord(
+            start=datetime(2026, 6, 29, 8, 30, 5),  # exactly 5s gap
+            end=datetime(2026, 6, 29, 9, 0, 0),
+            type="Timing",
+            stream="main",
+        ),
+    ]
+    clips = merge_into_clips(recs, gap_tolerance_s=5)
+    assert len(clips) == 1
+    assert clips[0].start == datetime(2026, 6, 29, 8, 0, 0)
     assert clips[0].end == datetime(2026, 6, 29, 9, 0, 0)
