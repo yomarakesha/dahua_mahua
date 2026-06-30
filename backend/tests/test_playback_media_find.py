@@ -97,6 +97,17 @@ async def test_happy_path_returns_merged_clips():
     assert c.type == "Timing"
     assert c.stream == "dav"
 
+    # The findFile URL must use %20 for the space in the time strings (RFC 3986)
+    call_urls = [str(ca.args[0]) for ca in client.get.call_args_list]
+    find_url = next(u for u in call_urls if "action=findFile" in u)
+    assert "%20" in find_url, f"Expected %20 in findFile URL but got: {find_url}"
+    assert "StartTime=2026-06-29%2008%3A00%3A00" in find_url or "StartTime=2026-06-29%20" in find_url, (
+        f"StartTime not properly encoded in: {find_url}"
+    )
+    # Ensure no raw (unencoded) space appears in the time-condition portion
+    cond_part = find_url.split("condition.StartTime=", 1)[1] if "condition.StartTime=" in find_url else ""
+    assert " " not in cond_part, f"Raw space found in time condition: {cond_part!r}"
+
 
 async def test_happy_path_paginates_until_short_batch():
     """When first page is full (== batch), a second page is fetched."""

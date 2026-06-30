@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from urllib.parse import quote
 
 import httpx
 
@@ -130,8 +131,8 @@ async def find_clips(
             this propagates.
     """
     base = _cgi_base(ip, port)
-    start_str = start.strftime(_DT_FMT)
-    end_str = end.strftime(_DT_FMT)
+    start_str = quote(start.strftime(_DT_FMT))
+    end_str = quote(end.strftime(_DT_FMT))
 
     async with httpx.AsyncClient(
         auth=httpx.DigestAuth(user, pw),
