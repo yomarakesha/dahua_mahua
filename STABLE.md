@@ -1,41 +1,63 @@
-# STABLE — working 4MP, no-pulse, no-freeze (on a clean link)
+# STABLE v2 — smooth 4MP main (UDP), HTTPS, multi-NVR
 
-**Status:** ✅ Stable / working. Fullscreen **native 4MP** mains (2560×1440, verified),
-**no re-encode pulse**, smooth on a clean wired LAN link. Low-res grid (subs) re-encoded.
+**Tag:** `stable-2`  ·  **Previous stable:** `stable-4mp-no-freeze` (v1)
+**Status:** ✅ Stable / working. Deployed on 10.10.1.152, `feat/realtime-transport` @ c62670e.
 
-This is the known-good checkpoint. Branch `stable`, tag `stable-4mp-no-freeze`.
-Rollback-before-this-line point: branch `backup/pre-udp-ee5e419`.
+Known-good checkpoint after the realtime-transport work. Restore with
+`git checkout stable-2` (then rebuild + redeploy — see below).
 
-## Architecture (why it's stable)
-- **Relay:** go2rtc on the server (the server's path to the cameras is clean, 0% loss).
-- **Mains:** RAW passthrough, direct from each camera IP — **native 4MP, the camera's own
-  encode → no GOP-breathing pulse.** (Re-encode was a crutch for the freeze, which was
-  actually the client link — so we dropped it on mains.)
-- **Subs (grid):** re-encoded to a 0.5s GOP (small, keeps the grid smooth).
-- **Transport to browser:** MSE over WebSocket = **TCP** (retransmits hide link loss;
-  WebRTC/UDP was tried and shredded frames on a lossy link — do NOT use it here).
-- **Player:** resolution-aware live cushion (4s main / 3s sub) + gentle ±8% catch-up.
+## What's working
+- **4MP main at full frame rate.** Direct mains pull over **RTSP-UDP** into go2rtc via an
+  **MPEG-TS stdout pipe** — these Dahua cams collapse to ~2 fps over TCP but deliver ~22 fps
+  over UDP; the pipe avoids the loopback RTSP-republish that throttled it.
+- **Player: MSE by default** (buffered TCP to the browser — stable, carries audio).
+  WebCodecs is an opt-in header toggle (hardware decode + drop-late, video-only).
+- **HTTPS** via a Caddy reverse proxy on `:8443` (one secure origin; required for WebCodecs,
+  no mixed-content/CORS). Legacy `http://…:8080` still works (MSE only).
+- **Multi-NVR.** Both NVRs served. NVR enable/add/disable now **auto hard-restarts go2rtc**
+  so changes actually load (go2rtc's API reload doesn't re-init the stream registry).
+- **Switchable main pull strategy** via `MAIN_STREAM_MODE` (no code edits).
 
-## Working server config (`backend/.env` — non-secret keys)
+## Architecture
+- Relay: go2rtc. Subs re-encoded to a 0.5 s GOP; direct mains via `MAIN_STREAM_MODE`.
+- TLS: Caddy service `dahua-caddy` → `https://10.10.1.152:8443` (`tls internal`), proxies
+  `/api/*`→backend :8000, `/go2rtc/*`→go2rtc :1984, `/*`→static :8080.
+- Services (NSSM, LocalSystem): `dahua-backend`, `dahua-go2rtc`, `dahua-frontend`, `dahua-caddy`.
+
+## Deployed server config (`backend/.env`, non-secret keys)
 ```
+RELAY=go2rtc
 REENCODE_ENABLED=true
-REENCODE_QUALITIES=sub            # mains = RAW native 4MP; subs re-encoded
-REENCODE_VCODEC=auto              # → libx264 here (no GPU); used only for subs
-REENCODE_MAIN_SCALE=              # EMPTY = no downscale = native 4MP
-REENCODE_INPUT_RTSP_TRANSPORT=tcp # server→camera path is clean; keep tcp on the server
+REENCODE_QUALITIES=sub                 # subs re-encoded (0.5s GOP); mains via MAIN_STREAM_MODE
+REENCODE_VCODEC=auto                   # → libx264 (no GPU on this host)
+REENCODE_PRESET=veryfast
+REENCODE_KEYFRAME_SECONDS=0.5
+REENCODE_FFMPEG_BIN=C:\ffmpeg\bin\ffmpeg.exe
+REENCODE_MAXRATE_KBPS=3000
+REENCODE_MAIN_SCALE=                   # EMPTY = native resolution (never downscale below 4MP)
 GO2RTC_CONFIG_PATH=C:\deploy\dahua_mahua\.go2rtc\go2rtc.yaml
+MAIN_STREAM_MODE=copy_pipe             # UDP copy → mpegts pipe (sharp). reencode_pipe = conceal loss
+GO2RTC_RESTART_CMD=powershell -NoProfile -Command "Restart-Service dahua-go2rtc"
 ```
-After changing `.env`, restart the backend so it reconciles, then **hard-restart go2rtc**
-(POST /api/restart does not reload the stream registry — see start.ps1).
 
-## Verified
-- `ch1_main` probed: `h264 2560×1440` (native 4MP), raw passthrough.
-- Delivery to a clean-link client: ~4 Mbps, first-byte ~1.3s, **0 stalls**, no pulse.
+`MAIN_STREAM_MODE` options: `native` | `copy_pipe` (deployed) | `reencode_pipe` |
+`reencode_rtsp` | `copy_rtsp` — defined in `backend/app/settings.py`.
 
-## Known caveats (NOT this version's fault — environmental)
-1. **Residual freezes = the viewing client's intermittent link.** The test Mac's USB
-   ethernet (AX88179B @ 100baseTX) drops packets in bursts; clean link = smooth, lossy
-   blip = freeze. Fix = a healthy gigabit NIC / cable / switch port, not code.
-2. **ch18–ch32 mains pull via the NVR** (those cameras' direct IPs/credentials —
-   `post2626…` for most, 3 unknown — aren't in the DSS DB yet). They're 4MP but
-   freeze-prone on the NVR's packet drops until provisioned with per-camera creds.
+## Restore / redeploy this version
+```powershell
+# on the server (C:\deploy\dahua_mahua), as admin
+git fetch --all --tags
+git checkout stable-2
+cd web-react;  npm install;  npm run build                 # frontend
+cd ..\backend; .\.venv\Scripts\pip install -r requirements.txt   # only if deps changed
+Restart-Service dahua-backend
+Restart-Service dahua-go2rtc       # required: go2rtc must reload its stream registry
+Restart-Service dahua-caddy
+```
+Access at `https://10.10.1.152:8443` (accept the self-signed cert once per browser).
+
+## Known limitation
+Old-NVR 4MP mains show artifacts under the **camera segment's ~2% UDP packet loss** —
+physical (switch/cabling/PoE), proven upstream of the server NIC (0 NIC RX drops). Mitigated
+by `MAIN_STREAM_MODE=reencode_pipe` (ffmpeg conceals loss); the real fix is rack-side. The
+new NVR (1080p) is clean. See memory `main-bottleneck-is-camera-delivery`.
