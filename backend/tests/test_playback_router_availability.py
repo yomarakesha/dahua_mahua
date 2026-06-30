@@ -312,5 +312,5 @@ def test_availability_december_month_boundary(client, monkeypatch):
     _args, _kwargs = mock_find.call_args
     expected_start = datetime(2026, 12, 1, 0, 0, 0)
     expected_end = datetime(2027, 1, 1, 0, 0, 0) - timedelta(seconds=1)
-    assert _args[2] == expected_start or _kwargs.get("start") == expected_start
+    assert _kwargs.get("start") == expected_start
     assert _kwargs.get("end") == expected_end

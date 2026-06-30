@@ -98,8 +98,6 @@ def clips_to_day_strings(clips: list[Clip]) -> list[str]:
     The input datetimes must be NVR-local naive — no tz conversion is needed
     because they are already in local time.
     """
-    from datetime import date as _date
-
     days: set[str] = set()
     one_day = timedelta(days=1)
     for clip in clips:
@@ -211,7 +209,7 @@ async def recording_index(
         )
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            f"NVR recording index unavailable: {exc}",
+            "NVR recording index unavailable",
         ) from exc
 
     result: dict = {
@@ -313,7 +311,7 @@ async def recording_availability(
         )
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            f"NVR recording availability unavailable: {exc}",
+            "NVR recording availability unavailable",
         ) from exc
 
     # ── Derive distinct local days and oldest epoch ───────────────────────────
