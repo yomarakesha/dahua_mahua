@@ -135,7 +135,18 @@ def test_parses_records_with_times_and_type():
 
 ## Phase 2 — Backend playback session + streaming (expand to step-level AFTER Phase 0)
 
-Outline below is concrete (files, interfaces, task list, decisions). Each task gets the full failing-test→implement→commit treatment once the spike pins FF (V1), GOP (V2), sub/main (V4), audio (V7), and the playback ceiling (V9).
+> **EXPANDED 2026-06-30 (spike complete).** Step-level, code-grounded specs for Tasks 5–10
+> live in **`2026-06-30-nvr-playback-phase2-tasks.md`**; the binding cross-task decisions
+> (resolving every flagged ambiguity + the spike findings + the per-camera RBAC decision)
+> are in **`2026-06-30-nvr-playback-contracts.md`** and **win over any prose below or in the
+> design doc**. The outline below is kept as a summary.
+>
+> **Execution order & models** (subagent-driven; fresh implementer + task review each):
+> **Task 4b** (per-camera RBAC migration of the shipped `/index`+`/availability` — *standard*) →
+> **5** validators+URL builder (*cheap*) → **6** NvrBudget (*standard*) →
+> **7** PlaybackSession ffmpeg (*most-capable*) → **8** WS `/stream` (*most-capable*) →
+> **9** snapshot/thumb (*standard*) → **10** observability (*cheap*). ffmpeg/NVR/WS I/O is
+> not unit-testable — those steps ship with the spec §10 on-network manual checklist.
 
 ### Task 5: Input validators + NVR-local time formatting (pure logic — writable now)
 **Files:** `backend/app/services/playback/validate.py`, `tests/test_playback_validate.py`.
@@ -169,6 +180,13 @@ Add a `:8443` route config for the playback WS: long/disabled idle timeout + `fl
 ---
 
 ## Phase 3 — Frontend (expand to step-level AFTER Phase 0; UI tasks mostly spike-independent)
+
+> **EXPANDED 2026-06-30.** Step-level, code-grounded specs for Tasks 11–15 live in
+> **`2026-06-30-nvr-playback-phase3-tasks.md`**; cross-task contracts in
+> **`2026-06-30-nvr-playback-contracts.md`** win over the prose below. Test runner is
+> **Vitest** (`npm test`); pure-logic (footage-time mapping, day→epoch, state-machine
+> reducer) is unit-tested first, DOM/MSE/WS pieces ship with the spec §10 manual checklist.
+> Models: **11** *standard*, **12** *cheap*, **13** *standard*, **14** *most-capable*, **15** *cheap*.
 
 ### Task 11: API hooks + types
 `web-react/src/api/playback.ts` — typed `useRecordingIndex(nvr,ch,date)`, `useAvailability(...)`, the WS base URL (reuse `CONFIG`), and the control-message/footage-time types. TDD the footage-time mapping helper (`footageEpoch(t0, ct, baseCt, speed)`) and `dayToEpochRange(date, tzOffset)` incl. a DST day.
