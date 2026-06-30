@@ -127,3 +127,25 @@ async def test_snapshot_returns_independent_copy():
     # internal state must be unchanged
     assert budget.active_count("nvrX") == 1
     assert budget.active_count("nvrY") == 0
+
+
+# ── 11. Regression: release() on unknown NVR must not decrement global ────────
+
+
+async def test_release_never_acquired_noop_with_other_sessions():
+    budget = NvrBudget(per_nvr=2, global_cap=4)
+    await budget.try_acquire("nvr01")
+    await budget.release("nvr-unknown")
+    assert budget.global_active() == 1
+    assert budget.active_count("nvr01") == 1
+
+
+# ── 12. Concurrency: racing tasks must respect the global cap ─────────────────
+
+
+async def test_concurrent_try_acquire_respects_cap():
+    import asyncio
+    budget = NvrBudget(per_nvr=10, global_cap=10)
+    await asyncio.gather(*[budget.try_acquire("nvr01") for _ in range(5)])
+    assert budget.active_count("nvr01") == 5
+    assert budget.global_active() == 5

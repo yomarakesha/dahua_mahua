@@ -73,8 +73,7 @@ class NvrBudget:
             c = self._nvr_counts.get(nvr_id, 0)
             if c > 0:
                 self._nvr_counts[nvr_id] = c - 1
-            if self._global_count > 0:
-                self._global_count -= 1
+                self._global_count -= 1  # only when a per-NVR slot was actually held
 
     @asynccontextmanager
     async def session(self, nvr_id: str) -> AsyncIterator[None]:
