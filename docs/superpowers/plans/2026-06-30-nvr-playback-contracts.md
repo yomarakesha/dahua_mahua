@@ -68,8 +68,11 @@ spike findings + the user's RBAC decision of 2026-06-30).
     2× is unmeasured (spike V1) — decimation is the baseline; `Scale` is a later
     optimization, not a dependency.
 
-14. **`init.codec`.** MVP hard-codes `avc1.42E01E` (libx264 Baseline). Validate in
-    integration; if the encoder profile differs, adjust (MSE rejects a wrong MIME).
+14. **`init.codec`.** The backend emits the **full MIME type** required by
+    `MediaSource.addSourceBuffer()`: `video/mp4; codecs="avc1.42E01E"` (libx264
+    Baseline). Bare codec strings (e.g. `avc1.42E01E` without the `video/mp4;
+    codecs=` wrapper) are rejected by the MSE API. Validate in integration; if
+    the encoder profile differs, adjust the full MIME accordingly.
 
 **Detailed per-task specs:** see
 `2026-06-30-nvr-playback-phase2-tasks.md` (Tasks 5–10, backend) and

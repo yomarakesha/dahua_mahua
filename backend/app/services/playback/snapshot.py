@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.services.playback.session import _redact_url
 from app.services.playback.url_builder import build_playback_url, epoch_to_nvr_local
 
 log = logging.getLogger("dss.playback.snapshot")
@@ -25,7 +26,6 @@ def build_snapshot_argv(
     ffbin: str,
     rtsp_url: str,
     quality: int = 4,           # JPEG quality (ffmpeg -q:v, 1=best, 31=worst)
-    timeout_frames: int = 200,  # reserved: abort after this many input frames (future use)
 ) -> list[str]:
     """Build ffmpeg argv for single-frame JPEG extraction.
 
@@ -34,14 +34,11 @@ def build_snapshot_argv(
     Uses TCP transport (snapshot is one-shot; reliability > speed, Contract #10).
 
     Args:
-        ffbin:          Path to the ffmpeg binary (no spaces in any element).
-        rtsp_url:       Credentialed RTSP URL — caller must NOT log this value
-                        (Contract #12).
-        quality:        JPEG quality level passed as ``-q:v``; 1 = best,
-                        31 = worst (ffmpeg default scale).
-        timeout_frames: Reserved for future use — not currently embedded in the
-                        argv; the 15 s hard timeout in ``grab_frame`` is the
-                        primary safety valve.
+        ffbin:    Path to the ffmpeg binary (no spaces in any element).
+        rtsp_url: Credentialed RTSP URL — caller must NOT log this value
+                  (Contract #12).
+        quality:  JPEG quality level passed as ``-q:v``; 1 = best,
+                  31 = worst (ffmpeg default scale).
 
     Returns:
         A ``list[str]`` suitable for ``asyncio.create_subprocess_exec(*argv)``.
@@ -125,9 +122,10 @@ async def grab_frame(
 
     if not stdout:
         rc = proc.returncode
-        # Truncate stderr so credentials don't appear in log messages (the URL is
-        # not in stderr, but be conservative).
-        err_text = stderr.decode(errors="replace")[:500] if stderr else ""
+        # Redact any credentialed RTSP URL that ffmpeg may print in stderr
+        # (Contract #12: passwords must never appear in error messages or logs).
+        raw_err = stderr.decode(errors="replace")[:500] if stderr else ""
+        err_text = _redact_url(raw_err)
         raise SnapshotError(
             f"Snapshot ffmpeg returned empty output (rc={rc}): {err_text}"
         )

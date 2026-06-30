@@ -301,8 +301,9 @@ async def active_playback_sessions(user: AdminUser) -> dict:  # noqa: ARG001
 # Credential hygiene (Contract #12): the NVR password and credentialed RTSP URL
 # never appear in any WS payload or log line.
 
-# MVP hard-codes the libx264 Baseline MIME (Contract #14); validate in integration.
-_INIT_CODEC = "avc1.42E01E"
+# MVP hard-codes the libx264 Baseline full MIME (Contract #14); validate in integration.
+# Full MIME is required: ms.addSourceBuffer() rejects bare codec strings.
+_INIT_CODEC = 'video/mp4; codecs="avc1.42E01E"'
 
 # How long the fragment-sender waits for the pinned fMP4 init segment after a
 # (re)spawn before giving up and streaming fragments without it.
@@ -362,7 +363,11 @@ def _enqueue_clock(outbound: "asyncio.Queue", item) -> None:
         pass  # drop the tick; never evict a queued item
 
 
-async def _emit_structural(outbound: "asyncio.Queue", *items) -> None:
+async def _emit_structural(
+    outbound: "asyncio.Queue",
+    *items,
+    egress: "asyncio.Task | None" = None,
+) -> None:
     """Enqueue one or more structural messages that must NEVER be dropped or
     evicted (reinit / init segment / eof / error / the egress sentinel).
 
@@ -373,12 +378,24 @@ async def _emit_structural(outbound: "asyncio.Queue", *items) -> None:
     so a clock tick (or any other producer) can never interleave the pair.
     Structural messages are small and rare, so this awaited back-pressure is
     cheap.  An unbounded queue (``maxsize == 0``) always has room.
+
+    ``egress`` — when supplied — is checked on every spin: if it is already done
+    (crashed or shut down), the function returns early rather than looping forever
+    against a dead drainer.  A hard cap of 400 spins (~2 s) is the final safety
+    valve (IMPORTANT 4).
     """
     n = len(items)
     maxsize = outbound.maxsize
     if maxsize:
+        _max_spins = 400  # 400 × 0.005 s ≈ 2 s; prevents infinite spin on dead egress
+        _spins = 0
         while maxsize - outbound.qsize() < n:
+            if egress is not None and egress.done():
+                return  # egress is dead — nowhere to drain; give up
+            if _spins >= _max_spins:
+                return  # safety valve: give up rather than loop forever
             await asyncio.sleep(0.005)  # let the egress loop drain; never evict
+            _spins += 1
     for it in items:
         outbound.put_nowait(it)
 
@@ -564,9 +581,11 @@ async def _control_loop(ws: WebSocket, sess: PlaybackSession, clock_interval: fl
     All three producers PUT onto one ``outbound`` queue; ``_egress_loop`` is the
     sole WS sender (Task-8 review, single egress).  A client disconnect surfaces
     from ``_receive_loop`` as ``WebSocketDisconnect``; end-of-stream/crash from
-    ``_fragment_producer``.  Whichever producer finishes first, the others are
-    cancelled, the egress is allowed to flush any final eof/error then stop, and
-    we re-raise the first finisher's exception so the endpoint's ``finally`` runs.
+    ``_fragment_producer``.  Whichever finishes first — including a crashed egress
+    (IMPORTANT 4) — the others are cancelled, the egress is allowed to flush any
+    final eof/error then stop, and we re-raise the first producer's exception so
+    the endpoint's ``finally`` runs.  The session ``finally`` (close + budget
+    release) always runs regardless of which task finishes first.
     """
     outbound: asyncio.Queue = asyncio.Queue(maxsize=max(8, sess.ring_buffer_chunks))
     egress = asyncio.create_task(_egress_loop(ws, outbound), name="pb-egress")
@@ -574,21 +593,29 @@ async def _control_loop(ws: WebSocket, sess: PlaybackSession, clock_interval: fl
     clock = asyncio.create_task(_clock_sender(sess, outbound, clock_interval), name="pb-clock")
     frag = asyncio.create_task(_fragment_producer(sess, outbound), name="pb-frag")
     producers = {recv, clock, frag}
-    done, pending = await asyncio.wait(producers, return_when=asyncio.FIRST_COMPLETED)
+    # Include egress in the wait set: a crashed sender also tears the loop down
+    # (IMPORTANT 4a) so it can never busy-loop with a dead drainer.
+    done, pending = await asyncio.wait({*producers, egress}, return_when=asyncio.FIRST_COMPLETED)
     # Stop the still-running producers so nothing new is enqueued.
-    for t in pending:
+    for t in pending & producers:
         t.cancel()
-    await asyncio.gather(*pending, return_exceptions=True)
+    await asyncio.gather(*(pending & producers), return_exceptions=True)
     # Let the egress drain whatever is already queued (e.g. a final eof/error),
-    # then stop on the sentinel.  Bounded so a dead socket can't hang shutdown.
-    await _emit_structural(outbound, _EGRESS_STOP)
-    try:
-        await asyncio.wait_for(egress, timeout=2.0)
-    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
-        egress.cancel()
-        await asyncio.gather(egress, return_exceptions=True)
-    # Surface the first finisher's exception (e.g. WebSocketDisconnect).
+    # then stop on the sentinel.  Pass egress so _emit_structural can abort if
+    # egress already died (IMPORTANT 4b) — preventing an infinite spin.
+    await _emit_structural(outbound, _EGRESS_STOP, egress=egress)
+    if egress not in done:
+        try:
+            await asyncio.wait_for(egress, timeout=2.0)
+        except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+            egress.cancel()
+            await asyncio.gather(egress, return_exceptions=True)
+    # Surface the first PRODUCER's exception (e.g. WebSocketDisconnect from recv,
+    # eof-signal from frag).  Egress exceptions are NOT re-raised — an egress crash
+    # silently tears the loop; the endpoint finally block owns all cleanup.
     for t in done:
+        if t is egress:
+            continue
         exc = t.exception()
         if exc is not None:
             raise exc

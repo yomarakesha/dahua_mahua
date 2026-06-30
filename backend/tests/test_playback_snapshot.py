@@ -122,3 +122,36 @@ async def test_grab_frame_timeout_raises_snapshot_error_with_timed_out():
             assert "timed out" in str(exc_info.value).lower()
             # The process must have been killed on timeout.
             mock_proc.kill.assert_called_once()
+
+
+# ── Contract #12: credential redaction in SnapshotError ───────────────────────
+
+
+@pytest.mark.asyncio
+async def test_grab_frame_stderr_credentials_are_redacted_in_snapshot_error():
+    """Contract #12: if ffmpeg stderr contains a credentialed RTSP URL, the
+    resulting SnapshotError must NOT expose the password — it must be redacted
+    to *** before being embedded in the exception message."""
+    credentialed_stderr = (
+        b"rtsp://admin:secret@10.10.1.15:554/cam/playback?channel=1: "
+        b"401 Unauthorized\n"
+    )
+    mock_proc = MagicMock()
+    mock_proc.returncode = 1
+    mock_proc.kill = MagicMock()
+    mock_proc.wait = AsyncMock()
+
+    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        with patch(
+            "asyncio.wait_for",
+            new=AsyncMock(return_value=(b"", credentialed_stderr)),
+        ):
+            with pytest.raises(SnapshotError) as exc_info:
+                await grab_frame(**_GRAB_KWARGS)
+
+    err_msg = str(exc_info.value)
+    # Password must not appear in the error message.
+    assert "secret" not in err_msg, "credential 'secret' leaked into SnapshotError"
+    assert "admin:secret" not in err_msg, "credential pair leaked into SnapshotError"
+    # Redaction marker must be present to show something was there.
+    assert "***" in err_msg, "expected redaction marker '***' in SnapshotError"

@@ -227,10 +227,8 @@ class Settings(BaseSettings):
     # WebSocket control handler (Task 8).  The ffmpeg binary and keyframe
     # interval are reused from reencode_ffmpeg_bin / reencode_keyframe_seconds
     # above (no duplication needed).
-
-    # Default RTSP port for the NVR playback URL (Contract #9).  Can be
-    # overridden per NVR in the database; this is the deploy-wide fallback.
-    playback_rtsp_default_port: int = 554
+    # Note: the RTSP port is taken from nvr.port (Contract #9) — no deploy-wide
+    # default is needed here.
 
     # Per-NVR playback slot limit (NvrBudget, Task 6).  Defaults to 2 pending
     # V9 verification of how many concurrent RTSP pulls the NVR supports.

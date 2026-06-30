@@ -425,3 +425,33 @@ async def test_egress_full_drops_clock_never_evicts_structural():
     await asyncio.wait_for(task, timeout=1.0)
     rest = _drain(out)
     assert b"FRAG" in rest and {"type": "eof"} in rest
+
+
+@pytest.mark.asyncio
+async def test_emit_structural_returns_quickly_when_egress_is_dead():
+    """IMPORTANT 4: if the egress task is already done (crashed/closed) and the
+    queue is full, _emit_structural must return within a tight bound rather than
+    busy-looping forever against a dead drainer.
+
+    This is the 'budget-slot leak' scenario: egress died with the queue full →
+    _emit_structural used to spin 0.005 s per iteration with no exit condition.
+    With a dead egress task, it must return almost immediately."""
+    out: asyncio.Queue = asyncio.Queue(maxsize=2)
+    out.put_nowait("item-1")
+    out.put_nowait("item-2")  # queue is now full
+
+    # Create a task that completes immediately (simulates a dead egress).
+    async def _noop() -> None:
+        pass
+
+    egress = asyncio.create_task(_noop())
+    await asyncio.sleep(0)  # let the event loop run so the task finishes
+    assert egress.done(), "precondition: egress task must be done before the call"
+
+    # _emit_structural must return quickly (well under 0.5 s), NOT hang.
+    await asyncio.wait_for(
+        _emit_structural(out, {"type": "eof"}, egress=egress),
+        timeout=0.5,
+    )
+    # Queue remains full — we gave up without enqueuing (nowhere to drain).
+    assert out.qsize() == 2

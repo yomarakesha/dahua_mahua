@@ -28,7 +28,6 @@ sent to the client).  Callers must not log the returned URL (Contract #12).
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 

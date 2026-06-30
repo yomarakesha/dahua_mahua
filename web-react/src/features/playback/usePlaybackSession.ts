@@ -70,7 +70,7 @@ export function usePlaybackSession(
       return;
     }
 
-    const url = buildPlaybackWsUrl(nvrId, channel, getToken() ?? "");
+    const url = buildPlaybackWsUrl(nvrId, channel, getToken() ?? "", opts?.initialSeek ?? 0);
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
 

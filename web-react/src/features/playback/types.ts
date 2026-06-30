@@ -15,8 +15,8 @@ export type ClientMsg = SeekMsg | SpeedMsg | PauseMsg | PlayMsg | StreamMsg | Ke
 export interface InitMsg {
   type: "init";
   t0: number;        // footage epoch of the first frame in this segment
-  codec: string;     // codec string for addSourceBuffer, e.g. 'video/mp4; codecs="avc1.42E01E"'
-  audio: boolean;    // whether audio track is present
+  codec: string;     // full MIME for addSourceBuffer, e.g. 'video/mp4; codecs="avc1.42E01E"'
+  audio?: boolean;   // whether audio track is present (optional; absent = no audio)
 }
 
 export interface ReinitMsg {

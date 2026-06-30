@@ -28,10 +28,18 @@ export function httpToWsBase(httpBase: string): string {
  *
  * The JWT must travel in the query string — browsers can't set WS auth headers
  * (Contract #2) — and is percent-encoded so a token's special chars survive.
+ *
+ * `initialSeek` is the footage epoch (UTC seconds) to start playback from.
+ * The backend requires `?t=<epoch>` before accept() and closes 4004 if missing.
  */
-export function buildPlaybackWsUrl(nvrId: string, channel: number, token: string): string {
+export function buildPlaybackWsUrl(
+  nvrId: string,
+  channel: number,
+  token: string,
+  initialSeek: number,
+): string {
   const wsBase = httpToWsBase(CONFIG.backendBase);
-  return `${wsBase}/playback/${nvrId}/${channel}/stream?token=${encodeURIComponent(token)}`;
+  return `${wsBase}/playback/${nvrId}/${channel}/stream?token=${encodeURIComponent(token)}&t=${initialSeek}`;
 }
 
 // ── Footage-time mapping ───────────────────────────────────────────────────────

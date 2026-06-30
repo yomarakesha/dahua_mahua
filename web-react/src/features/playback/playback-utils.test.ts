@@ -270,18 +270,32 @@ describe("httpToWsBase", () => {
 
 describe("buildPlaybackWsUrl", () => {
   it("targets the /playback/{nvr}/{channel}/stream WS path", () => {
-    const url = buildPlaybackWsUrl("nvr-1", 3, "tok");
-    expect(url).toBe(`${httpToWsBase(CONFIG.backendBase)}/playback/nvr-1/3/stream?token=tok`);
+    const url = buildPlaybackWsUrl("nvr-1", 3, "tok", 1_719_734_400);
+    expect(url).toBe(
+      `${httpToWsBase(CONFIG.backendBase)}/playback/nvr-1/3/stream?token=tok&t=1719734400`,
+    );
   });
 
   it("derives a ws(s):// URL from the backend origin", () => {
-    const url = buildPlaybackWsUrl("nvr-1", 1, "tok");
+    const url = buildPlaybackWsUrl("nvr-1", 1, "tok", 1_719_734_400);
     expect(url.startsWith("ws://") || url.startsWith("wss://")).toBe(true);
   });
 
   it("percent-encodes the token (browsers can't set WS auth headers)", () => {
-    const url = buildPlaybackWsUrl("nvr-1", 1, "a b/c+&=*");
+    const url = buildPlaybackWsUrl("nvr-1", 1, "a b/c+&=*", 1_719_734_400);
     expect(url).toContain("token=a%20b%2Fc%2B%26%3D*");
     expect(url).not.toContain("a b/c");
+  });
+
+  it("includes t=<initialSeek> so the backend can start at the right epoch (Contract #2)", () => {
+    // Backend requires ?t=<epoch> and closes 4004 if it is missing.
+    const epoch = 1_751_241_600;
+    const url = buildPlaybackWsUrl("nvr-1", 2, "tok", epoch);
+    expect(url).toContain(`t=${epoch}`);
+  });
+
+  it("places t= after token= in the query string", () => {
+    const url = buildPlaybackWsUrl("nvr-1", 1, "tok", 9_999_999);
+    expect(url).toMatch(/token=.*&t=9999999$/);
   });
 });

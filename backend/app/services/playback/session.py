@@ -49,7 +49,6 @@ __all__ = [
     "PlaybackSession",
     "SessionState",
     "footage_epoch_at",
-    "_log_event",
     "start_reaper",
     "stop_reaper",
 ]
