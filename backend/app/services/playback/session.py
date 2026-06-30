@@ -49,6 +49,7 @@ __all__ = [
     "PlaybackSession",
     "SessionState",
     "footage_epoch_at",
+    "_log_event",
     "start_reaper",
     "stop_reaper",
 ]
@@ -228,6 +229,26 @@ def _assign_job_object(pid: int) -> None:
         log.warning("Job Object assignment failed for PID %d", pid, exc_info=True)
 
 
+def _log_event(sess: "PlaybackSession", event: str, **extra) -> None:
+    """Emit one structured log line per session lifecycle event (Contract §9).
+
+    Called from ``open()``, ``seek()``, ``set_speed()``, ``close()`` — each
+    produces exactly one line so operators can grep ``playback_event`` and get a
+    timeline per session.  The password and credentialed URL are never present
+    in *extra* (Contract #12).
+    """
+    log.info(
+        "playback_event event=%s session=%s nvr=%s ch=%d user=%s speed=%d %s",
+        event,
+        sess.session_id,
+        sess.nvr_id,
+        sess.channel,
+        sess.username,
+        sess.speed,
+        " ".join(f"{k}={v}" for k, v in extra.items()),
+    )
+
+
 # Detects an RTSP 401 / auth failure in ffmpeg stderr → record a lockout so we
 # don't keep hammering an NVR that has banned us (Contract / integration #476).
 _AUTH_FAIL_RE = re.compile(r"\b401\b|unauthorized|authentication failed", re.IGNORECASE)
@@ -308,6 +329,12 @@ class PlaybackSession:
     maxrate_kbps: int = 8000
     ring_buffer_chunks: int = 32
 
+    # Observability metadata — set by the WS handler on construction; never mutated.
+    user_id: str = ""       # str(user.id) UUID of the authenticated user
+    username: str = ""
+    client_ip: str = ""
+    nvr_label: str = ""
+
     # Runtime state.
     state: str = SessionState.IDLE
     speed: int = 1
@@ -321,6 +348,11 @@ class PlaybackSession:
     _paused_at: float = 0.0
     _last_keepalive: float = 0.0
     _closing: bool = False
+
+    # Egress counters — incremented by _enqueue; read by to_status_dict / close log.
+    _seek_count: int = 0
+    _bytes_sent: int = 0
+    _fragments_sent: int = 0
 
     # ── fMP4 init-segment pinning (Contract #11 + Task-8 review #3) ──────────
     # The back-pressure ring drops the OLDEST chunk under load, which could
@@ -357,15 +389,19 @@ class PlaybackSession:
         await self._spawn(start_epoch)
         self.state = SessionState.PLAYING
         _active_sessions[self.session_id] = self
+        _log_event(self, "start", t0=self.t0, footage_epoch=self.t0)
 
     async def seek(self, footage_epoch: int) -> None:
         """Respawn ffmpeg at ``footage_epoch``.  Updates ``t0``.
 
         Caller sends a ``reinit`` to the client afterward.
         """
+        old_t0 = self.t0
+        self._seek_count += 1
         self.state = SessionState.SEEKING
         await self._respawn(footage_epoch)
         self.state = SessionState.PLAYING
+        _log_event(self, "seek", from_epoch=old_t0, to_epoch=self.t0)
 
     async def set_speed(self, speed: int) -> None:
         """Change speed (respawn at the current footage position).
@@ -375,12 +411,14 @@ class PlaybackSession:
         validate_speed(speed)
         if speed == self.speed and self._proc is not None:
             return
+        old_speed = self.speed
         resume_at = self.footage_now() if self._proc is not None else self.t0
         self.speed = speed
         if self._proc is not None:
             self.state = SessionState.SEEKING
             await self._respawn(resume_at)
             self.state = SessionState.PLAYING
+        _log_event(self, "speed", old=old_speed, new=self.speed)
 
     async def pause(self) -> None:
         """Kill ffmpeg, keep the session alive.  State → PAUSED."""
@@ -409,14 +447,49 @@ class PlaybackSession:
             self.state = SessionState.CLOSED
             return
         self._closing = True
+        # Snapshot returncode before _kill_proc clears self._proc (for the log).
+        _proc_snapshot = self._proc
         await self._kill_proc()
         await self._cancel_tasks()
         self.state = SessionState.CLOSED
         _active_sessions.pop(self.session_id, None)
+        _log_event(
+            self, "stop",
+            uptime=int(time.monotonic() - self._started_at),
+            bytes_sent=self._bytes_sent,
+            seek_count=self._seek_count,
+            ffmpeg_rc=_proc_snapshot.returncode if _proc_snapshot is not None else None,
+        )
 
     def footage_now(self) -> int:
         """Current footage epoch (UTC) based on wall clock + speed."""
         return footage_epoch_at(self.t0, self._wall_start, self.speed, time.monotonic())
+
+    def to_status_dict(self) -> dict:
+        """Return a serialisable snapshot of the session for the /sessions endpoint.
+
+        Called by the admin ``GET /playback/sessions`` endpoint (Task 10).
+        All values are read-only snapshots — no locks needed (asyncio single-loop).
+        """
+        now = time.monotonic()
+        return {
+            "session_id": self.session_id,
+            "nvr_id": self.nvr_id,
+            "nvr_label": self.nvr_label,
+            "channel": self.channel,
+            "user_id": self.user_id,
+            "username": self.username,
+            "client_ip": self.client_ip,
+            "state": self.state,
+            "speed": self.speed,
+            "footage_epoch": (
+                self.footage_now() if self.state == SessionState.PLAYING else self.t0
+            ),
+            "uptime_seconds": int(now - self._started_at),
+            "seek_count": self._seek_count,
+            "bytes_sent": self._bytes_sent,
+            "fragments_sent": self._fragments_sent,
+        }
 
     async def wait_init_segment(self, timeout: float = 10.0) -> bytes | None:
         """Return the pinned fMP4 init segment for the current spawn.
@@ -548,6 +621,7 @@ class PlaybackSession:
 
         The stdout reader calls this — it MUST NOT ``await`` ``ring.put`` or a
         slow WS client would stall ffmpeg's RTSP pipeline (Contract #11).
+        Increments the egress counters so ``to_status_dict`` can report them.
         """
         try:
             self._ring.put_nowait(chunk)
@@ -561,6 +635,9 @@ class PlaybackSession:
             except asyncio.QueueFull:
                 pass
             log.debug("playback session=%s ring full — dropped oldest chunk", self.session_id)
+        # Count every chunk that enters the ring (proxies bytes forwarded to WS).
+        self._bytes_sent += len(chunk)
+        self._fragments_sent += 1
 
     async def _drain_loop(self, proc: asyncio.subprocess.Process) -> None:
         """Read fMP4 bytes off ffmpeg stdout into the ring until EOF."""

@@ -400,3 +400,99 @@ async def test_drain_stderr_redacts_credentials_in_auth_warning(caplog):
         await _drain_stderr(proc, "sess-test-warn", "1.2.3.4")
 
     assert "s3cr3t" not in caplog.text
+
+
+# ── Task 10: to_status_dict (observability) ───────────────────────────────────
+
+
+def _obs_session(**kwargs) -> PlaybackSession:
+    """Construct a PlaybackSession with observability metadata fields set."""
+    return PlaybackSession(
+        nvr_id=kwargs.get("nvr_id", "nvr-obs"),
+        channel=kwargs.get("channel", 2),
+        user_id=kwargs.get("user_id", "uid-obs"),
+        username=kwargs.get("username", "obs_user"),
+        client_ip=kwargs.get("client_ip", "10.1.2.3"),
+        nvr_label=kwargs.get("nvr_label", "Obs NVR"),
+    )
+
+
+def test_to_status_dict_has_all_required_keys():
+    """to_status_dict() must return every key defined in the spec."""
+    sess = _obs_session()
+    d = sess.to_status_dict()
+    required = (
+        "session_id", "nvr_id", "nvr_label", "channel",
+        "user_id", "username", "client_ip",
+        "state", "speed", "footage_epoch",
+        "uptime_seconds", "seek_count", "bytes_sent", "fragments_sent",
+    )
+    for key in required:
+        assert key in d, f"key '{key}' missing from to_status_dict()"
+
+
+def test_to_status_dict_values_match_construction():
+    """Metadata fields set at construction time must appear verbatim in the dict."""
+    sess = _obs_session(
+        nvr_id="nvr-x", channel=5,
+        user_id="u-123", username="alice", client_ip="192.168.0.1",
+        nvr_label="Cam NVR",
+    )
+    d = sess.to_status_dict()
+    assert d["nvr_id"] == "nvr-x"
+    assert d["channel"] == 5
+    assert d["user_id"] == "u-123"
+    assert d["username"] == "alice"
+    assert d["client_ip"] == "192.168.0.1"
+    assert d["nvr_label"] == "Cam NVR"
+    assert d["seek_count"] == 0
+    assert d["bytes_sent"] == 0
+    assert d["fragments_sent"] == 0
+
+
+def test_to_status_dict_uptime_increases(monkeypatch):
+    """uptime_seconds must reflect wall time elapsed since _started_at."""
+    sess = _obs_session()
+    sess._started_at = 100.0
+    monkeypatch.setattr("app.services.playback.session.time.monotonic", lambda: 110.0)
+    d1 = sess.to_status_dict()
+    monkeypatch.setattr("app.services.playback.session.time.monotonic", lambda: 130.0)
+    d2 = sess.to_status_dict()
+    assert d1["uptime_seconds"] == 10
+    assert d2["uptime_seconds"] == 30
+
+
+def test_to_status_dict_footage_epoch_not_playing():
+    """footage_epoch == t0 when state is not PLAYING (paused / idle / etc.)."""
+    sess = _obs_session()
+    sess.t0 = 1_700_000_000
+    sess.state = SessionState.PAUSED
+    assert sess.to_status_dict()["footage_epoch"] == 1_700_000_000
+
+    sess.state = SessionState.IDLE
+    assert sess.to_status_dict()["footage_epoch"] == 1_700_000_000
+
+
+def test_to_status_dict_footage_epoch_when_playing(monkeypatch):
+    """footage_epoch == footage_epoch_at(...) when state is PLAYING."""
+    sess = _obs_session()
+    sess.t0 = 1_700_000_000
+    sess.state = SessionState.PLAYING
+    sess._wall_start = 50.0
+    sess.speed = 2
+    monkeypatch.setattr("app.services.playback.session.time.monotonic", lambda: 60.0)
+    d = sess.to_status_dict()
+    expected = footage_epoch_at(1_700_000_000, 50.0, 2, 60.0)
+    assert d["footage_epoch"] == expected
+
+
+def test_to_status_dict_counters_reflect_mutations():
+    """Mutating _bytes_sent/_fragments_sent/_seek_count must be visible in dict."""
+    sess = _obs_session()
+    sess._bytes_sent = 99_000
+    sess._fragments_sent = 42
+    sess._seek_count = 7
+    d = sess.to_status_dict()
+    assert d["bytes_sent"] == 99_000
+    assert d["fragments_sent"] == 42
+    assert d["seek_count"] == 7

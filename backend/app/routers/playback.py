@@ -32,7 +32,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 
 from app.crypto import decrypt_password
-from app.deps import CurrentUser, SessionDep, user_can_access_camera
+from app.deps import AdminUser, CurrentUser, SessionDep, user_can_access_camera
 from app.models import Camera, Nvr, User
 from app.security import decode_token
 from app.services.lockouts import get_active_lockout
@@ -254,6 +254,33 @@ async def recording_index(
 
     _cache_set(cache_key, result)
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Active-sessions endpoint — /playback/sessions  (Task 10)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Admin-only: lists every currently active PlaybackSession (across all NVRs and
+# users) with counters and metadata.  Mirrors go2rtc's /api/streams pattern.
+# Per-camera RBAC does NOT apply here — this is a global admin observability view.
+
+
+@router.get("/sessions")
+async def active_playback_sessions(user: AdminUser) -> dict:  # noqa: ARG001
+    """List active playback sessions. **Admin-only.**
+
+    Returns:
+        ``{"total": N, "sessions": [{session_id, nvr_id, nvr_label, channel,
+        user_id, username, client_ip, state, speed, footage_epoch,
+        uptime_seconds, seek_count, bytes_sent, fragments_sent}, ...]}``
+
+    A 403 is raised (by the ``AdminUser`` dep) if the caller is not an admin.
+    """
+    sessions = [s.to_status_dict() for s in _active_sessions.values()]
+    return {
+        "total": len(sessions),
+        "sessions": sessions,
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -659,7 +686,15 @@ async def playback_stream(
     try:
         await websocket.accept()
         password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
+        # Resolve client IP from the WebSocket transport (may be None in tests).
+        _client_ip = websocket.client.host if websocket.client is not None else ""
         sess = PlaybackSession(
+            # Observability metadata (Task 10) — set once, never mutated.
+            user_id=str(user.id),
+            username=user.username,
+            client_ip=_client_ip,
+            nvr_label=nvr.label,
+            # NVR / stream config.
             nvr_id=nvr_id,
             nvr_ip=nvr.ip,
             rtsp_port=nvr.port,  # Contract #9: nvr.port is the RTSP port
