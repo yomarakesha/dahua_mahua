@@ -8,6 +8,7 @@ import {
 import { CameraIcon } from "@/components/icons";
 import Timeline from "./Timeline";
 import PlaybackPlayer from "./PlaybackPlayer";
+import { useSnapshot } from "./useSnapshot";
 import type { FootageAnchor, PlayerState } from "./types";
 
 type Speed = 1 | 2 | 4 | 8;
@@ -40,7 +41,7 @@ export default function PlaybackPage() {
   /** Live footage-time playhead (epoch) emitted by the player for the Timeline. */
   const [playhead, setPlayhead] = useState<number | null>(null);
   /** Latest FootageAnchor, lifted for Task 15's snapshot footage-time mapping. */
-  const [, setAnchor] = useState<FootageAnchor | null>(null);
+  const [anchor, setAnchor] = useState<FootageAnchor | null>(null);
   /** Shared <video> ref so Task 15's snapshot can read pixels from the player. */
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -72,6 +73,16 @@ export default function PlaybackPage() {
     channel,
     selectedDate,
     hasSelection && !!selectedDate,
+  );
+
+  // ── Snapshot (Task 15) ──────────────────────────────────────────────────────
+  // tzOffsetMinutes comes from the loaded RecordingIndex; default 0 before it loads.
+  const tzOffsetMinutes = indexData?.tz_offset_minutes ?? 0;
+  const { takeSnapshot, isAvailable: snapshotAvailable } = useSnapshot(
+    videoRef,
+    anchor,
+    tzOffsetMinutes,
+    selectedCam?.display_name ?? "",
   );
 
   // ── Handlers ────────────────────────────────────────────────────────────────
@@ -112,8 +123,7 @@ export default function PlaybackPage() {
 
   const maxDate = todayIso();
 
-  /** Snapshot is allowed only while footage is actually rendering (playing). */
-  const playerReady = playerState === "playing";
+  // playerState retained for Timeline (passes it as prop) and future overlays.
 
   // ── Player gating ─────────────────────────────────────────────────────────────
   // Contract #6: when /index returns zero clips for the day, never open the WS —
@@ -229,11 +239,12 @@ export default function PlaybackPage() {
           ))}
         </div>
 
-        {/* Snapshot — disabled until Task 15 hook + Task 14 player-ready */}
+        {/* Snapshot — enabled when snapshotAvailable (video ready + anchor set) */}
         <button
           aria-label="Snapshot"
-          disabled={!playerReady}
-          title={playerReady ? "Take snapshot" : "Start playback first"}
+          disabled={!snapshotAvailable}
+          title={snapshotAvailable ? "Take snapshot" : "Start playback first"}
+          onClick={() => void takeSnapshot()}
           className="flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-semibold text-ink-dim transition hover:bg-white/[.05] hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
         >
           <CameraIcon size={15} />

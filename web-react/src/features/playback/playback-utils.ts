@@ -143,6 +143,7 @@ export function epochToNvrTimeStr(epoch: number, tzOffsetMinutes: number): strin
 /**
  * Format a UTC epoch as "YYYY-MM-DD HH:MM:SS" in NVR-local time.
  * Used for display labels, not for NVR API calls (see epochToNvrTimeStr for time-only).
+ * For snapshot filenames use buildSnapshotFilename (which uses the filesystem-safe variant).
  */
 export function formatNvrDatetime(epoch: number, tzOffsetMinutes: number): string {
   const localEpoch = epoch + tzOffsetMinutes * 60;
@@ -168,4 +169,32 @@ export function formatNvrDatetime(epoch: number, tzOffsetMinutes: number): strin
   const ss = Math.floor(todSeconds % 60);
 
   return `${yr}-${pad2(m)}-${pad2(d)} ${pad2(hh)}:${pad2(mm)}:${pad2(ss)}`;
+}
+
+// ── Snapshot filename builder ──────────────────────────────────────────────────
+
+/**
+ * Build a filesystem-safe snapshot filename:
+ *   "snapshot_{sanitized-camName}_{NVR-local-datetime}.png"
+ *
+ * The datetime component uses hyphens and an underscore separator
+ * ("YYYY-MM-DD_HH-MM-SS") so the filename is safe on all platforms.
+ * camName is sanitized: any character that is not ASCII alphanumeric is
+ * replaced with "_".
+ *
+ * Example:  buildSnapshotFilename(1751241600, 0, "Front Gate")
+ *           → "snapshot_Front_Gate_2025-06-30_00-00-00.png"
+ */
+export function buildSnapshotFilename(
+  epoch: number,
+  tzOffsetMinutes: number,
+  camName: string,
+): string {
+  // Reuse formatNvrDatetime ("YYYY-MM-DD HH:MM:SS") and convert to
+  // filesystem-safe form: space → "_", ":" → "-".
+  const dtStr = formatNvrDatetime(epoch, tzOffsetMinutes)
+    .replace(" ", "_")
+    .replace(/:/g, "-");
+  const sanitizedCam = camName.replace(/[^a-z0-9]/gi, "_");
+  return `snapshot_${sanitizedCam}_${dtStr}.png`;
 }

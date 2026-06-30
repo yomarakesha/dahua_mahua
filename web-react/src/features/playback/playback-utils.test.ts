@@ -6,6 +6,7 @@ import {
   dayToEpochs,
   epochToNvrTimeStr,
   formatNvrDatetime,
+  buildSnapshotFilename,
   httpToWsBase,
   buildPlaybackWsUrl,
 } from "./playback-utils";
@@ -196,6 +197,52 @@ describe("formatNvrDatetime", () => {
     // 2026-02-03 04:05:06 UTC+0
     const epoch = Date.UTC(2026, 1, 3, 4, 5, 6) / 1000;
     expect(formatNvrDatetime(epoch, 0)).toBe("2026-02-03 04:05:06");
+  });
+});
+
+// ── buildSnapshotFilename ──────────────────────────────────────────────────────
+
+describe("buildSnapshotFilename", () => {
+  // epoch 1751241600 = 2025-06-30T00:00:00Z (verified: existing dayToEpochs test)
+
+  it("builds a filename with correct NVR-local datetime for UTC+0", () => {
+    expect(buildSnapshotFilename(1751241600, 0, "cam1")).toBe(
+      "snapshot_cam1_2025-06-30_00-00-00.png",
+    );
+  });
+
+  it("applies positive tz offset (UTC+5 = 300 min)", () => {
+    // 2025-06-30T00:00:00Z + 5h = 2025-06-30 05:00:00 NVR-local
+    expect(buildSnapshotFilename(1751241600, 300, "cam1")).toBe(
+      "snapshot_cam1_2025-06-30_05-00-00.png",
+    );
+  });
+
+  it("applies negative tz offset (UTC-6 = -360 min) — date rolls back", () => {
+    // 2025-06-30T00:00:00Z − 6h = 2025-06-29 18:00:00 NVR-local
+    expect(buildSnapshotFilename(1751241600, -360, "cam1")).toBe(
+      "snapshot_cam1_2025-06-29_18-00-00.png",
+    );
+  });
+
+  it("sanitizes camName: spaces and slashes → underscores", () => {
+    expect(buildSnapshotFilename(1751241600, 0, "Front Gate")).toBe(
+      "snapshot_Front_Gate_2025-06-30_00-00-00.png",
+    );
+  });
+
+  it("sanitizes camName: special characters → underscores", () => {
+    // "Hall/cam #2" → "Hall_cam__2"
+    expect(buildSnapshotFilename(1751241600, 0, "Hall/cam #2")).toBe(
+      "snapshot_Hall_cam__2_2025-06-30_00-00-00.png",
+    );
+  });
+
+  it("filename uses underscore between date and time (filesystem-safe)", () => {
+    const filename = buildSnapshotFilename(1751241600, 0, "c");
+    // Must not have colons or bare spaces in the datetime portion
+    expect(filename).not.toMatch(/[:]/);
+    expect(filename).toBe("snapshot_c_2025-06-30_00-00-00.png");
   });
 });
 
