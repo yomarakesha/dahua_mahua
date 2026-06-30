@@ -314,67 +314,148 @@ def _classify_session_end(returncode: int | None) -> str:
     return "eof" if returncode == 0 else "error"
 
 
-async def _dispatch(msg: dict, sess: PlaybackSession, ws: WebSocket) -> None:
-    """Dispatch one parsed client control message.
+# Sentinel pushed onto the egress queue to tell the single sender to drain any
+# already-queued items (e.g. a final eof/error) and then stop.
+_EGRESS_STOP = object()
+
+
+def _enqueue_signal(outbound: "asyncio.Queue", item) -> None:
+    """Best-effort, non-blocking enqueue of a small control signal or the pinned
+    init segment (reinit / init / clock / eof / error / sentinel).
+
+    These items must never make a producer block, and the reinit→init pair must
+    be enqueued with NO awaited suspension between them so the 2 s clock tick (or
+    a dispatch error) can never interleave between them.  ``put_nowait`` never
+    suspends; if the bounded egress queue is momentarily full (slow client) we
+    drop the OLDEST queued item to make room — same drop-oldest discipline as the
+    session ring.  Media fragments instead use the awaited ``put`` path so they
+    get genuine back-pressure (see ``_fragment_producer``).
+    """
+    try:
+        outbound.put_nowait(item)
+    except asyncio.QueueFull:
+        try:
+            outbound.get_nowait()  # drop oldest
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            outbound.put_nowait(item)
+        except asyncio.QueueFull:
+            pass
+
+
+async def _dispatch(msg: dict, sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
+    """Apply one parsed client control message to the session.
 
     Validators run BEFORE any session mutation (so a bad ``speed``/``seek`` is
-    rejected before ffmpeg is touched).  Raises ``PlaybackUrlError`` on invalid
-    input; the receive loop turns that into a sanitised ``{type:"error"}`` rather
-    than tearing down the socket.
+    rejected before ffmpeg is touched).  Invalid client input — including a
+    non-integer ``speed`` like ``"fast"`` (Task-8 review #3) — is turned into a
+    sanitised ``{type:"error"}`` enqueued on the egress queue; this method NEVER
+    raises and NEVER tears the session down.
+
+    ``reinit`` is intentionally NOT emitted here.  The single ``_fragment_producer``
+    owns reinit → new init segment → new fragments so that ordering can't be
+    raced by a second sender (Task-8 review, ordering requirement #2).
     """
-    if "seek" in msg:
-        epoch = validate_footage_epoch(msg["seek"])
-        await sess.seek(epoch)
-        await ws.send_json({"type": "reinit", "t0": sess.t0})
-    elif "speed" in msg:
-        speed = validate_speed(int(msg["speed"]))
-        await sess.set_speed(speed)
-        await ws.send_json({"type": "reinit", "t0": sess.t0})
-    elif "pause" in msg:
-        await sess.pause()
-    elif "play" in msg:
-        await sess.resume(sess.footage_now())
-        await ws.send_json({"type": "reinit", "t0": sess.t0})
-    elif "keepalive" in msg:
-        now = time.monotonic()
-        sess._last_keepalive = now
-        # Keep a PAUSED session off the idle reaper's chopping block.
-        if sess.state == SessionState.PAUSED:
-            sess._paused_at = now
-    elif "stream" in msg:
-        # Contract #5: NVR records main-only; silently ignore stream switches.
-        log.debug("stream switch requested (%r) — ignored (main-only NVR)", msg["stream"])
-    else:
-        log.warning("Unknown playback control message: %r", msg)
+    try:
+        if "seek" in msg:
+            epoch = validate_footage_epoch(msg["seek"])
+            await sess.seek(epoch)
+        elif "speed" in msg:
+            try:
+                raw_speed = int(msg["speed"])
+            except (ValueError, TypeError):
+                # int("fast") → ValueError; map to the same graceful path as an
+                # out-of-whitelist speed instead of killing the session (#3).
+                raise PlaybackUrlError("speed must be an integer")
+            speed = validate_speed(raw_speed)
+            await sess.set_speed(speed)
+        elif "pause" in msg:
+            await sess.pause()
+        elif "play" in msg:
+            await sess.resume(sess.footage_now())
+        elif "keepalive" in msg:
+            now = time.monotonic()
+            sess._last_keepalive = now
+            # Keep a PAUSED session off the idle reaper's chopping block.
+            if sess.state == SessionState.PAUSED:
+                sess._paused_at = now
+        elif "stream" in msg:
+            # Contract #5: NVR records main-only; silently ignore stream switches.
+            log.debug("stream switch requested (%r) — ignored (main-only NVR)", msg["stream"])
+        else:
+            log.warning("Unknown playback control message: %r", msg)
+    except PlaybackUrlError as exc:
+        # str(exc) is a fixed validator message — no credentials (Contract #12).
+        _enqueue_signal(outbound, {"type": "error", "reason": str(exc)})
 
 
-async def _clock_sender(ws: WebSocket, sess: PlaybackSession, interval: float) -> None:
-    """Emit ``{type:"clock", wall_ts:<footage epoch>}`` while PLAYING (Contract #3)."""
+async def _egress_loop(ws: WebSocket, outbound: "asyncio.Queue") -> None:
+    """The SOLE owner of the WebSocket send side (Task-8 review, single egress).
+
+    Drains ``outbound`` in FIFO order and is the ONLY coroutine that ever calls
+    ``ws.send_bytes`` / ``ws.send_json``.  This serialises every send — the 2 s
+    clock tick can no longer interleave ASGI messages mid-fragment (which would
+    corrupt frames or raise "another coroutine is already waiting") — and pins
+    wire order to enqueue order.  Stops on the ``_EGRESS_STOP`` sentinel.
+    """
+    while True:
+        item = await outbound.get()
+        if item is _EGRESS_STOP:
+            return
+        if isinstance(item, (bytes, bytearray)):
+            await ws.send_bytes(item)
+        else:
+            await ws.send_json(item)
+
+
+async def _clock_sender(sess: PlaybackSession, outbound: "asyncio.Queue", interval: float) -> None:
+    """Enqueue ``{type:"clock", wall_ts:<footage epoch>}`` while PLAYING (Contract #3)."""
     while sess.state not in (SessionState.CLOSED, SessionState.ERROR):
         await asyncio.sleep(interval)
         if sess.state == SessionState.PLAYING:
-            await ws.send_json({"type": "clock", "wall_ts": sess.footage_now()})
+            _enqueue_signal(outbound, {"type": "clock", "wall_ts": sess.footage_now()})
 
 
-async def _fragment_sender(ws: WebSocket, sess: PlaybackSession) -> None:
-    """Stream fMP4 fragments, pinning the init segment after each (re)spawn.
+async def _fragment_producer(sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
+    """Single producer of init/reinit JSON, the pinned init segment, and fMP4
+    fragments — enqueued onto the egress queue in strict order (Task-8 review).
 
-    Ordering guarantee (Task-8 review #3): on every new ``_spawn_gen`` the
-    pinned init segment (ftyp+moov) is sent FIRST, then media fragments from the
-    back-pressure ring.  When the ring drains AND the ffmpeg process has exited
-    on its own while PLAYING, we classify clean-EOF vs crash (Task-8 review #2),
-    signal the client, and return — the endpoint then closes the session.
+    On every new ``_spawn_gen`` it emits, contiguously (no awaited suspension
+    between them, so no clock/error tick can interleave): the gen-0 ``init`` —
+    or a ``reinit`` on respawn — JSON, then the pinned init segment bytes; then
+    it streams new-timeline fragments from the back-pressure ring.  Because the
+    session CLEARS the ring on every respawn (review #1), the fragments read
+    after the init segment are always from the new timeline — stale pre-respawn
+    media can never land after the new init segment.
+
+    When the ring drains AND ffmpeg has exited on its own while PLAYING, we
+    classify clean-EOF vs crash (review #2), enqueue the signal, and return; the
+    endpoint then closes the session.
 
     INTEGRATION: the exact fMP4 byte-boundary alignment of the pinned init
     segment is an on-network check (no live NVR here).
     """
     last_gen = -1
+    held: bytes | None = None  # a fetched chunk that must wait behind a pending reinit
     while not sess._closing and sess.state not in (SessionState.CLOSED, SessionState.ERROR):
         if sess._spawn_gen != last_gen:
+            gen = sess._spawn_gen
             init = await sess.wait_init_segment(timeout=_INIT_SEGMENT_TIMEOUT)
-            last_gen = sess._spawn_gen
+            # reinit/init JSON + the pinned init segment go onto the queue
+            # back-to-back via put_nowait → guaranteed contiguous on the wire.
+            if last_gen == -1:
+                _enqueue_signal(outbound, {"type": "init", "t0": sess.t0, "codec": _INIT_CODEC})
+            else:
+                _enqueue_signal(outbound, {"type": "reinit", "t0": sess.t0})
             if init:
-                await ws.send_bytes(init)
+                _enqueue_signal(outbound, init)
+            last_gen = gen
+            # fall through to flush any chunk held across the gen boundary
+        if held is not None:
+            await outbound.put(held)
+            held = None
+            continue
         try:
             chunk = await asyncio.wait_for(sess._ring.get(), timeout=0.5)
         except asyncio.TimeoutError:
@@ -388,45 +469,65 @@ async def _fragment_sender(ws: WebSocket, sess: PlaybackSession) -> None:
             ):
                 kind = _classify_session_end(proc.returncode)
                 if kind == "eof":
-                    await ws.send_json({"type": "eof"})
+                    _enqueue_signal(outbound, {"type": "eof"})
                 else:
-                    await ws.send_json(
-                        {"type": "error", "reason": "playback stream ended unexpectedly"}
+                    _enqueue_signal(
+                        outbound,
+                        {"type": "error", "reason": "playback stream ended unexpectedly"},
                     )
                 return
             continue
-        await ws.send_bytes(chunk)
+        if sess._spawn_gen != last_gen:
+            # A respawn happened while we were blocked on the (now-cleared) ring,
+            # so this chunk belongs to the NEW generation: hold it and loop so the
+            # reinit + new init segment are emitted ahead of it (review #2).
+            held = chunk
+            continue
+        # Media fragments use the awaited put: when the egress queue fills (slow
+        # client) the producer blocks here, the session ring fills, and it drops
+        # the OLDEST chunk — preserving the Contract #11 back-pressure discipline.
+        await outbound.put(chunk)
 
 
-async def _receive_loop(ws: WebSocket, sess: PlaybackSession) -> None:
-    """Read client control JSON and dispatch it; bad input → sanitised error."""
+async def _receive_loop(ws: WebSocket, sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
+    """Read client control JSON and dispatch it (bad input → sanitised error)."""
     while True:
         msg = await ws.receive_json()  # raises WebSocketDisconnect on close
         if not isinstance(msg, dict):
             log.warning("Ignoring non-object playback control message")
             continue
-        try:
-            await _dispatch(msg, sess, ws)
-        except PlaybackUrlError as exc:
-            # str(exc) is a fixed validator message — no credentials (Contract #12).
-            await ws.send_json({"type": "error", "reason": str(exc)})
+        await _dispatch(msg, sess, outbound)
 
 
 async def _control_loop(ws: WebSocket, sess: PlaybackSession, clock_interval: float) -> None:
-    """Run receive + clock + fragment coroutines until any one finishes.
+    """Wire up the single egress + the receive/clock/fragment producers.
 
-    A client disconnect surfaces from ``_receive_loop`` as ``WebSocketDisconnect``;
-    end-of-stream/crash surfaces from ``_fragment_sender``.  Whichever finishes
-    first cancels the others, and we re-raise so the endpoint's ``finally`` runs.
+    All three producers PUT onto one ``outbound`` queue; ``_egress_loop`` is the
+    sole WS sender (Task-8 review, single egress).  A client disconnect surfaces
+    from ``_receive_loop`` as ``WebSocketDisconnect``; end-of-stream/crash from
+    ``_fragment_producer``.  Whichever producer finishes first, the others are
+    cancelled, the egress is allowed to flush any final eof/error then stop, and
+    we re-raise the first finisher's exception so the endpoint's ``finally`` runs.
     """
-    recv = asyncio.create_task(_receive_loop(ws, sess), name="pb-recv")
-    clock = asyncio.create_task(_clock_sender(ws, sess, clock_interval), name="pb-clock")
-    frag = asyncio.create_task(_fragment_sender(ws, sess), name="pb-frag")
-    tasks = {recv, clock, frag}
-    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    outbound: asyncio.Queue = asyncio.Queue(maxsize=max(8, sess.ring_buffer_chunks))
+    egress = asyncio.create_task(_egress_loop(ws, outbound), name="pb-egress")
+    recv = asyncio.create_task(_receive_loop(ws, sess, outbound), name="pb-recv")
+    clock = asyncio.create_task(_clock_sender(sess, outbound, clock_interval), name="pb-clock")
+    frag = asyncio.create_task(_fragment_producer(sess, outbound), name="pb-frag")
+    producers = {recv, clock, frag}
+    done, pending = await asyncio.wait(producers, return_when=asyncio.FIRST_COMPLETED)
+    # Stop the still-running producers so nothing new is enqueued.
     for t in pending:
         t.cancel()
     await asyncio.gather(*pending, return_exceptions=True)
+    # Let the egress drain whatever is already queued (e.g. a final eof/error),
+    # then stop on the sentinel.  Bounded so a dead socket can't hang shutdown.
+    _enqueue_signal(outbound, _EGRESS_STOP)
+    try:
+        await asyncio.wait_for(egress, timeout=2.0)
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+        egress.cancel()
+        await asyncio.gather(egress, return_exceptions=True)
     # Surface the first finisher's exception (e.g. WebSocketDisconnect).
     for t in done:
         exc = t.exception()
@@ -547,11 +648,18 @@ async def playback_stream(
             "playback_start nvr=%s ch=%d user=%s session=%s",
             nvr_id, channel, user.id, sess.session_id,
         )
-        await websocket.send_json({"type": "init", "t0": sess.t0, "codec": _INIT_CODEC})
+        # The {type:"init"} signal + pinned init segment are emitted by the
+        # single fragment producer on its first spawn generation (single-egress
+        # ordering); the endpoint no longer sends directly on the socket.
         await _control_loop(websocket, sess, settings.playback_clock_interval_seconds)
     except WebSocketDisconnect:
         pass
-    except BaseException:  # noqa: BLE001 — ensure cleanup on any failure path
+    except asyncio.CancelledError:
+        # Never swallow cancellation — re-raise so graceful lifespan shutdown
+        # isn't interfered with (Task-8 review #4).  The finally below still
+        # runs (session close + budget release).
+        raise
+    except Exception:  # noqa: BLE001 — ensure cleanup on any failure path
         log.warning("playback session error nvr=%s ch=%d", nvr_id, channel, exc_info=True)
         try:
             await websocket.send_json({"type": "error", "reason": "internal error"})

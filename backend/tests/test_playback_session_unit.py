@@ -266,6 +266,55 @@ def test_backpressure_drops_oldest_and_never_blocks():
     assert drained == [b"\x01", b"\x02", b"\x03", b"\x09"]
 
 
+async def test_seek_clears_ring_of_stale_fragments():
+    """Review #1: a respawn (seek) must CLEAR the ring so pre-seek fragments are
+    never delivered after the new init segment (they'd corrupt the MSE buffer)."""
+    sess = _session()
+    procs = [_FakeProc(), _FakeProc()]
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(side_effect=procs),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)
+        # Stale pre-seek media sitting in the ring.
+        sess._ring.put_nowait(b"STALE-1")
+        sess._ring.put_nowait(b"STALE-2")
+        assert sess._ring.qsize() == 2
+
+        await sess.seek(1_700_000_100)
+        # The ring is empty after the respawn — no stale chunk survives. The new
+        # FakeProc's stdout blocks (no data), so the ring can only be empty by
+        # virtue of the explicit clear.
+        assert sess._ring.empty()
+        assert sess.t0 == 1_700_000_100
+        await sess.close()
+
+
+async def test_set_speed_clears_ring_of_stale_fragments():
+    """Review #1: changing speed also respawns and must clear the ring."""
+    sess = _session()
+    procs = [_FakeProc(), _FakeProc()]
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(side_effect=procs),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)
+        sess._ring.put_nowait(b"STALE-A")
+        sess._ring.put_nowait(b"STALE-B")
+        assert sess._ring.qsize() == 2
+
+        await sess.set_speed(2)  # 1 → 2 with a live proc → respawn
+        assert sess._ring.empty()
+        assert sess.speed == 2
+        await sess.close()
+
+
 def test_footage_now_uses_t0_and_speed():
     sess = _session()
     sess.t0 = 1000

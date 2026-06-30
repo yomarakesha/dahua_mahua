@@ -364,8 +364,7 @@ class PlaybackSession:
         Caller sends a ``reinit`` to the client afterward.
         """
         self.state = SessionState.SEEKING
-        await self._kill_proc()
-        await self._spawn(footage_epoch)
+        await self._respawn(footage_epoch)
         self.state = SessionState.PLAYING
 
     async def set_speed(self, speed: int) -> None:
@@ -380,8 +379,7 @@ class PlaybackSession:
         self.speed = speed
         if self._proc is not None:
             self.state = SessionState.SEEKING
-            await self._kill_proc()
-            await self._spawn(resume_at)
+            await self._respawn(resume_at)
             self.state = SessionState.PLAYING
 
     async def pause(self) -> None:
@@ -397,7 +395,7 @@ class PlaybackSession:
     async def resume(self, footage_epoch: int) -> None:
         """Respawn ffmpeg from ``footage_epoch`` after a pause.  State → LOADING."""
         self.state = SessionState.LOADING
-        await self._spawn(footage_epoch)
+        await self._respawn(footage_epoch)
         self.state = SessionState.PLAYING
 
     async def close(self) -> None:
@@ -458,6 +456,52 @@ class PlaybackSession:
             start=start_dt,
             end=end_dt,
         )
+
+    def _clear_ring(self) -> None:
+        """Discard every buffered fMP4 chunk currently in the ring.
+
+        Called on every respawn (seek / set_speed / resume) so that stale
+        pre-respawn fragments — which belong to the OLD playback timeline — are
+        never delivered after the new init segment, where they would corrupt
+        the client's MSE source buffer (Task-8 review #1).
+        """
+        while True:
+            try:
+                self._ring.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+    async def _cancel_drain_task(self) -> None:
+        """Cancel + await the current stdout drain task.
+
+        On respawn the killed process's drain loop could otherwise still push a
+        buffered post-kill chunk into the freshly cleared ring, re-introducing a
+        stale fragment after the new init segment.  Cancelling it first closes
+        that window.  The stderr task is left to finish on its own (it drains
+        EOF and may record an auth lockout).
+        """
+        task = self._drain_task
+        self._drain_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+
+    async def _respawn(self, start_epoch: int) -> None:
+        """Tear down the current ffmpeg and spawn a fresh one at ``start_epoch``.
+
+        Ordering / staleness guarantee (Task-8 review #1): kill the process,
+        cancel its drain loop, then CLEAR the ring — so once ``_spawn`` bumps
+        ``_spawn_gen`` and arms a new init-segment capture, the ring holds only
+        new-timeline fragments.  The WS producer emits ``reinit`` → new init
+        segment → new fragments off this clean state.
+        """
+        await self._kill_proc()
+        await self._cancel_drain_task()
+        self._clear_ring()
+        await self._spawn(start_epoch)
 
     async def _spawn(self, start_epoch: int) -> None:
         """Spawn ffmpeg at ``start_epoch`` and start the drain + stderr tasks."""
