@@ -141,16 +141,20 @@ async def recording_index(
     day_end_local = day_start_local + timedelta(days=1)
 
     # ── Fetch from NVR ────────────────────────────────────────────────────────
+    # nvr.port is the RTSP port (default 554); Dahua HTTP CGI is on port 80,
+    # matching the convention in camera_import.py (http_port=80).
     password = decrypt_password(nvr.rtsp_password_encrypted)
     try:
         clips = await find_clips(
             nvr.ip,
-            nvr.port,
+            80,  # HTTP CGI port, not RTSP port
             nvr.rtsp_username,
             password,
             channel=channel,
             start=day_start_local,
-            end=day_end_local,
+            # Subtract 1 s so the inclusive end boundary stays within the day
+            # (next-midnight 00:00:00 could pull a recording from the next day).
+            end=day_end_local - timedelta(seconds=1),
         )
     except MediaFindError as exc:
         log.warning(

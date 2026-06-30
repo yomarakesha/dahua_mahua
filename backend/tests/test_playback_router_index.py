@@ -77,7 +77,7 @@ async def _setup_db():
             id=NVR_ID,
             label="Test NVR",
             ip="192.168.1.100",
-            port=80,
+            port=554,  # realistic RTSP port — NOT the HTTP CGI port
             rtsp_username="admin",
             rtsp_password_encrypted=encrypt_password(NVR_PW),
             vendor=Vendor.dahua,
@@ -164,6 +164,21 @@ def test_index_json_shape_and_epoch(client, monkeypatch):
     assert c1["end_epoch"] == _epoch(TWO_CLIPS[1].end, TZ_OFFSET)
     assert c1["type"] == "Event"
     assert c1["stream"] == "dav"
+
+    # Regression guard: find_clips must receive the HTTP port (80), NOT nvr.port
+    # (RTSP, seeded as 554).  A regression to nvr.port would hit :554 over HTTP.
+    _args, _kwargs = mock_find.call_args
+    assert _args[1] == 80, (
+        f"find_clips called with port {_args[1]}; expected HTTP port 80"
+    )
+
+    # Regression guard: end passed to find_clips must be 1 s before next midnight
+    # so that a recording starting exactly at 00:00:00 next day does not leak in.
+    from datetime import timedelta as _td
+    expected_end = datetime(2026, 1, 2, 0, 0, 0) - _td(seconds=1)
+    assert _kwargs.get("end") == expected_end, (
+        f"find_clips end={_kwargs.get('end')}; expected {expected_end}"
+    )
 
 
 def test_cache_prevents_second_find_clips_call(client, monkeypatch):
