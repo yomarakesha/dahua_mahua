@@ -27,8 +27,8 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.crypto import decrypt_password
-from app.deps import CurrentUser, SessionDep, user_can_access_nvr
-from app.models import Nvr
+from app.deps import CurrentUser, SessionDep, user_can_access_camera
+from app.models import Camera, Nvr
 from app.services.playback.index_parser import Clip
 from app.services.playback.media_find import MediaFindError, find_clips
 from app.settings import get_settings
@@ -165,12 +165,17 @@ async def recording_index(
             "date is not a valid calendar date",
         ) from None
 
-    # ── NVR lookup — no SSRF: host always comes from the DB row ──────────────
+    # ── NVR + Camera lookup — no SSRF: hosts always come from the DB rows ────
     nvr = (
         await session.execute(select(Nvr).where(Nvr.id == nvr_id))
     ).scalar_one_or_none()
-    if nvr is None or not user_can_access_nvr(user, nvr):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
 
     # ── Cache check ───────────────────────────────────────────────────────────
     cache_key = (nvr_id, channel, date)
@@ -274,12 +279,17 @@ async def recording_availability(
             "month is not a valid calendar month",
         ) from None
 
-    # ── NVR lookup — no SSRF: host always comes from the DB row ──────────────
+    # ── NVR + Camera lookup — no SSRF: hosts always come from the DB rows ────
     nvr = (
         await session.execute(select(Nvr).where(Nvr.id == nvr_id))
     ).scalar_one_or_none()
-    if nvr is None or not user_can_access_nvr(user, nvr):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
 
     # ── Cache check ───────────────────────────────────────────────────────────
     cache_key = (nvr_id, channel, month)
