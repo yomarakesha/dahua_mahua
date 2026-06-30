@@ -237,6 +237,15 @@ class Settings(BaseSettings):
     # exhausted"; Contract #2).  Tune to the number of simultaneous operators.
     playback_max_concurrent_sessions: int = 4
 
+    # Per-NVR playback slot limit (NvrBudget, Task 6).  Defaults to 2 pending
+    # V9 verification of how many concurrent RTSP pulls the NVR supports.
+    playback_nvr_budget: int = 2
+
+    # Hard global cap used by NvrBudget (Task 6).  Mirrors
+    # playback_max_concurrent_sessions; kept separate so both concepts can be
+    # tuned independently without touching the other.
+    playback_global_cap: int = 4
+
     # Size of the fMP4 ring buffer (number of chunks).  When full, the oldest
     # chunk is dropped before enqueueing the newest — the stdout reader never
     # blocks on a slow WS client (Contract #11).

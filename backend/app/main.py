@@ -139,6 +139,17 @@ async def lifespan(app: FastAPI):
     await _initial_reconcile()
     source_watch.start()
 
+    from app.services.playback import nvr_budget as _pb_budget
+    _pb_budget.init_budget(
+        per_nvr=settings.playback_nvr_budget,
+        global_cap=settings.playback_global_cap,
+    )
+    log.info(
+        "NvrBudget initialised: per_nvr=%d global=%d",
+        settings.playback_nvr_budget,
+        settings.playback_global_cap,
+    )
+
     try:
         yield
     finally:
