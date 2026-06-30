@@ -15,6 +15,7 @@ on-network checklist in the task report.
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -23,6 +24,8 @@ from app.services.playback.session import (
     PlaybackSession,
     SessionState,
     _build_ffmpeg_argv,
+    _drain_stderr,
+    _redact_url,
     footage_epoch_at,
 )
 
@@ -270,3 +273,81 @@ def test_footage_now_uses_t0_and_speed():
     sess.speed = 2
     with patch("app.services.playback.session.time.monotonic", return_value=105.0):
         assert sess.footage_now() == 1010
+
+
+# ── Contract #12: credential redaction in ffmpeg stderr (Task 7 review fix) ──
+
+
+def test_redact_url_strips_credentials_standalone():
+    """_redact_url on a bare RTSP URL replaces user:pw with ***."""
+    raw = "rtsp://admin:pa%40ss%2Aword@10.0.0.1:554/cam/playback"
+    out = _redact_url(raw)
+    assert "admin" not in out
+    assert "pa%40ss%2Aword" not in out
+    assert "***" in out
+    assert "10.0.0.1" in out  # host preserved
+
+
+def test_redact_url_handles_embedded_url_in_stderr_line():
+    """_redact_url also redacts when the URL is embedded mid-line (ffmpeg error text)."""
+    raw = "rtsp://admin:secret@1.2.3.4:554/cam/playback?channel=1: 401 Unauthorized"
+    out = _redact_url(raw)
+    assert "admin" not in out
+    assert "secret" not in out
+    assert "***" in out
+    assert "401 Unauthorized" in out  # rest of line preserved
+
+
+class _EofStream:
+    """Readline stub: returns queued lines then EOF (b'')."""
+
+    def __init__(self, lines: list[bytes]):
+        self._lines = list(lines)
+
+    async def readline(self) -> bytes:
+        return self._lines.pop(0) if self._lines else b""
+
+
+class _FinishedProc:
+    """Minimal subprocess stub that has already exited with a given rc."""
+
+    def __init__(self, rc: int, stderr_lines: list[bytes]):
+        self.returncode = rc
+        self.stderr = _EofStream(stderr_lines)
+
+    async def wait(self) -> int:
+        return self.returncode
+
+
+async def test_drain_stderr_redacts_credentials_in_logged_output(caplog):
+    """Contract #12: credentialed RTSP URL in ffmpeg stderr must NOT appear in logs."""
+    cred_line = (
+        b"rtsp://admin:secret@1.2.3.4:554/cam/playback?channel=1: 401 Unauthorized\n"
+    )
+    proc = _FinishedProc(rc=1, stderr_lines=[cred_line])
+
+    with patch(
+        "app.services.playback.session.record_lockout", new=AsyncMock()
+    ), caplog.at_level(logging.ERROR, logger="dss.playback.session"):
+        await _drain_stderr(proc, "sess-test-redact", "1.2.3.4")
+
+    # Password must not appear anywhere in what was logged.
+    assert "secret" not in caplog.text, "credential leaked into log output"
+    # Redaction marker must be present.
+    assert "***" in caplog.text, "redaction marker missing from log output"
+
+
+async def test_drain_stderr_redacts_credentials_in_auth_warning(caplog):
+    """Contract #12: even the auth-failure warning path must not log credentials."""
+    cred_line = (
+        b"rtsp://admin:s3cr3t@1.2.3.4:554/cam/playback: 401 Unauthorized\n"
+    )
+    # rc=0 so the error log isn't emitted; only the warning path runs.
+    proc = _FinishedProc(rc=0, stderr_lines=[cred_line])
+
+    with patch(
+        "app.services.playback.session.record_lockout", new=AsyncMock()
+    ), caplog.at_level(logging.WARNING, logger="dss.playback.session"):
+        await _drain_stderr(proc, "sess-test-warn", "1.2.3.4")
+
+    assert "s3cr3t" not in caplog.text

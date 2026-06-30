@@ -247,7 +247,7 @@ async def _drain_stderr(
         line = await proc.stderr.readline()
         if not line:
             break
-        text = line.decode(errors="replace").rstrip()
+        text = _redact_url(line.decode(errors="replace").rstrip())
         if _AUTH_FAIL_RE.search(text):
             auth_failed = True
         lines.append(text)
