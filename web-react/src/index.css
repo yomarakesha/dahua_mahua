@@ -1,0 +1,91 @@
+@import "@fontsource/manrope/400.css";
+@import "@fontsource/manrope/500.css";
+@import "@fontsource/manrope/600.css";
+@import "@fontsource/manrope/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    font-size: 13px;
+  }
+  /* dark, thin scrollbars to match the console look */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+/* video tile: the <dss-mse> web component + its <video> must fill the cell */
+dss-mse {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+dss-mse video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+@layer components {
+  /* shared field + control primitives reused across screens */
+  .dss-input {
+    @apply w-full rounded-md bg-deep/70 border border-white/[.08] px-3 py-2 text-ink
+      placeholder:text-ink-faint outline-none transition
+      focus:border-accent/60 focus:ring-1 focus:ring-accent/30;
+  }
+  .dss-label {
+    @apply text-2xs font-mono uppercase tracking-wider text-ink-faint;
+  }
+  .dss-panel {
+    @apply rounded-xl bg-panel border border-white/[.06] shadow-panel;
+  }
+  .dss-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm
+      font-medium transition-colors select-none disabled:opacity-50 disabled:pointer-events-none
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40
+      focus-visible:ring-offset-1 focus-visible:ring-offset-bg;
+  }
+  /* Keyboard focus ring for bare interactive controls (icon buttons, toggles,
+     tree rows, pagers) that aren't a .dss-btn — add the `dss-focus` class. */
+  .dss-focus {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40
+      focus-visible:ring-offset-1 focus-visible:ring-offset-bg;
+  }
+  .dss-btn-primary {
+    @apply dss-btn bg-accent text-deep hover:bg-accent-bright;
+  }
+  .dss-btn-ghost {
+    @apply dss-btn bg-white/[.04] text-ink-soft hover:bg-white/[.08] border border-white/[.06];
+  }
+  .dss-btn-danger {
+    @apply dss-btn bg-danger/15 text-danger hover:bg-danger/25 border border-danger/20;
+  }
+}

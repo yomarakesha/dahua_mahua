@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.deps import AdminUser, SessionDep
-from app.services import path_sync
+from app.services import relay_sync
 from app.services.mediamtx_api import get_client
 
 router = APIRouter(prefix="/mediamtx", tags=["mediamtx"])
@@ -28,7 +28,11 @@ async def reconcile_paths(
     _: AdminUser,
     delete_orphans: bool = True,
 ) -> dict:
-    report = await path_sync.reconcile(session, delete_orphans=delete_orphans)
+    # Relay-aware: dispatches to go2rtc or MediaMTX per settings.relay. The two
+    # relays return different report shapes — normalize for the client.
+    report = await relay_sync.reconcile(session, delete_orphans=delete_orphans)
+    if isinstance(report, dict):  # go2rtc → {added, updated, deleted, errors}
+        return report
     return {
         "added": report.added,
         "patched": report.patched,

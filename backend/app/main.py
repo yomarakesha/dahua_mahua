@@ -2,10 +2,10 @@
 
 Lifespan responsibilities (in order):
   1. Ensure a bootstrap admin exists (only if the user table is empty).
-  2. If `mediamtx_managed=True`, spawn MediaMTX as a child process.
-  3. Reconcile MediaMTX paths from the DB — idempotent and tolerant of an
-     unreachable MediaMTX (we just log and move on; admins can retry from
-     POST /mediamtx/reconcile).
+  2. Reconcile relay streams from the DB — go2rtc by default (settings.relay),
+     idempotent and tolerant of an unreachable relay (we log and move on; admins
+     can retry from POST /mediamtx/reconcile, which is relay-aware).
+  3. (Legacy) if `mediamtx_managed=True`, spawn MediaMTX as a child process.
 
 Routers live under `settings.api_prefix` (default `/api/v1`).
 """
@@ -29,6 +29,7 @@ from app.routers import (
     events,
     mediamtx as mediamtx_router,
     nvrs,
+    playback as playback_router,
     regions,
     streams,
     users,
@@ -74,7 +75,7 @@ async def _ensure_bootstrap_admin() -> None:
                     username=settings.bootstrap_admin_username,
                     password_hash=hash_password(settings.bootstrap_admin_password),
                     role=Role.admin,
-                    must_change_password=True,
+                    must_change_password=False,
                 )
             )
     log.warning(
@@ -84,9 +85,20 @@ async def _ensure_bootstrap_admin() -> None:
 
 
 async def _initial_reconcile() -> None:
-    """Best-effort path sync on startup. If MediaMTX isn't reachable yet
-    (e.g. docker-compose race), we log and continue — the admin can retry
-    via POST /api/v1/mediamtx/reconcile once it comes up."""
+    """Best-effort stream sync on startup against the active relay. If the relay
+    isn't reachable yet, log and continue — the admin can retry once it's up."""
+    settings = get_settings()
+    if settings.relay == "go2rtc":
+        from app.services import go2rtc_api, go2rtc_sync
+        try:
+            await go2rtc_api.get_client().ping()
+        except Exception:  # noqa: BLE001
+            log.warning("go2rtc not reachable at startup — skipping initial reconcile")
+            return
+        async with SessionLocal() as session:
+            report = await go2rtc_sync.reconcile(session, delete_orphans=False)
+        log.info("Startup reconcile (go2rtc): %s", report)
+        return
     client = get_client()
     if not await client.ping():
         log.warning("MediaMTX not reachable at startup — skipping initial reconcile")
@@ -132,6 +144,9 @@ async def lifespan(app: FastAPI):
     finally:
         await source_watch.stop()
         await shutdown_client()
+        # go2rtc client owns an httpx pool created lazily during reconcile; close it.
+        from app.services import go2rtc_api
+        await go2rtc_api.close_client()
         if settings.mediamtx_managed:
             from app.services import mediamtx_proc
             mediamtx_proc.stop()
@@ -145,16 +160,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # LAN deployment: operators reach the UI by the host's IP (10.x / 192.168.x /
+    # 172.16-31.x) on the frontend port, so the browser's Origin varies per client
+    # machine. allow_credentials=True forbids "*", so we match any private-LAN
+    # origin (any port) via regex, alongside the explicit cors_origins list.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     prefix = settings.api_prefix
-    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery, client_log):
+    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery, client_log, playback_router):
         app.include_router(r.router, prefix=prefix)
 
     @app.get("/healthz", tags=["meta"])

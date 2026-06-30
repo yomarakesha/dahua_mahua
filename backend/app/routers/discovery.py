@@ -29,7 +29,7 @@ from app.schemas import (
     DiscoveryScanRequest,
     DiscoveryScanResponse,
 )
-from app.services import path_sync
+from app.services import relay_sync
 from app.services.discovery import (
     Candidate,
     default_cidr,
@@ -249,6 +249,6 @@ async def import_hosts(
 
     # One reconcile at the end (not per host) — cheap and idempotent.
     if created_any:
-        await path_sync.reconcile(session, delete_orphans=False)
+        await relay_sync.reconcile(session, delete_orphans=False)
 
     return results

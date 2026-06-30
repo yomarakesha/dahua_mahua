@@ -55,13 +55,12 @@ async def _ensure_bootstrap_admin(session: AsyncSession) -> None:
         username=settings.bootstrap_admin_username,
         password_hash=hash_password(settings.bootstrap_admin_password),
         role=Role.admin,
-        must_change_password=True,
+        must_change_password=False,
     )
     session.add(admin)
-    print(
-        f"  + bootstrap admin '{admin.username}' created "
-        f"(password: '{settings.bootstrap_admin_password}', must change on first login)"
-    )
+    # Don't print the literal password — it lands in deploy logs. It's set from
+    # BOOTSTRAP_ADMIN_PASSWORD (the operator already knows it).
+    print(f"  + bootstrap admin '{admin.username}' created")
 
 
 async def _upsert_nvr(

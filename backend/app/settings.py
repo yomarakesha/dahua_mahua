@@ -54,6 +54,100 @@ class Settings(BaseSettings):
     mediamtx_bin: str = "mediamtx"
     mediamtx_config_path: str = "mediamtx.yml"
 
+    # ── go2rtc (buffered MSE relay) ──────────────────────────────────────────
+    # relay = "go2rtc" (MSE, default) or "mediamtx" (legacy WebRTC). go2rtc's
+    # buffered MSE pipeline absorbs bursty/jittery camera frame delivery that
+    # freezes WebRTC at 0% packet loss — see docs/perf-tuning.md. The React
+    # frontend speaks go2rtc/MSE only, so this is the default it expects.
+    relay: str = "go2rtc"
+    go2rtc_api_url: str = "http://localhost:1984"
+    # Browser-facing base the frontend uses for the MSE/WebRTC WebSocket.
+    go2rtc_ws_url: str = "ws://localhost:1984"
+
+    # ── Anti-freeze re-encode relay ──────────────────────────────────────────
+    # Cameras ship a ~2s GOP (keyframe interval); on any jitter the picture
+    # freezes up to 2s waiting for the next keyframe. Re-encoding to a short
+    # forced keyframe interval cuts recovery to a blink. This is THE thing that
+    # made 4MP stable pre-redesign (was MediaMTX runOnDemand; here it's a go2rtc
+    # `exec:ffmpeg` source). NOT the transport. On-demand → only streams being
+    # viewed are encoded, so concurrency is bounded by viewers, not 34 channels.
+    # On the server set REENCODE_ENABLED=true + REENCODE_VCODEC=h264_qsv (Intel
+    # QuickSync iGPU). vcodec=libx264 is the portable CPU fallback (heavier).
+    reencode_enabled: bool = False
+    reencode_keyframe_seconds: float = 0.5
+    reencode_qualities: str = "sub"  # "sub" | "main" | "both"
+    # "auto" probes the host (real test-encode) and picks the best WORKING encoder:
+    # h264_qsv → h264_nvenc → h264_vaapi → libx264 (CPU). A codec can be compiled
+    # into ffmpeg yet fail at runtime when the GPU is absent (this box: no GPU →
+    # auto resolves to libx264). Set an explicit codec to skip probing.
+    reencode_vcodec: str = "auto"
+    reencode_preset: str = "veryfast"
+    reencode_ffmpeg_bin: str = "ffmpeg"
+    # Cap the re-encoded bitrate (VBV: -maxrate/-bufsize). 0 = unconstrained CRF.
+    # STRONGLY recommended for 4MP mains: forcing a 0.5s GOP on 4MP makes ~4× more
+    # (big) I-frames than the camera's native 2s GOP, so an uncapped CRF stream
+    # spikes hard and swamps the client network/decoder → cushion underrun → freeze.
+    # ~6000 (6 Mbps) is a good start for 4MP; subs sit well under it so one value
+    # is fine for both. bufsize is held to ~1s of maxrate to smooth the spikes.
+    reencode_maxrate_kbps: int = 0
+    # MAIN-only decode-load reducers. A growing buffer → forward jump → freeze on
+    # the 4MP main is the CLIENT decoder failing to hold 25fps (decode cost scales
+    # with pixels×fps, not bitrate — so the VBV cap alone won't fix it). Downscale
+    # and/or drop fps to cut that load. Subs are untouched (already small).
+    #   reencode_main_scale: ffmpeg scale, e.g. "1920:-2" (1080p, height auto-even),
+    #                        "1280:-2" (720p). "" = keep source resolution.
+    #   reencode_main_fps:   cap main fps, e.g. 15. 0 = source fps.
+    # 4MP→1080p ≈ half the decode work; +15fps ≈ a third of the original.
+    reencode_main_scale: str = ""
+    reencode_main_fps: int = 0
+    # RTSP transport for the CAMERA pull (the exec ffmpeg `-i` input). "tcp" is
+    # reliable but on a lossy link a dropped packet stalls the reader (head-of-line
+    # blocking) → the stream collapses to a few fps and freezes. "udp" tolerates
+    # loss: lost packets become brief glitches instead of a stall, so the pull
+    # holds ~realtime fps (measured: a link with 8% large-packet loss delivered
+    # 4fps over TCP vs 23fps over UDP). The server re-encode then heals it into a
+    # clean stream and the browser still receives reliable MSE/TCP. Only affects
+    # re-encoded streams; the republish to go2rtc stays TCP.
+    reencode_input_rtsp_transport: str = "tcp"  # "tcp" | "udp"
+    # Direct MAIN streams aren't re-encoded (raw passthrough), so the transport
+    # setting above doesn't reach them — they pull over go2rtc's native RTSP/TCP
+    # client. On these Dahua cameras that collapses the 4MP main to ~2-7fps (weak
+    # camera TCP stack: any loss → head-of-line block + tiny send window), while
+    # the SAME camera delivers ~22fps over UDP (measured 2026-06-29, ch5/ch12).
+    # How direct (non-via-NVR) MAIN streams are pulled into go2rtc. Switchable
+    # without code changes — each mode is a builder in go2rtc_reencode. Findings
+    # 2026-06-29 (these Dahua cams: 4MP collapses to ~2fps over TCP, ~22fps over UDP;
+    # the camera segment drops ~2% of UDP packets under load):
+    #   native        — raw RTSP, go2rtc's native TCP client. Original; ~2fps here.
+    #   copy_pipe     — UDP pull, -c copy, MPEG-TS stdout pipe. Full 4MP + sharp, ~0
+    #                   CPU, but UDP loss shows as corruption (worse with a long
+    #                   camera GOP). Good once cameras are set to a ~1s I-frame.
+    #   reencode_pipe — UDP pull, re-encode to a short GOP, MPEG-TS pipe. Conceals
+    #                   the UDP loss; ~1 CPU core/main. [DEFAULT, safe]
+    #   reencode_rtsp — UDP pull, re-encode, RTSP republish to {output}. The republish
+    #                   throttles 4MP to ~3-8fps; kept for reference.
+    #   copy_rtsp     — UDP pull, -c copy, RTSP republish. ~2.6fps; reference.
+    main_stream_mode: str = "reencode_pipe"
+    # Target bitrate (VBV) for the re-encode main modes. 8 Mbps keeps 4MP sharp on a
+    # LAN. 0 = uncapped (CRF).
+    main_reencode_maxrate_kbps: int = 8000
+    # go2rtc rejects exec:/ffmpeg: (subprocess) sources over its HTTP API
+    # ("insecure producer"); they're only honoured from the static YAML. So when
+    # re-encoding we write streams into this file and reload go2rtc instead of
+    # PUT /api/streams. Path is relative to the process CWD (the repo root, where
+    # start.ps1/start-mac.sh copy go2rtc.base.yaml → .go2rtc/go2rtc.yaml).
+    go2rtc_config_path: str = ".go2rtc/go2rtc.yaml"
+    # go2rtc's POST /api/restart only reloads the config DISPLAY — it does NOT
+    # re-init the stream registry, so newly added / changed streams (an NVR
+    # enable/add/cred-change) never actually load until the go2rtc PROCESS is
+    # restarted. That gap silently breaks new NVRs and feeds the source watchdog
+    # phantom failures (it then auto-disables the NVR). When set, the reconcile runs
+    # this command to HARD-restart go2rtc after a config change instead of the soft
+    # API reload. On the Windows server (services run as LocalSystem):
+    #   GO2RTC_RESTART_CMD=powershell -NoProfile -Command "Restart-Service dahua-go2rtc"
+    # Empty (dev) → fall back to the soft API restart.
+    go2rtc_restart_cmd: str = ""
+
     # ── Source-on-demand timings ─────────────────────────────────────────────
     sub_start_timeout: str = "10s"
     sub_close_after: str = "30s"
@@ -120,6 +214,13 @@ class Settings(BaseSettings):
     # NVRs on every boot. During this window we poll but never disable, giving
     # sources time to connect.
     source_watch_startup_grace_seconds: float = 45.0
+
+    # ── Playback ─────────────────────────────────────────────────────────────
+    # UTC offset of the NVR's internal clock (minutes east of UTC). Used when
+    # converting NVR-local naive recording timestamps to UTC epoch seconds.
+    # NOTE: live NVR-clock querying is wired by a later spike task; for now
+    # this value is the Phase-1 source of the offset (configurable per deploy).
+    playback_tz_offset_minutes: int = 0
 
     # ── Bootstrap ────────────────────────────────────────────────────────────
     # On first startup, create this user if no users exist. Operator must

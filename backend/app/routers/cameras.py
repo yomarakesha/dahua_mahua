@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from app.deps import AdminUser, CurrentUser, SessionDep, user_can_access_nvr
 from app.models import Camera, Nvr, Role
 from app.schemas import CameraCreate, CameraRead, CameraUpdate
-from app.services import path_sync
+from app.services import relay_sync
 
 log = logging.getLogger("dss.cameras")
 
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/cameras", tags=["cameras"])
 async def _try_reconcile(session, delete_orphans: bool, ctx: str) -> None:
     """Run reconcile but never let a MediaMTX outage fail the DB write."""
     try:
-        await path_sync.reconcile(session, delete_orphans=delete_orphans)
+        await relay_sync.reconcile(session, delete_orphans=delete_orphans)
     except Exception as e:
         log.warning("MediaMTX reconcile failed after %s: %s", ctx, e)
 
@@ -67,8 +67,9 @@ async def list_cameras(
     if user.role == Role.admin:
         return [_to_read(cam, nvr) for cam, nvr in rows]
 
-    allowed = {r.id for r in user.regions}
-    return [_to_read(cam, nvr) for cam, nvr in rows if nvr.region_id in allowed]
+    # Operators see only the cameras explicitly granted to them.
+    allowed = {c.id for c in user.cameras}
+    return [_to_read(cam, nvr) for cam, nvr in rows if cam.id in allowed]
 
 
 @router.post("", response_model=CameraRead, status_code=status.HTTP_201_CREATED)

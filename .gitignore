@@ -63,8 +63,9 @@ nvr_inventory.json
 # Diagnostic / scratch dirs — one-off debugging, never part of the app
 .netcheck/
 .playwright-mcp/
-# go2rtc fully abandoned in favour of MediaMTX re-encode relay
+# go2rtc runtime (binary + live config with credentials); template is go2rtc.base.yaml
 .go2rtc/
 console-dump.txt
 netcheck-result.md
 netcheck-mac-result.md
+docs/rtcstats_dump*.gz

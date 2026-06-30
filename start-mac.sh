@@ -21,6 +21,9 @@ ENVFILE="$BACKEND/.env"
 RUN="$ROOT/.run"                       # pids + logs (gitignored)
 MTX="$ROOT/mediamtx"                   # macOS/Linux binary (not mediamtx.exe)
 MTXCFG="$ROOT/mediamtx.yml"
+G2DIR="$ROOT/.go2rtc"                   # go2rtc runtime (binary + live config)
+G2BIN="$G2DIR/go2rtc"
+G2VER="v1.9.14"
 
 mkdir -p "$RUN"
 c_ok()   { printf "\033[32m✓ %s\033[0m\n" "$*"; }
@@ -46,7 +49,7 @@ start_one() {  # start_one <name> <port> <workdir> <cmd...>
 
 stop_all() {
   local any=0
-  for name in frontend backend mediamtx; do
+  for name in frontend backend mediamtx go2rtc; do
     local pf="$RUN/$name.pid"
     [ -f "$pf" ] || continue
     local pid; pid="$(cat "$pf")"
@@ -59,14 +62,21 @@ stop_all() {
 case "${1:-start}" in
   stop)    stop_all; exit 0 ;;
   restart) stop_all; sleep 1 ;;
-  logs)    exec tail -n 40 -f "$RUN"/mediamtx.log "$RUN"/backend.log "$RUN"/frontend.log ;;
+  logs)    exec tail -n 40 -f "$RUN"/*.log ;;
   status)
-    for p in 9997:MediaMTX 8000:Backend 8080:Frontend 8889:WHEP 8888:HLS; do
+    for p in 1984:go2rtc 8000:Backend 8080:Frontend; do
       port_up "${p%%:*}" && c_ok "${p##*:} (${p%%:*})" || c_warn "${p##*:} (${p%%:*}) down"
     done; exit 0 ;;
-  start) ;;
-  *) c_err "usage: $0 [start|stop|restart|logs|status]"; exit 2 ;;
+  start)     ;;                 # background: services keep running; stop with `stop`
+  run|up|fg) FOREGROUND=1 ;;    # foreground: stays attached, Ctrl+C stops everything
+  *) c_err "usage: $0 [start|run|stop|restart|logs|status]"; exit 2 ;;
 esac
+
+# Foreground mode: trap Ctrl+C / TERM to cleanly tear down everything we start.
+# Set before launching so an interrupt mid-startup still cleans up.
+if [ "${FOREGROUND:-0}" = 1 ]; then
+  trap 'echo; c_step "Stopping (Ctrl+C)…"; stop_all; exit 0' INT TERM
+fi
 
 # ── prerequisites ────────────────────────────────────────────────────────────
 command -v python3 >/dev/null || { c_err "python3 not found"; exit 1; }
@@ -97,6 +107,7 @@ DATABASE_URL=sqlite+aiosqlite:///./dss.db
 JWT_SECRET=$JWT
 NVR_SECRET_KEY=$FERNET
 CORS_ORIGINS=["http://localhost:8080"]
+RELAY=go2rtc
 MEDIAMTX_API_URL=http://localhost:9997
 MEDIAMTX_WEBRTC_URL=http://localhost:8889
 MEDIAMTX_HLS_URL=http://localhost:8888
@@ -118,23 +129,76 @@ fi
 grep -q 'postgresql' "$ENVFILE" && c_warn "Postgres DATABASE_URL detected — ensure it's up and migrated" \
                                  || c_ok "SQLite backend (no Postgres needed)"
 
+# ── relay: go2rtc (buffered MSE) or mediamtx (legacy WebRTC) ──────────────────
+RELAY="$(sed -n 's/^RELAY=//p' "$ENVFILE" 2>/dev/null | tr -d '[:space:]')"
+# go2rtc is the default: the React frontend speaks go2rtc/MSE only. Override by
+# setting RELAY=mediamtx in backend/.env (legacy WebRTC UI).
+RELAY="${RELAY:-go2rtc}"
+
+ensure_go2rtc() {
+  mkdir -p "$G2DIR"
+  if [ ! -x "$G2BIN" ]; then
+    c_step "Downloading go2rtc $G2VER (first run)"
+    local arch; arch="$(uname -m)"; [ "$arch" = "x86_64" ] && arch="amd64" || arch="arm64"
+    local os; os="$(uname -s | tr 'A-Z' 'a-z')"   # darwin / linux
+    [ "$os" = "darwin" ] && os="mac"              # go2rtc release assets use "mac", not "darwin"
+    # -f: fail (non-zero) on HTTP errors so a 404 page isn't saved as a .zip.
+    curl -fsSL --retry 5 --retry-delay 2 -m 180 -o "$G2DIR/go2rtc.zip" \
+      "https://github.com/AlexxIT/go2rtc/releases/download/$G2VER/go2rtc_${os}_${arch}.zip" \
+      && unzip -o -q "$G2DIR/go2rtc.zip" -d "$G2DIR" && chmod +x "$G2BIN" && rm -f "$G2DIR/go2rtc.zip" \
+      || { c_err "go2rtc download failed"; return 1; }
+    c_ok "go2rtc installed"
+  fi
+  # Fresh runtime config from the committed template (no secrets — the backend
+  # registers streams via the go2rtc API on startup).
+  cp "$ROOT/go2rtc.base.yaml" "$G2DIR/go2rtc.yaml"
+}
+
 # ── launch ───────────────────────────────────────────────────────────────────
-start_one mediamtx 9997 "$ROOT"    "$MTX" "$MTXCFG"
-wait_port 9997 mediamtx 15
+if [ "$RELAY" = "go2rtc" ]; then
+  ensure_go2rtc || exit 1
+  start_one go2rtc 1984 "$G2DIR" "$G2BIN" -config "$G2DIR/go2rtc.yaml"
+  wait_port 1984 go2rtc 15
+else
+  start_one mediamtx 9997 "$ROOT" "$MTX" "$MTXCFG"
+  wait_port 9997 mediamtx 15
+fi
 
 start_one backend  8000 "$BACKEND" "$PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 wait_port 8000 backend 25
 
-start_one frontend 8080 "$WEBDIR"  "$PY" -m http.server 8080
+# Serve the React UI build (web-react/dist). The legacy web/ UI has been removed.
+SERVEDIR="$ROOT/web-react/dist"
+if [ ! -f "$SERVEDIR/index.html" ]; then
+  c_err "React UI not built — run: (cd web-react && npm run build)"
+  exit 1
+fi
+c_ok "Serving React UI (web-react/dist)"
+start_one frontend 8080 "$SERVEDIR"  "$PY" -m http.server 8080
 wait_port 8080 frontend 10
 
 echo
 c_ok "DSS is up:"
 echo "  Frontend  http://localhost:8080"
 echo "  API docs  http://localhost:8000/docs"
-echo "  MediaMTX  http://localhost:9997/v3/paths/list"
+if [ "$RELAY" = "go2rtc" ]; then
+  echo "  go2rtc    http://localhost:1984  (relay=go2rtc, buffered MSE)"
+else
+  echo "  MediaMTX  http://localhost:9997/v3/paths/list"
+fi
 echo
 echo "Login: admin / admin (you'll be asked to change it)."
-echo "Stop with:  ./start-mac.sh stop      Logs:  ./start-mac.sh logs"
+echo
 
 [ "${DSS_NO_BROWSER:-}" = "1" ] || open "http://localhost:8080" 2>/dev/null || true
+
+if [ "${FOREGROUND:-0}" = 1 ]; then
+  c_ok "Running in foreground — press Ctrl+C to stop everything."
+  echo
+  # Stream live logs and block until Ctrl+C (handled by the trap above).
+  tail -n 0 -F "$RUN"/*.log 2>/dev/null &
+  wait $!
+else
+  echo "Foreground (Ctrl+C to stop):  ./start-mac.sh run"
+  echo "Background stop:              ./start-mac.sh stop       Logs:  ./start-mac.sh logs"
+fi

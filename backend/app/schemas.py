@@ -48,12 +48,15 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(min_length=8)
     region_ids: list[uuid.UUID] = Field(default_factory=list)
+    # Per-camera access grants (primary mechanism for operators).
+    camera_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class UserUpdate(BaseModel):
     is_active: bool | None = None
     role: Role | None = None
     region_ids: list[uuid.UUID] | None = None
+    camera_ids: list[uuid.UUID] | None = None
     new_password: str | None = Field(default=None, min_length=8)
 
 
@@ -64,6 +67,7 @@ class UserRead(UserBase):
     created_at: datetime
     last_login_at: datetime | None
     region_ids: list[uuid.UUID] = Field(default_factory=list)
+    camera_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 # ── Regions ─────────────────────────────────────────────────────────────────

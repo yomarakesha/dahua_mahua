@@ -1,0 +1,260 @@
+"""Anti-freeze re-encode for go2rtc sources.
+
+Cameras ship a ~2s GOP; on any jitter the picture freezes up to 2s waiting for
+the next keyframe. Re-encoding each stream to a short forced keyframe interval
+(default 0.5s) cuts recovery to a blink — the single change that made 4MP stable
+pre-redesign (then MediaMTX `runOnDemand`; here a go2rtc `exec:ffmpeg` source).
+
+This wraps a raw RTSP source URL into a go2rtc `exec:` ffmpeg command that pulls
+the camera and republishes a short-GOP H.264 stream into go2rtc's `{output}`
+sink. go2rtc runs sources on-demand (process starts on first viewer, stops after
+the last), so only streams actually being watched are encoded — concurrency is
+bounded by viewers, not the full channel count.
+
+Driven by Settings.reencode_* (off by default; on the server set
+REENCODE_ENABLED=true + REENCODE_VCODEC=h264_qsv for Intel QuickSync).
+
+IMPORTANT: go2rtc splits the `exec:` command on spaces and has no shell, so no
+token may contain a space. The RTSP source URL and the `expr:` keyframe
+expression have none — keep it that way.
+"""
+
+from __future__ import annotations
+
+import logging
+import subprocess
+from typing import Any
+
+from app.models import StreamQuality
+
+log = logging.getLogger("dss.go2rtc_reencode")
+
+# Preference order for `vcodec="auto"`. Hardware first (cheap), CPU last (always
+# works). A codec may be compiled into ffmpeg yet fail at runtime with no GPU, so
+# we don't trust the encoder *list* — we run a tiny real encode to confirm.
+_HW_CANDIDATES = ("h264_qsv", "h264_nvenc", "h264_vaapi")
+_CPU_FALLBACK = "libx264"
+
+_resolved_vcodec: str | None = None  # cached across reconciles (probe once)
+
+
+def _test_encoder(ffbin: str, vcodec: str) -> bool:
+    """True if a 0.2s synthetic encode with `vcodec` actually succeeds."""
+    try:
+        proc = subprocess.run(
+            [
+                ffbin, "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10", "-t", "0.2",
+                "-c:v", vcodec, "-f", "null", "-",
+            ],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def resolve_vcodec(settings: Any) -> str:
+    """Return the effective encoder. An explicit `reencode_vcodec` is used as-is;
+    `"auto"` probes the host once (real test-encode) and caches the winner —
+    falling back to CPU libx264 when no hardware encoder actually works."""
+    global _resolved_vcodec
+    want = (settings.reencode_vcodec or "auto").lower()
+    if want != "auto":
+        return want
+    if _resolved_vcodec is not None:
+        return _resolved_vcodec
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    chosen = _CPU_FALLBACK
+    for vc in _HW_CANDIDATES:
+        if _test_encoder(ffbin, vc):
+            chosen = vc
+            break
+    _resolved_vcodec = chosen
+    log.info("re-encode vcodec auto-resolved to %s", chosen)
+    return chosen
+
+
+def reset_vcodec_cache() -> None:
+    """Drop the cached auto-resolved codec (e.g. after a hardware change)."""
+    global _resolved_vcodec
+    _resolved_vcodec = None
+
+
+def quality_of_stream(name: str) -> StreamQuality:
+    """Infer quality from a DSS stream name: `…_main` / `…_main_nvr` are main,
+    everything else (`{nvr}_chN`) is sub."""
+    if name.endswith("_main") or name.endswith("_main_nvr"):
+        return StreamQuality.main
+    return StreamQuality.sub
+
+
+def reencode_enabled_for(settings: Any, quality: StreamQuality) -> bool:
+    """True if re-encoding is enabled for this stream quality."""
+    if not settings.reencode_enabled:
+        return False
+    want = (settings.reencode_qualities or "sub").lower()
+    if want == "both":
+        return True
+    if quality == StreamQuality.main:
+        return want == "main"
+    return want == "sub"
+
+
+def _encoder_flags(settings: Any) -> str:
+    """Encoder-specific output flags for low-latency, faithful to the pre-redesign
+    `path_sync._reencode_cmd` (commit 3712cc6). vcodec is resolved (auto → probed)."""
+    vcodec = resolve_vcodec(settings)
+    preset = settings.reencode_preset or "veryfast"
+    if vcodec == "libx264":
+        return f"-c:v libx264 -preset {preset} -tune zerolatency"
+    if vcodec.endswith("_qsv"):
+        return f"-c:v {vcodec} -async_depth 1"
+    if vcodec.endswith("_nvenc"):
+        return f"-c:v {vcodec} -preset p1 -tune ll -delay 0"
+    return f"-c:v {vcodec}"
+
+
+# ── Direct-main source builders (selected by settings.main_stream_mode) ───────
+# All but "native" produce an `exec:` source (UDP pull). See settings.main_stream_mode
+# for the trade-offs. Keeping every method we validated means switching strategy is
+# a config change, not a code rewrite. No token may contain a space (go2rtc splits
+# the command on spaces; the RTSP URL has none).
+
+def _main_reencode_flags(settings: Any) -> tuple[str, str]:
+    """(encoder flags, VBV rate flags) shared by the re-encode main modes."""
+    enc = _encoder_flags(settings)
+    maxrate = int(getattr(settings, "main_reencode_maxrate_kbps", 8000) or 0)
+    rate = f" -maxrate {maxrate}k -bufsize {maxrate}k" if maxrate > 0 else ""
+    return enc, rate
+
+
+def main_native(rtsp_url: str, settings: Any) -> str:
+    """Raw RTSP via go2rtc's native (TCP) client. Collapses to ~2fps on these cams."""
+    return rtsp_url
+
+
+def main_copy_pipe(rtsp_url: str, settings: Any) -> str:
+    """UDP pull, `-c copy`, MPEG-TS stdout pipe. Full 4MP + sharp, ~0 CPU; UDP loss
+    shows as corruption (best paired with a short camera I-frame interval)."""
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    return f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp -i {rtsp_url} -c copy -f mpegts -"
+
+
+def main_reencode_pipe(rtsp_url: str, settings: Any) -> str:
+    """UDP pull, re-encode to a short GOP, MPEG-TS stdout pipe. Conceals UDP loss;
+    ~1 CPU core/main. Full 4MP (no scale/fps cap). The safe default."""
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    enc, rate = _main_reencode_flags(settings)
+    kf = settings.reencode_keyframe_seconds
+    return (
+        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp -i {rtsp_url} -an {enc}{rate} "
+        f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p -f mpegts -"
+    )
+
+
+def main_reencode_rtsp(rtsp_url: str, settings: Any) -> str:
+    """UDP pull, re-encode, RTSP republish to {output}. The republish throttles 4MP
+    to ~3-8fps — kept for reference / non-pipe go2rtc builds."""
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    enc, rate = _main_reencode_flags(settings)
+    kf = settings.reencode_keyframe_seconds
+    return (
+        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp -i {rtsp_url} -an {enc}{rate} "
+        f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p -f rtsp -rtsp_transport tcp {{output}}"
+    )
+
+
+def main_copy_rtsp(rtsp_url: str, settings: Any) -> str:
+    """UDP pull, `-c copy`, RTSP republish to {output}. ~2.6fps; reference only."""
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    return (
+        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport udp -i {rtsp_url} "
+        f"-c copy -f rtsp -rtsp_transport tcp {{output}}"
+    )
+
+
+MAIN_MODE_BUILDERS = {
+    "native": main_native,
+    "copy_pipe": main_copy_pipe,
+    "reencode_pipe": main_reencode_pipe,
+    "reencode_rtsp": main_reencode_rtsp,
+    "copy_rtsp": main_copy_rtsp,
+}
+
+
+def main_mode_is_exec(settings: Any) -> bool:
+    """True if the chosen main mode produces an exec: source (everything but native).
+    Such sources are API-rejected by go2rtc → the reconcile must use file mode."""
+    mode = (getattr(settings, "main_stream_mode", "reencode_pipe") or "reencode_pipe").lower()
+    return mode != "native"
+
+
+def build_main_source(rtsp_url: str, settings: Any) -> str:
+    """Build a direct-main go2rtc source per settings.main_stream_mode."""
+    mode = (getattr(settings, "main_stream_mode", "reencode_pipe") or "reencode_pipe").lower()
+    return MAIN_MODE_BUILDERS.get(mode, main_reencode_pipe)(rtsp_url, settings)
+
+
+def reencode_source(rtsp_url: str, settings: Any, quality: StreamQuality | None = None) -> str:
+    """Build the go2rtc `exec:ffmpeg` source that re-encodes `rtsp_url` to a short
+    GOP and republishes into go2rtc's `{output}` RTSP sink.
+
+    `-force_key_frames expr:gte(t,n_forced*kf)` forces a keyframe every `kf`
+    seconds regardless of the source GOP/framerate; `-bf 0` drops B-frames.
+
+    For main streams, optional scale/fps reduce the CLIENT decode load (decode cost
+    scales with pixels×fps, not bitrate) — the lever for a 4MP main that decodes too
+    slowly (growing buffer → forward jump → freeze)."""
+    kf = settings.reencode_keyframe_seconds
+    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
+    enc = _encoder_flags(settings)
+    # Camera-pull transport. "udp" survives a lossy link (loss → glitches, not a
+    # stall) where "tcp" head-of-line-blocks and collapses to a few fps. The
+    # republish below stays tcp regardless (reliable hop to go2rtc).
+    in_tr = (getattr(settings, "reencode_input_rtsp_transport", "tcp") or "tcp").lower()
+    # VBV bitrate cap: keeps the 0.5s-GOP I-frame spikes from swamping the client
+    # (bufsize ~= 1s of maxrate → smooth, low-latency). 0 = unconstrained CRF.
+    maxrate = int(getattr(settings, "reencode_maxrate_kbps", 0) or 0)
+    rate = f" -maxrate {maxrate}k -bufsize {maxrate}k" if maxrate > 0 else ""
+    # MAIN-only decode-load reducers (subs are already small — leave them alone).
+    vf = fps = ""
+    if quality == StreamQuality.main:
+        scale = (getattr(settings, "reencode_main_scale", "") or "").strip()
+        if scale:
+            vf = f" -vf scale={scale}"
+        n = int(getattr(settings, "reencode_main_fps", 0) or 0)
+        if n > 0:
+            fps = f" -r {n}"
+    return (
+        f"exec:{ffbin} -nostdin -loglevel error -rtsp_transport {in_tr} "
+        f"-i {rtsp_url} -an{vf}{fps} {enc}{rate} "
+        f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p "
+        "-f rtsp -rtsp_transport tcp {output}"
+    )
+
+
+def is_via_nvr(name: str) -> bool:
+    """`…_main_nvr` = the via-NVR fallback variant (force_relay)."""
+    return name.endswith("_main_nvr")
+
+
+def build_go2rtc_source(name: str, rtsp_url: str, settings: Any) -> str:
+    """Return the go2rtc source for a DSS stream: a re-encode `exec:` command when
+    re-encoding is enabled for this stream's quality, else the raw RTSP URL.
+
+    Never re-encode a via-NVR source. The NVR's RTSP relay drops packets / times
+    out on concurrent 4MP mains (measured 7815 lost vs 0 direct), so wrapping it
+    in ffmpeg just spawns a doomed exec that hits [exec] timeout → black tile.
+    Raw passthrough at least shows the struggling stream; re-encode is reserved
+    for direct-from-camera sources (which is where it actually helps)."""
+    if is_via_nvr(name):
+        return rtsp_url
+    quality = quality_of_stream(name)
+    # Direct main: built per settings.main_stream_mode (native / copy_pipe /
+    # reencode_pipe / reencode_rtsp / copy_rtsp) — switchable without code changes.
+    if quality == StreamQuality.main:
+        return build_main_source(rtsp_url, settings)
+    if reencode_enabled_for(settings, quality):
+        return reencode_source(rtsp_url, settings, quality)
+    return rtsp_url

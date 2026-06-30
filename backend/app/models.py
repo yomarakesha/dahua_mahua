@@ -73,6 +73,13 @@ class User(Base):
         back_populates="users",
         lazy="selectin",
     )
+    # Per-camera access grants — the primary access mechanism. An operator sees
+    # ONLY the cameras in this set; admins bypass and see all. Regions remain for
+    # optional NVR-level grouping but are no longer how operators get access.
+    cameras: Mapped[list[Camera]] = relationship(
+        secondary="user_cameras",
+        lazy="selectin",
+    )
 
 
 class Region(Base):
@@ -100,6 +107,19 @@ class UserRegion(Base):
     )
     region_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(), ForeignKey("regions.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class UserCamera(Base):
+    """M2M: which individual cameras an operator may view."""
+
+    __tablename__ = "user_cameras"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    camera_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("cameras.id", ondelete="CASCADE"), primary_key=True
     )
 
 

@@ -55,11 +55,16 @@ def test_main_with_camera_ip_pulls_direct():
     )
 
 
-def test_sub_stays_on_nvr_even_with_camera_ip():
+def test_sub_with_camera_ip_pulls_direct():
+    # Since bc64f1b, subs also pull direct from the camera IP (not the NVR) when
+    # the camera has one — one NVR can't re-stream many channels without dropping.
     nvr = make_nvr()
     cam = make_cam("192.168.23.17")
     cfg = _build_path_config(nvr, cam, StreamQuality.sub)
-    assert cfg["source"] == nvr_url(nvr, channel=7, subtype=1)
+    assert cfg["source"] == build_rtsp_url(
+        ip="192.168.23.17", port=554, channel=1, vendor=nvr.vendor,
+        subtype=1, username="admin", password=PW,
+    )
 
 
 def test_main_without_ip_falls_back_to_nvr():
