@@ -154,13 +154,6 @@ export default function PlaybackPlayer({
     }
     if (firstAppendRef.current) {
       firstAppendRef.current = false;
-      // eslint-disable-next-line no-console
-      console.info("[Playback] first append OK", {
-        start: r?.start ?? null,
-        end: r?.end ?? null,
-        currentTime: video?.currentTime,
-        readyState: video?.readyState,
-      });
       dispatch({ type: "playing" });
       // Start playback now that media is present. The element is muted, so the
       // browser allows autoplay (unmuted autoplay from this async WS handler is
@@ -293,8 +286,6 @@ export default function PlaybackPlayer({
       const video = videoRef.current;
       switch (msg.type) {
         case "init": {
-          // eslint-disable-next-line no-console
-          console.info("[Playback] init", { codec: msg.codec, t0: msg.t0 });
           rebuildMse(msg.codec);
           setAnchor({ t0: msg.t0, baseCt: video?.currentTime ?? 0, speed: speedRef.current });
           dispatch({ type: "init" });
