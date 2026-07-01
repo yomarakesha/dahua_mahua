@@ -414,21 +414,23 @@ export default function PlaybackPlayer({
     if (videoRef.current) videoRef.current.muted = true;
   }, [speed, videoRef]);
 
-  // ── Surface <video> element errors (decode / src-not-supported) ──────────────────
-  // Without this a browser decode failure is silent → black frame, no log. Logs the
-  // exact MediaError and drops to the error state so the UI can recover.
+  // ── Surface <video> element errors (diagnostic only) ────────────────────────────
+  // LOG the MediaError but do NOT drop to the error state: the <video> fires benign
+  // 'error' events during normal operation — the MediaSource src is swapped on every
+  // reinit/seek, and lossy 4MP decode hiccups also fire it. Hard-erroring here blanks
+  // a stream that is otherwise decoding (regression 2026-07-01). Genuinely fatal
+  // conditions surface via the append-error and WS-close paths instead.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const onErr = () => {
       const err = v.error;
       // eslint-disable-next-line no-console
-      console.error("[Playback] <video> error", err?.code, err?.message, {
+      console.warn("[Playback] <video> error (non-fatal, ignored)", err?.code, err?.message, {
         codec: codecRef.current,
         buffered: sbRef.current?.buffered.length ?? 0,
         currentTime: v.currentTime,
       });
-      dispatch({ type: "error" });
     };
     v.addEventListener("error", onErr);
     return () => v.removeEventListener("error", onErr);
