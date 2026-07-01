@@ -12,6 +12,8 @@ import type {
   NvrHealthResult,
   NvrTestResult,
   NvrUpdate,
+  RecordingAvailability,
+  RecordingIndex,
   User,
   UserCreate,
   UserUpdate,
@@ -23,6 +25,10 @@ export const qk = {
   cameras: ["cameras"] as const,
   events: ["events"] as const,
   users: ["users"] as const,
+  recordingIndex: (nvrId: string, channel: number, date: string) =>
+    ["playback", "index", nvrId, channel, date] as const,
+  recordingAvail: (nvrId: string, channel: number, month: string) =>
+    ["playback", "availability", nvrId, channel, month] as const,
 };
 
 // ── Queries ──────────────────────────────────────────────────────────────────
@@ -175,5 +181,45 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (id: string) => http.del<null>(`/users/${id}`),
     onSuccess: invalidate,
+  });
+}
+
+// ── Playback recording ────────────────────────────────────────────────────────
+
+/**
+ * Fetch the merged clip list for a single NVR channel on a given date.
+ * Backed by the 120 s backend cache; staleTime matches to avoid redundant refetches.
+ */
+export function useRecordingIndex(
+  nvrId: string,
+  channel: number,
+  date: string,        // "YYYY-MM-DD"
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qk.recordingIndex(nvrId, channel, date),
+    queryFn: () =>
+      http.get<RecordingIndex>(`/playback/${nvrId}/${channel}/index`, { date }),
+    enabled: enabled && !!nvrId && channel > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date),
+    staleTime: 120_000,    // matches backend 120 s cache
+  });
+}
+
+/**
+ * Fetch the set of days that have recordings for a given NVR channel and calendar month.
+ * Backed by the 120 s backend cache; staleTime matches to avoid redundant refetches.
+ */
+export function useRecordingAvailability(
+  nvrId: string,
+  channel: number,
+  month: string,       // "YYYY-MM"
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qk.recordingAvail(nvrId, channel, month),
+    queryFn: () =>
+      http.get<RecordingAvailability>(`/playback/${nvrId}/${channel}/availability`, { month }),
+    enabled: enabled && !!nvrId && channel > 0 && /^\d{4}-\d{2}$/.test(month),
+    staleTime: 120_000,
   });
 }

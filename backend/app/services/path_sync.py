@@ -110,20 +110,6 @@ def _build_path_config(
         start_timeout = settings.sub_start_timeout
         close_after = settings.sub_close_after
 
-    # Anti-freeze re-encode: when enabled for this quality, pull the source
-    # through ffmpeg and re-emit H.264 with a forced short keyframe interval so
-    # WebRTC/MSE cold starts and recoveries are sub-second instead of waiting up
-    # to the camera's ~2s GOP. See Settings.reencode_* for the why + measured
-    # numbers. Requires ffmpeg on the relay host; CPU scales with concurrently
-    # viewed tiles (sourceOnDemand keeps idle paths off).
-    if _reencode_for(settings, quality):
-        return {
-            "runOnDemand": _reencode_cmd(source, settings),
-            "runOnDemandRestart": True,
-            "runOnDemandStartTimeout": start_timeout,
-            "runOnDemandCloseAfter": close_after,
-        }
-
     return {
         "source": source,
         "sourceOnDemand": True,
@@ -131,48 +117,6 @@ def _build_path_config(
         "sourceOnDemandCloseAfter": close_after,
         "rtspTransport": "tcp",
     }
-
-
-def _reencode_for(settings: Any, quality: StreamQuality) -> bool:
-    """True if re-encoding is enabled for this stream quality."""
-    if not settings.reencode_enabled:
-        return False
-    want = (settings.reencode_qualities or "sub").lower()
-    if want == "both":
-        return True
-    if quality == StreamQuality.main:
-        return want == "main"
-    return want == "sub"
-
-
-def _reencode_cmd(source: str, settings: Any) -> str:
-    """ffmpeg command MediaMTX runs on-demand: read `source` (RTSP/TCP) and
-    republish a short-GOP H.264 copy to this same path. `$RTSP_PORT`/`$MTX_PATH`
-    are substituted by MediaMTX at run time — keep them literal here."""
-    kf = settings.reencode_keyframe_seconds
-    preset = settings.reencode_preset or "veryfast"
-    ffbin = settings.reencode_ffmpeg_bin or "ffmpeg"
-    # `-force_key_frames expr:gte(t,n_forced*kf)` forces a keyframe every `kf`
-    # seconds regardless of source GOP/framerate; `-bf 0` drops B-frames.
-    # Encoder-specific low-latency flags: x264 -> -tune zerolatency; QSV/NVENC
-    # have their own. NOTE: MediaMTX runs runOnDemand WITHOUT a shell — it splits
-    # on spaces and substitutes $RTSP_PORT/$MTX_PATH itself, so no quotes and no
-    # token may contain a space (the RTSP source URL has none).
-    vcodec = settings.reencode_vcodec or "libx264"
-    if vcodec == "libx264":
-        enc = f"-c:v libx264 -preset {preset} -tune zerolatency"
-    elif vcodec.endswith("_qsv"):
-        enc = f"-c:v {vcodec} -async_depth 1"
-    elif vcodec.endswith("_nvenc"):
-        enc = f"-c:v {vcodec} -preset p1 -tune ll -delay 0"
-    else:
-        enc = f"-c:v {vcodec}"
-    return (
-        f"{ffbin} -nostdin -loglevel error -rtsp_transport tcp "
-        f"-i {source} -an {enc} "
-        f"-force_key_frames expr:gte(t,n_forced*{kf}) -bf 0 -pix_fmt yuv420p "
-        "-f rtsp -rtsp_transport tcp rtsp://localhost:$RTSP_PORT/$MTX_PATH"
-    )
 
 
 def _config_diff(current: dict[str, Any], desired: dict[str, Any]) -> dict[str, Any]:

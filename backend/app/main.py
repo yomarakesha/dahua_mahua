@@ -139,9 +139,35 @@ async def lifespan(app: FastAPI):
     await _initial_reconcile()
     source_watch.start()
 
+    from app.services.playback import nvr_budget as _pb_budget
+    _pb_budget.init_budget(
+        per_nvr=settings.playback_nvr_budget,
+        global_cap=settings.playback_global_cap,
+    )
+    log.info(
+        "NvrBudget initialised: per_nvr=%d global=%d",
+        settings.playback_nvr_budget,
+        settings.playback_global_cap,
+    )
+
+    from app.services.playback import session as _pb_session
+    _pb_session.start_reaper(
+        idle_timeout=settings.playback_idle_timeout_seconds,
+        max_lifetime=settings.playback_max_lifetime_seconds,
+    )
+    log.info(
+        "Playback reaper started: idle=%ds max_lifetime=%ds",
+        settings.playback_idle_timeout_seconds,
+        settings.playback_max_lifetime_seconds,
+    )
+
     try:
         yield
     finally:
+        await _pb_session.stop_reaper()
+        # No orphan ffmpeg: close every active playback session (Contract #11).
+        for sess in list(_pb_session._active_sessions.values()):
+            await sess.close()
         await source_watch.stop()
         await shutdown_client()
         # go2rtc client owns an httpx pool created lazily during reconcile; close it.

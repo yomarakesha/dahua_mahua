@@ -1,63 +1,68 @@
-# STABLE v2 — smooth 4MP main (UDP), HTTPS, multi-NVR
+# STABLE v3 — NVR recorded playback (live browser-verified)
 
-**Tag:** `stable-2`  ·  **Previous stable:** `stable-4mp-no-freeze` (v1)
-**Status:** ✅ Stable / working. Deployed on 10.10.1.152, `feat/realtime-transport` @ c62670e.
+**Tag:** `stable-3`  ·  **Previous:** `stable-2` (UDP 4MP live main, HTTPS, multi-NVR)
+**Branch:** `feat/nvr-playback-stream`  ·  **Status:** ✅ Stable / working, browser-verified on 10.10.1.152 (2026-07-01).
 
-Known-good checkpoint after the realtime-transport work. Restore with
-`git checkout stable-2` (then rebuild + redeploy — see below).
+Known-good checkpoint: everything in stable-2 PLUS the full **recorded-playback**
+feature, validated end-to-end in a real browser. Restore with
+`git checkout stable-3` (then rebuild + redeploy — see below).
 
-## What's working
-- **4MP main at full frame rate.** Direct mains pull over **RTSP-UDP** into go2rtc via an
-  **MPEG-TS stdout pipe** — these Dahua cams collapse to ~2 fps over TCP but deliver ~22 fps
-  over UDP; the pipe avoids the loopback RTSP-republish that throttled it.
-- **Player: MSE by default** (buffered TCP to the browser — stable, carries audio).
-  WebCodecs is an opt-in header toggle (hardware decode + drop-late, video-only).
-- **HTTPS** via a Caddy reverse proxy on `:8443` (one secure origin; required for WebCodecs,
-  no mixed-content/CORS). Legacy `http://…:8080` still works (MSE only).
-- **Multi-NVR.** Both NVRs served. NVR enable/add/disable now **auto hard-restarts go2rtc**
-  so changes actually load (go2rtc's API reload doesn't re-init the stream registry).
-- **Switchable main pull strategy** via `MAIN_STREAM_MODE` (no code edits).
+## What's new since stable-2
+- **Recorded playback** — a dedicated Playback page: NVR → camera → day → scrub a
+  clip-aware 24h timeline, play/pause/seek, fast-forward 2×/4×/8×, PNG snapshot.
+- **Backend** (`app/services/playback/`, `routers/playback.py`): per-camera-authorized
+  `/index` + `/availability` (Dahua `mediaFileFind`); a WS `/playback/{nvr}/{ch}/stream`
+  that runs one ffmpeg per session (`/cam/playback` → fMP4 over a single serialized
+  WS egress), server-side fast-forward, graceful teardown (sends RTSP TEARDOWN so the
+  NVR's playback pool isn't leaked), Job-Object process cleanup, `NvrBudget` cap,
+  `/thumb`, admin `/sessions`.
+- **Frontend** (`web-react/src/features/playback/`): purpose-built VOD MSE player
+  (own MediaSource + persistent WS, FIFO append queue, tested state machine),
+  clip-aware Timeline, client-side snapshot. Live grid: right-click a tile →
+  "Watch in Playback"; single-click NVR shows cameras / double-click expands.
+- **Smooth / Clear transport toggle** — Smooth = UDP (near-realtime, default);
+  Clear = TCP (clean image, buffers slowly) for careful review on the lossy 4MP NVR.
 
-## Architecture
-- Relay: go2rtc. Subs re-encoded to a 0.5 s GOP; direct mains via `MAIN_STREAM_MODE`.
-- TLS: Caddy service `dahua-caddy` → `https://10.10.1.152:8443` (`tls internal`), proxies
-  `/api/*`→backend :8000, `/go2rtc/*`→go2rtc :1984, `/*`→static :8080.
-- Services (NSSM, LocalSystem): `dahua-backend`, `dahua-go2rtc`, `dahua-frontend`, `dahua-caddy`.
+## Playback hard-won gotchas (do not regress)
+- **`PLAYBACK_TZ_OFFSET_MINUTES=300`** in `backend/.env` — the NVR clock is UTC+5; 0
+  makes all playback time-mapping 5h off (nothing plays).
+- **ffmpeg `-fps_mode vfr`** (NOT `-vsync`, removed in the server's ffmpeg build) —
+  else fast-forward aborts instantly.
+- **`-an` (drop audio)** — the MSE init MIME is video-only
+  (`video/mp4; codecs="avc1.640032"`); an AAC track → Chrome
+  `CHUNK_DEMUXER_ERROR` → black. Playback is muted anyway.
+- **Codec MIME = `avc1.640032`** (H.264 High L5.0 — the real libx264 avcC), not the
+  Baseline `avc1.42E01E`.
+- **RTSP endtime must not be in the future** — cap at now, else Dahua sends only the
+  init segment and no media.
+- **Player MSE**: muted (autoplay), FIFO queue flushed on `sourceopen` (don't drop the
+  init segment), seek `currentTime` into the buffered range, guard every
+  `SourceBuffer.buffered` read (a detached SB throws → crash).
 
-## Deployed server config (`backend/.env`, non-secret keys)
-```
-RELAY=go2rtc
-REENCODE_ENABLED=true
-REENCODE_QUALITIES=sub                 # subs re-encoded (0.5s GOP); mains via MAIN_STREAM_MODE
-REENCODE_VCODEC=auto                   # → libx264 (no GPU on this host)
-REENCODE_PRESET=veryfast
-REENCODE_KEYFRAME_SECONDS=0.5
-REENCODE_FFMPEG_BIN=C:\ffmpeg\bin\ffmpeg.exe
-REENCODE_MAXRATE_KBPS=3000
-REENCODE_MAIN_SCALE=                   # EMPTY = native resolution (never downscale below 4MP)
-GO2RTC_CONFIG_PATH=C:\deploy\dahua_mahua\.go2rtc\go2rtc.yaml
-MAIN_STREAM_MODE=copy_pipe             # UDP copy → mpegts pipe (sharp). reencode_pipe = conceal loss
-GO2RTC_RESTART_CMD=powershell -NoProfile -Command "Restart-Service dahua-go2rtc"
-```
-
-`MAIN_STREAM_MODE` options: `native` | `copy_pipe` (deployed) | `reencode_pipe` |
-`reencode_rtsp` | `copy_rtsp` — defined in `backend/app/settings.py`.
+## Known limitations
+- **Old 4MP NVR (.15) playback** is network-limited (~25% UDP loss on the NVR→server
+  path → artifacts on Smooth; TCP/Clear is clean but ~0.15× realtime). Same physical
+  cause as the live 4MP main — real fix is rack-side. The 1080p testik NVR plays clean.
+- **Playback has no audio** (dropped for MSE compat). Follow-up: emit `mp4a.40.2` in
+  `init.codec` + an unmute control.
+- Very-recent seeks (the actively-recording last minute) may not play on some cameras.
 
 ## Restore / redeploy this version
 ```powershell
 # on the server (C:\deploy\dahua_mahua), as admin
 git fetch --all --tags
-git checkout stable-2
-cd web-react;  npm install;  npm run build                 # frontend
+git checkout stable-3
+cd web-react;  npm install;  npm run build
 cd ..\backend; .\.venv\Scripts\pip install -r requirements.txt   # only if deps changed
 Restart-Service dahua-backend
-Restart-Service dahua-go2rtc       # required: go2rtc must reload its stream registry
+Restart-Service dahua-frontend
+Restart-Service dahua-go2rtc   # only if the go2rtc stream set changed
 Restart-Service dahua-caddy
 ```
-Access at `https://10.10.1.152:8443` (accept the self-signed cert once per browser).
+Access at `https://10.10.1.152:8443` (accept the self-signed cert once). Playback is
+under the **Playback** tab. The on-network smoke checklist lives in PR #2's description.
 
-## Known limitation
-Old-NVR 4MP mains show artifacts under the **camera segment's ~2% UDP packet loss** —
-physical (switch/cabling/PoE), proven upstream of the server NIC (0 NIC RX drops). Mitigated
-by `MAIN_STREAM_MODE=reencode_pipe` (ffmpeg conceals loss); the real fix is rack-side. The
-new NVR (1080p) is clean. See memory `main-bottleneck-is-camera-delivery`.
+## Stable-2 baseline (unchanged, still true)
+4MP main at full frame rate (UDP + MPEG-TS pipe), MSE default, HTTPS via Caddy `:8443`,
+multi-NVR with go2rtc auto-restart, `MAIN_STREAM_MODE` switchable. See git history for
+`stable-2`.
