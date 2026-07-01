@@ -135,6 +135,14 @@ export default function PlaybackPlayer({
     }
     if (firstAppendRef.current) {
       firstAppendRef.current = false;
+      // eslint-disable-next-line no-console
+      console.info("[Playback] first append OK", {
+        bufferedRanges: sb?.buffered.length ?? 0,
+        start: sb && sb.buffered.length ? sb.buffered.start(0) : null,
+        end: sb && sb.buffered.length ? sb.buffered.end(sb.buffered.length - 1) : null,
+        currentTime: video?.currentTime,
+        readyState: video?.readyState,
+      });
       dispatch({ type: "playing" });
       // Start playback now that media is present. The element is muted, so the
       // browser allows autoplay (unmuted autoplay from this async WS handler is
@@ -267,6 +275,8 @@ export default function PlaybackPlayer({
       const video = videoRef.current;
       switch (msg.type) {
         case "init": {
+          // eslint-disable-next-line no-console
+          console.info("[Playback] init", { codec: msg.codec, t0: msg.t0 });
           rebuildMse(msg.codec);
           setAnchor({ t0: msg.t0, baseCt: video?.currentTime ?? 0, speed: speedRef.current });
           dispatch({ type: "init" });
@@ -378,6 +388,26 @@ export default function PlaybackPlayer({
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = true;
   }, [speed, videoRef]);
+
+  // ── Surface <video> element errors (decode / src-not-supported) ──────────────────
+  // Without this a browser decode failure is silent → black frame, no log. Logs the
+  // exact MediaError and drops to the error state so the UI can recover.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onErr = () => {
+      const err = v.error;
+      // eslint-disable-next-line no-console
+      console.error("[Playback] <video> error", err?.code, err?.message, {
+        codec: codecRef.current,
+        buffered: sbRef.current?.buffered.length ?? 0,
+        currentTime: v.currentTime,
+      });
+      dispatch({ type: "error" });
+    };
+    v.addEventListener("error", onErr);
+    return () => v.removeEventListener("error", onErr);
+  }, [videoRef]);
 
   // ── Playhead RAF loop while playing ───────────────────────────────────────────────
   useEffect(() => {

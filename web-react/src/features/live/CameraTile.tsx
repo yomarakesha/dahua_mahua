@@ -53,8 +53,11 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen }: Props) {
       <button
         type="button"
         onClick={() => onOpen(cam)}
-        onContextMenu={(e) => {
+        // Capture phase: the inner <video>/dss-mse element swallows the bubbling
+        // contextmenu event, so intercept it on the way DOWN at the container.
+        onContextMenuCapture={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setMenuPos({ x: e.clientX, y: e.clientY });
         }}
         className="group relative overflow-hidden rounded border border-white/[.06] bg-black text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/40"
@@ -96,6 +99,16 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen }: Props) {
         </div>
       </button>
 
+      {menuPos && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setMenuPos(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenuPos(null);
+          }}
+        />
+      )}
       {menuPos && (
         <div
           role="menu"
