@@ -57,6 +57,11 @@ __all__ = [
 # responsive without spinning on tiny reads.
 _READ_CHUNK = 64 * 1024
 
+# How long to wait for ffmpeg to quit gracefully after we send 'q' (so it emits
+# an RTSP TEARDOWN and the NVR releases the playback session) before hard-killing.
+# Kept short so a seek/speed respawn stays responsive.
+_GRACEFUL_QUIT_SECONDS = 2.0
+
 # ffmpeg exit codes we treat as clean shutdowns (we killed it).
 _CLEAN_EXIT_CODES = (0, -15, -9)
 
@@ -119,7 +124,10 @@ def _build_ffmpeg_argv(
     """
     argv = [
         ffbin,
-        "-nostdin", "-loglevel", "error",
+        # No -nostdin: we send 'q' on stdin for a graceful quit so ffmpeg
+        # emits an RTSP TEARDOWN and the NVR releases the playback session
+        # (see _kill_proc / _GRACEFUL_QUIT_SECONDS).
+        "-loglevel", "error",
         "-rtsp_transport", "udp",
         "-i", rtsp_url,
     ]
@@ -594,6 +602,7 @@ class PlaybackSession:
         )
         proc = await asyncio.create_subprocess_exec(
             *argv,
+            stdin=asyncio.subprocess.PIPE,   # for the graceful 'q' quit
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -663,20 +672,46 @@ class PlaybackSession:
             )
 
     async def _kill_proc(self) -> None:
-        """Kill the current ffmpeg process and ``await`` its exit (no orphan)."""
+        """Stop the current ffmpeg, GRACEFULLY where possible, and ``await`` its
+        exit (no orphan).
+
+        A hard TerminateProcess/kill skips ffmpeg's cleanup, so the RTSP
+        playback session on the NVR is never TEARDOWN'd — it lingers until the
+        NVR's own timeout, and the NVR's small playback pool exhausts after a
+        handful of seeks (verified 192.168.20.15, 2026-07-01: live kept working
+        while playback hung pool-wide). So we first ask ffmpeg to quit by
+        writing ``q`` to its stdin (interactive quit → closes inputs → RTSP
+        TEARDOWN) and wait briefly; only if it doesn't exit in
+        ``_GRACEFUL_QUIT_SECONDS`` do we hard-kill as a fallback. The drain
+        loop is still running here (callers cancel it AFTER us) and the ring is
+        non-blocking, so ffmpeg can always flush + exit.
+        """
         proc = self._proc
         self._proc = None
         if proc is None:
             return
         if proc.returncode is None:
+            # Graceful quit first.
+            stdin = getattr(proc, "stdin", None)
+            if stdin is not None:
+                try:
+                    if not stdin.is_closing():
+                        stdin.write(b"q")
+                        await stdin.drain()
+                except Exception:  # noqa: BLE001
+                    pass
             try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
-            except Exception:  # noqa: BLE001
-                log.warning(
-                    "playback session=%s kill failed", self.session_id, exc_info=True
-                )
+                await asyncio.wait_for(proc.wait(), timeout=_GRACEFUL_QUIT_SECONDS)
+            except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                # Didn't quit in time (or wait errored) → hard kill.
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                except Exception:  # noqa: BLE001
+                    log.warning(
+                        "playback session=%s kill failed", self.session_id, exc_info=True
+                    )
         try:
             await proc.wait()
         except Exception:  # noqa: BLE001

@@ -179,10 +179,27 @@ class _FakeStream:
         return b""
 
 
+class _FakeWriter:
+    """Stdin stand-in: records writes so tests can assert the graceful 'q' quit."""
+
+    def __init__(self):
+        self.writes = []
+
+    def is_closing(self):
+        return False
+
+    def write(self, data):
+        self.writes.append(data)
+
+    async def drain(self):
+        pass
+
+
 class _FakeProc:
     def __init__(self):
         self.pid = 4242
         self.returncode = None
+        self.stdin = _FakeWriter()
         self.stdout = _FakeStream()
         self.stderr = _FakeStream()
         self.kill_count = 0
@@ -197,6 +214,7 @@ class _FakeProc:
             self.returncode = -15
 
     async def wait(self):
+        # Graceful path: returns promptly (as if ffmpeg quit on 'q').
         return self.returncode if self.returncode is not None else 0
 
 
@@ -230,15 +248,46 @@ async def test_close_is_idempotent_and_cancels_tasks():
         await sess.close()
         assert sess.state == SessionState.CLOSED
         assert sess._proc is None
-        assert fake.kill_count >= 1
+        # Graceful quit: 'q' sent on stdin (→ RTSP TEARDOWN), no hard kill needed
+        # because the fake proc "exits" promptly.
+        assert fake.stdin.writes == [b"q"]
+        assert fake.kill_count == 0
         assert drain.cancelled() or drain.done()
         assert stderr.cancelled() or stderr.done()
 
-        # Second close must be a no-op (no crash, no extra kill on a None proc).
-        kills_after_first = fake.kill_count
+        # Second close must be a no-op (no crash, no extra 'q' on a None proc).
         await sess.close()
         assert sess.state == SessionState.CLOSED
-        assert fake.kill_count == kills_after_first
+        assert fake.stdin.writes == [b"q"]
+
+
+async def test_close_hard_kills_when_graceful_quit_times_out(monkeypatch):
+    """If ffmpeg doesn't exit after 'q', close() falls back to a hard kill."""
+    monkeypatch.setattr(
+        "app.services.playback.session._GRACEFUL_QUIT_SECONDS", 0.05
+    )
+
+    class _StubbornProc(_FakeProc):
+        async def wait(self):
+            # Never exits on its own; only kill() sets returncode.
+            while self.returncode is None:
+                await asyncio.sleep(0.01)
+            return self.returncode
+
+    sess = _session()
+    fake = _StubbornProc()
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(return_value=fake),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)
+        await sess.close()
+        assert fake.stdin.writes == [b"q"]   # graceful attempted first
+        assert fake.kill_count >= 1          # then hard-killed on timeout
+        assert sess._proc is None
 
 
 async def test_open_rejected_when_locked_out():
