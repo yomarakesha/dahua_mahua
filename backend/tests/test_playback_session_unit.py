@@ -86,19 +86,21 @@ def _argv(speed=1, maxrate=8000):
     )
 
 
-def test_argv_speed1_has_no_vf_or_vsync():
+def test_argv_speed1_has_no_vf_or_fps_mode():
     argv = _argv(speed=1)
     assert "-vf" not in argv
-    assert "-vsync" not in argv
+    assert "-fps_mode" not in argv
 
 
-def test_argv_speed_gt1_has_select_filter_and_vsync_vfr():
+def test_argv_speed_gt1_has_select_filter_and_fps_mode_vfr():
+    # -fps_mode vfr (NOT the removed -vsync): verified on the server's ffmpeg
+    # build 2026-07-01 — `-vsync` is unrecognized there and aborts FF entirely.
     argv = _argv(speed=2)
     assert "-vf" in argv
     vf = argv[argv.index("-vf") + 1]
     assert vf.startswith("select=not(mod(n")
-    assert "-vsync" in argv
-    assert argv[argv.index("-vsync") + 1] == "vfr"
+    assert "-fps_mode" in argv
+    assert argv[argv.index("-fps_mode") + 1] == "vfr"
 
 
 def test_argv_pipe1_is_last():

@@ -139,7 +139,7 @@ def _build_ffmpeg_argv(
         # sees continuous realtime media time while each second covers `speed`
         # seconds of footage time.
         argv += ["-vf", f"select=not(mod(n\\,{speed})),setpts=N/(FRAME_RATE*TB)"]
-        argv += ["-vsync", "vfr"]
+        argv += ["-fps_mode", "vfr"]
     # Audio: transcode to AAC (handles G.711, G.726 — V7 unmeasured on new NVR).
     argv += ["-c:a", "aac"]
     # fMP4 fragmented output on stdout.

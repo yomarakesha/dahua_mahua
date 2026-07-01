@@ -301,9 +301,14 @@ async def active_playback_sessions(user: AdminUser) -> dict:  # noqa: ARG001
 # Credential hygiene (Contract #12): the NVR password and credentialed RTSP URL
 # never appear in any WS payload or log line.
 
-# MVP hard-codes the libx264 Baseline full MIME (Contract #14); validate in integration.
-# Full MIME is required: ms.addSourceBuffer() rejects bare codec strings.
-_INIT_CODEC = 'video/mp4; codecs="avc1.42E01E"'
+# Full MIME for MSE addSourceBuffer() (Contract #14; bare codec strings are
+# rejected). avc1.640032 = H.264 High profile, level 5.0 — the ACTUAL avcC of
+# the libx264 re-encode, verified against 192.168.20.15 on 2026-07-01 (High L5.0
+# covers every camera in this deployment: ≤4MP; a higher declared level than the
+# real stream is accepted by MSE). The earlier avc1.42E01E (Baseline L3.0) did
+# NOT match the High-profile output. Follow-up: derive from the pinned init
+# segment's avcC box for encoder-independence.
+_INIT_CODEC = 'video/mp4; codecs="avc1.640032"'
 
 # How long the fragment-sender waits for the pinned fMP4 init segment after a
 # (re)spawn before giving up and streaming fragments without it.

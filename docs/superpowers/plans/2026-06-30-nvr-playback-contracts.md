@@ -69,10 +69,14 @@ spike findings + the user's RBAC decision of 2026-06-30).
     optimization, not a dependency.
 
 14. **`init.codec`.** The backend emits the **full MIME type** required by
-    `MediaSource.addSourceBuffer()`: `video/mp4; codecs="avc1.42E01E"` (libx264
-    Baseline). Bare codec strings (e.g. `avc1.42E01E` without the `video/mp4;
-    codecs=` wrapper) are rejected by the MSE API. Validate in integration; if
-    the encoder profile differs, adjust the full MIME accordingly.
+    `MediaSource.addSourceBuffer()`: **`video/mp4; codecs="avc1.640032"`**
+    (H.264 **High** profile, level 5.0). This is the ACTUAL avcC of the libx264
+    re-encode — verified on-network against 192.168.20.15 (2026-07-01): the
+    output is High profile, so the earlier `avc1.42E01E` (Baseline L3.0) was
+    wrong and MSE could reject it. High L5.0 covers every camera here (≤4MP; a
+    declared level ≥ the real level is accepted). Bare codec strings (no
+    `video/mp4; codecs=` wrapper) are rejected. Follow-up: derive the string
+    from the pinned init segment's avcC box for encoder-independence.
 
 **Detailed per-task specs:** see
 `2026-06-30-nvr-playback-phase2-tasks.md` (Tasks 5–10, backend) and
