@@ -3,7 +3,7 @@
  *
  * Extracted as a side-effect-free reducer so every transition is unit-testable
  * (jsdom has no real MediaSource/WebSocket). The component dispatches events
- * derived from BACKEND SIGNALS (init/reinit/clock/eof/gap/error) and USER
+ * derived from BACKEND SIGNALS (init/reinit/clock/eof/error) and USER
  * ACTIONS (pause/play/seek/speed) — never from "video.currentTime stopped"
  * (task-14 brief / Contract #3).
  */
@@ -24,8 +24,6 @@ export type PlayerEvent =
   | { type: "play" }
   /** User committed a seek OR changed speed (both await a backend reinit). */
   | { type: "seek" }
-  /** Backend `gap`: next!=null → auto-skip seek; next===null → end of recording. */
-  | { type: "gap"; next: number | null }
   /** Backend `eof` — end of the last clip. */
   | { type: "eof" }
   /** Backend `{type:"error"}`. */
@@ -46,7 +44,7 @@ export type PlayerEvent =
 
 export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerState {
   // "error" is terminal EXCEPT explicit recovery paths. Ignoring all other signals
-  // stops a late eof/gap/ws_close from silently un-sticking the error overlay.
+  // stops a late eof/ws_close from silently un-sticking the error overlay.
   if (state === "error") {
     switch (event.type) {
       case "reconnect":
@@ -84,10 +82,6 @@ export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerSta
       // Explicit user seek (or speed change). Always valid — also the recovery path
       // out of "end"/"error" ("reconnect = explicit user seek", never an auto-loop).
       return "seeking";
-
-    case "gap":
-      // next!=null → snap to the next clip (auto-skip); next===null → end of recording.
-      return event.next !== null ? "seeking" : "end";
 
     case "eof":
       return "end";

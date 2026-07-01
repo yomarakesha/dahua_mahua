@@ -35,6 +35,29 @@ describe("footageEpoch", () => {
   it("returns t0 exactly when currentTime equals baseCt", () => {
     expect(footageEpoch({ t0: 9999, baseCt: 7, speed: 2 }, 7)).toBe(9999);
   });
+
+  // Speed is applied server-side via decimation, so 1s of currentTime covers
+  // `speed`s of footage — footageEpoch MUST multiply the elapsed delta by speed.
+  it("advances footage at 2× (1s currentTime = 2s footage)", () => {
+    // delta = 5-0 = 5, ×2 → 10 → footage = 1000+10 = 1010
+    expect(footageEpoch({ t0: 1000, baseCt: 0, speed: 2 }, 5)).toBe(1010);
+  });
+
+  it("advances footage at 4×", () => {
+    // delta = 5-1 = 4, ×4 → 16 → footage = 1000+16 = 1016
+    expect(footageEpoch({ t0: 1000, baseCt: 1, speed: 4 }, 5)).toBe(1016);
+  });
+
+  it("advances footage at 8×", () => {
+    // delta = 10-2 = 8, ×8 → 64 → footage = 2000+64 = 2064
+    expect(footageEpoch({ t0: 2000, baseCt: 2, speed: 8 }, 10)).toBe(2064);
+  });
+
+  it("speed does not affect the result when currentTime equals baseCt (delta 0)", () => {
+    for (const speed of [1, 2, 4, 8] as const) {
+      expect(footageEpoch({ t0: 5000, baseCt: 3, speed }, 3)).toBe(5000);
+    }
+  });
 });
 
 // ── dayToEpochs ───────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   useNvrs,
@@ -49,6 +49,36 @@ export default function PlaybackPage() {
   const [anchor, setAnchor] = useState<FootageAnchor | null>(null);
   /** Shared <video> ref so Task 15's snapshot can read pixels from the player. */
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // ── Seek debounce (Contract §7) ───────────────────────────────────────────────
+  // Every committed seek respawns backend ffmpeg; the NVR's small playback pool
+  // exhausts under rapid seeks (drag-release bursts, held ←/→, prev/next). Collapse
+  // a burst to ONE committed seek with a 250 ms trailing debounce. The ghost/visual
+  // playhead stays responsive (that lives in Timeline's local drag state); only the
+  // committed seekTarget that respawns ffmpeg is debounced here.
+  const SEEK_DEBOUNCE_MS = 250;
+  const seekDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPendingSeek = useCallback(() => {
+    if (seekDebounceRef.current) {
+      clearTimeout(seekDebounceRef.current);
+      seekDebounceRef.current = null;
+    }
+  }, []);
+
+  const commitSeek = useCallback(
+    (epoch: number) => {
+      if (seekDebounceRef.current) clearTimeout(seekDebounceRef.current);
+      seekDebounceRef.current = setTimeout(() => {
+        seekDebounceRef.current = null;
+        setSeekTarget(epoch);
+      }, SEEK_DEBOUNCE_MS);
+    },
+    [],
+  );
+
+  // Cancel any pending debounced seek on unmount.
+  useEffect(() => clearPendingSeek, [clearPendingSeek]);
 
   // ── Data ────────────────────────────────────────────────────────────────────
 
@@ -131,12 +161,14 @@ export default function PlaybackPage() {
     const today = todayIso();
     setSelectedDate(today);
     setViewMonth(today.slice(0, 7));
+    clearPendingSeek(); // drop any in-flight debounced seek so it can't override the reset
     setSeekTarget(null);
     setPlayhead(null);
   }
 
   function handleCamChange(camId: string) {
     setSelectedCamId(camId || null);
+    clearPendingSeek();
     setSeekTarget(null);
     setPlayhead(null);
   }
@@ -146,6 +178,7 @@ export default function PlaybackPage() {
     setSelectedDate(val);
     // Keep viewMonth in sync so availability refetches for the visible month
     if (val.length >= 7) setViewMonth(val.slice(0, 7));
+    clearPendingSeek();
     setSeekTarget(null);
     setPlayhead(null);
   }
@@ -382,7 +415,7 @@ export default function PlaybackPage() {
             clips={indexData.clips}
             tzOffsetMinutes={indexData.tz_offset_minutes}
             playheadEpoch={playhead ?? seekTarget}
-            onSeek={(epoch) => setSeekTarget(epoch)}
+            onSeek={commitSeek}
             playerState={playerState}
           />
         ) : (

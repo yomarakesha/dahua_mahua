@@ -114,6 +114,14 @@ export default function Timeline({
   const dayDuration = dayEndEpoch - dayStartEpoch;
   const isDisabled = playerState === "error";
 
+  // ── Commit a seek, clamped to "now" (HIGH-3) ───────────────────────────────
+  // The bar spans the whole day including the future part of "today"; a drag or
+  // keyboard seek could otherwise land past the present, making the backend build
+  // start>end and starve. Never seek into the future.
+  function commitSeek(epoch: number) {
+    onSeek(Math.min(epoch, Math.floor(Date.now() / 1000)));
+  }
+
   // ── Pointer → epoch conversion ────────────────────────────────────────────
 
   function clientXToEpoch(clientX: number): number {
@@ -147,10 +155,10 @@ export default function Timeline({
 
     if (snapped !== null) {
       // Fires ONCE on release — no debounce here (debounce lives in PlaybackPage)
-      onSeek(snapped);
+      commitSeek(snapped);
     } else {
       // Ghost fell past all clips — do not seek into the void.
-      // No-op: the day's coverage has ended; PlaybackPage / WS will emit eof/gap.
+      // No-op: the day's coverage has ended; PlaybackPage / WS will emit eof.
       // (Alternative: snap to last clip start — but that may confuse the user.)
     }
 
@@ -169,25 +177,25 @@ export default function Timeline({
         e.preventDefault();
         const target = Math.max(dayStartEpoch, head - 10);
         const snapped = snapToNearest(clips, target);
-        if (snapped !== null) onSeek(snapped);
+        if (snapped !== null) commitSeek(snapped);
         break;
       }
       case "ArrowRight": {
         e.preventDefault();
         const target = Math.min(dayEndEpoch - 1, head + 10);
         const snapped = snapToNearest(clips, target);
-        if (snapped !== null) onSeek(snapped);
+        if (snapped !== null) commitSeek(snapped);
         break;
       }
       case "Home": {
         e.preventDefault();
-        onSeek(clips[0].start_epoch);
+        commitSeek(clips[0].start_epoch);
         break;
       }
       case "End": {
         e.preventDefault();
         // Seek to the start of the last clip (end_epoch is exclusive)
-        onSeek(clips[clips.length - 1].start_epoch);
+        commitSeek(clips[clips.length - 1].start_epoch);
         break;
       }
       case "PageUp": {
@@ -213,7 +221,7 @@ export default function Timeline({
       if (clip.end_epoch < playheadEpoch) prevClip = clip;
     }
     if (prevClip) {
-      onSeek(prevClip.start_epoch);
+      commitSeek(prevClip.start_epoch);
       onPrevClip?.();
     }
   }
@@ -223,7 +231,7 @@ export default function Timeline({
     // First clip whose start_epoch > playheadEpoch
     for (const clip of clips) {
       if (clip.start_epoch > playheadEpoch) {
-        onSeek(clip.start_epoch);
+        commitSeek(clip.start_epoch);
         onNextClip?.();
         return;
       }

@@ -15,8 +15,9 @@ export type ClientMsg = SeekMsg | SpeedMsg | PauseMsg | PlayMsg | StreamMsg | Ke
 export interface InitMsg {
   type: "init";
   t0: number;        // footage epoch of the first frame in this segment
-  codec: string;     // full MIME for addSourceBuffer, e.g. 'video/mp4; codecs="avc1.42E01E"'
-  audio?: boolean;   // whether audio track is present (optional; absent = no audio)
+  codec: string;     // full MIME for addSourceBuffer, e.g. 'video/mp4; codecs="avc1.640032"'
+  // NOTE: no `audio` field — the backend drops audio server-side (`-an`, Contract #10),
+  // so the init MIME is always video-only and no audio track is ever present.
 }
 
 export interface ReinitMsg {
@@ -39,17 +40,12 @@ export interface EofMsg {
   type: "eof";
 }
 
-export interface GapMsg {
-  type: "gap";
-  next: number | null;   // epoch of next clip start, null if no more clips
-}
-
 export interface ErrorMsg {
   type: "error";
   reason: string;    // sanitized human-readable message
 }
 
-export type ServerMsg = InitMsg | ReinitMsg | ClockMsg | EofMsg | GapMsg | ErrorMsg;
+export type ServerMsg = InitMsg | ReinitMsg | ClockMsg | EofMsg | ErrorMsg;
 
 // ── Player state machine ───────────────────────────────────────────────────────
 
@@ -69,8 +65,8 @@ export type PlayerState =
 //   playing    → seeking:      user commits a seek (drag release or skip)
 //   seeking    → loading:      reinit received (MSE rebuild started)
 //   loading    → playing:      (same as above; re-enters via reinit)
-//   playing    → end:          eof received + gap.next === null
-//   playing    → no_coverage:  gap received into a region with no clips
+//   playing    → end:          eof received after the last clip
+//   (no_coverage is owned by PlaybackPage — the WS is never opened; see Contract #6)
 //   any        → error:        {type:"error"} received OR MSE QuotaExceeded unrecoverable
 //                               OR WS closed without eof (and not user-paused/seeking)
 

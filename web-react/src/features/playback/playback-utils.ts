@@ -52,14 +52,14 @@ export function buildPlaybackWsUrl(
 /**
  * Compute the current footage epoch from the MSE anchor.
  *
- * Speed is applied server-side (frame decimation); the <video> element always
- * plays at playbackRate=1.0, so currentTime advances at wall-clock rate.
- * The footage epoch advances at speed × wall-clock rate — but because the server
- * controls the stream, video.currentTime already reflects that rate directly.
- * (anchor.speed is stored for reference / future use, not used in the formula.)
+ * Speed is applied server-side via frame decimation: the <video> element always
+ * plays at playbackRate=1.0, so `currentTime` advances at wall-clock rate, but
+ * because the server decimates the stream, ONE second of `currentTime` covers
+ * `speed` seconds of real footage. So the footage epoch advances at
+ * speed × elapsed-currentTime — `anchor.speed` must be applied here.
  */
 export function footageEpoch(anchor: FootageAnchor, currentTime: number): number {
-  return anchor.t0 + (currentTime - anchor.baseCt);
+  return anchor.t0 + (currentTime - anchor.baseCt) * anchor.speed;
 }
 
 // ── Clip lookup ───────────────────────────────────────────────────────────────
@@ -90,19 +90,12 @@ export function findClipAt(clips: RecordingClip[], epoch: number): RecordingClip
 export function snapToNearest(clips: RecordingClip[], epoch: number): number | null {
   if (clips.length === 0) return null;
 
-  // Before the first clip
-  if (epoch < clips[0].start_epoch) return clips[0].start_epoch;
-
+  // Single pass: clips are sorted ascending and non-overlapping.
+  //  - epoch before a clip's start (incl. before the first clip) → snap forward to it
+  //  - epoch inside a clip → return unchanged
   for (const clip of clips) {
-    // Inside this clip
-    if (epoch >= clip.start_epoch && epoch < clip.end_epoch) return epoch;
-    // In a gap before the next clip — snap to next clip start
-    // We'll find the next clip in the next iteration by checking if epoch < next.start
-  }
-
-  // Find the next clip after the epoch (handles gap case)
-  for (let i = 0; i < clips.length; i++) {
-    if (epoch < clips[i].start_epoch) return clips[i].start_epoch;
+    if (epoch < clip.start_epoch) return clip.start_epoch; // before/in a gap → next clip start
+    if (epoch < clip.end_epoch) return epoch;              // inside this clip
   }
 
   // Epoch is at or past the end of the last clip

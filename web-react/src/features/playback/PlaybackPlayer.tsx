@@ -113,6 +113,11 @@ export default function PlaybackPlayer({
   const anchorRef = useRef<FootageAnchor | null>(null);
   const speedRef = useRef<Speed>(speed);
   speedRef.current = speed;
+  /** Pending anchor from the last init/reinit — {t0, speed} only. baseCt is captured
+   *  in onAppendSuccess AFTER currentTime settles to the real buffered start, because
+   *  reading video.currentTime during init/reinit (before the src reset settles) is
+   *  stale and would mis-map every footage-time (MED-6). */
+  const pendingAnchorRef = useRef<{ t0: number; speed: Speed } | null>(null);
 
   const setAnchor = useCallback(
     (a: FootageAnchor | null) => {
@@ -154,13 +159,20 @@ export default function PlaybackPlayer({
     }
     if (firstAppendRef.current) {
       firstAppendRef.current = false;
+      // Capture the anchor NOW — currentTime has settled to the real buffered start
+      // (set just above), so baseCt matches the frame t0 actually maps to (MED-6).
+      const pending = pendingAnchorRef.current;
+      if (pending) {
+        setAnchor({ t0: pending.t0, baseCt: video?.currentTime ?? 0, speed: pending.speed });
+        pendingAnchorRef.current = null;
+      }
       dispatch({ type: "playing" });
       // Start playback now that media is present. The element is muted, so the
       // browser allows autoplay (unmuted autoplay from this async WS handler is
       // blocked → black video with a false "playing" state).
       void video?.play().catch(() => {});
     }
-  }, [videoRef]);
+  }, [videoRef, setAnchor]);
 
   /** Trim buffered ranges older than currentTime - 30 s (async; updateend retries). */
   const trimBuffer = useCallback(() => {
@@ -287,33 +299,31 @@ export default function PlaybackPlayer({
       switch (msg.type) {
         case "init": {
           rebuildMse(msg.codec);
-          setAnchor({ t0: msg.t0, baseCt: video?.currentTime ?? 0, speed: speedRef.current });
+          // baseCt is captured in onAppendSuccess after currentTime settles (MED-6).
+          pendingAnchorRef.current = { t0: msg.t0, speed: speedRef.current };
+          setAnchor(null); // clear stale anchor until the first append re-captures it
           dispatch({ type: "init" });
           void video?.play().catch(() => {}); // autoplay may be blocked; ignore
           break;
         }
         case "reinit": {
           rebuildMse(codecRef.current); // reinit reuses the last init's codec
-          setAnchor({ t0: msg.t0, baseCt: video?.currentTime ?? 0, speed: speedRef.current });
+          pendingAnchorRef.current = { t0: msg.t0, speed: speedRef.current };
+          setAnchor(null); // captured in onAppendSuccess once currentTime settles (MED-6)
           dispatch({ type: "reinit" });
           void video?.play().catch(() => {});
           break;
         }
         case "clock": {
-          // Contract #3: wall_ts IS the current footage epoch — re-anchor + emit.
+          // Contract #3: wall_ts IS the current footage epoch. Re-anchor
+          // (t0=wall_ts, baseCt=currentTime) so accumulated drift is corrected, but
+          // do NOT jump the playhead here — the RAF loop derives it from
+          // footageEpoch(anchor, currentTime), avoiding a per-tick forward jump (MED-6).
           setAnchor({
             t0: msg.wall_ts,
             baseCt: video?.currentTime ?? 0,
             speed: speedRef.current,
           });
-          onPlayhead?.(msg.wall_ts);
-          break;
-        }
-        case "gap": {
-          if (msg.next !== null) {
-            sessionRef.current?.send({ seek: msg.next }); // auto-skip to next clip
-          }
-          dispatch({ type: "gap", next: msg.next });
           break;
         }
         case "eof":
@@ -328,7 +338,7 @@ export default function PlaybackPlayer({
           break;
       }
     },
-    [rebuildMse, setAnchor, onPlayhead, videoRef],
+    [rebuildMse, setAnchor, videoRef],
   );
 
   const handleClose = useCallback(() => {

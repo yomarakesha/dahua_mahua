@@ -179,6 +179,58 @@ describe("Timeline keyboard navigation", () => {
   });
 });
 
+// ── Clamp committed seeks to "now" (HIGH-3) ───────────────────────────────────
+
+describe("Timeline clamps seeks to now (HIGH-3)", () => {
+  it("a keyboard seek never commits an epoch past the present", () => {
+    const now = 2_000_000_000; // fixed "now" (epoch seconds)
+    vi.spyOn(Date, "now").mockReturnValue(now * 1000);
+    const onSeek = vi.fn();
+    // A "today"-style day whose bar extends into the future; a clip that runs
+    // right up to (and slightly past) now so snapToNearest returns a future epoch.
+    const dayStart = now - 40_000;
+    const dayEnd = dayStart + 86_400; // future tail
+    render(
+      <Timeline
+        dayStartEpoch={dayStart}
+        dayEndEpoch={dayEnd}
+        clips={[{ start_epoch: now - 100, end_epoch: now + 3_600, type: "Timing", stream: "Main" }]}
+        tzOffsetMinutes={0}
+        playheadEpoch={now + 50} // ahead of now (inside the clip)
+        onSeek={onSeek}
+        playerState="playing"
+      />,
+    );
+    // ArrowRight → head+10 = now+60 (inside the clip, so unsnapped) → clamped to now.
+    fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
+    expect(onSeek).toHaveBeenCalledWith(now);
+    vi.restoreAllMocks();
+  });
+
+  it("does not clamp a seek that is already in the past", () => {
+    const now = 2_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now * 1000);
+    const onSeek = vi.fn();
+    const dayStart = now - 40_000;
+    const dayEnd = dayStart + 86_400;
+    render(
+      <Timeline
+        dayStartEpoch={dayStart}
+        dayEndEpoch={dayEnd}
+        clips={[{ start_epoch: now - 20_000, end_epoch: now - 10_000, type: "Timing", stream: "Main" }]}
+        tzOffsetMinutes={0}
+        playheadEpoch={now - 15_000}
+        onSeek={onSeek}
+        playerState="playing"
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
+    // head+10 = now-14990, still in the past → passed through unchanged.
+    expect(onSeek).toHaveBeenCalledWith(now - 14_990);
+    vi.restoreAllMocks();
+  });
+});
+
 // ── Prev / next clip buttons ──────────────────────────────────────────────────
 
 describe("Timeline prev/next buttons", () => {

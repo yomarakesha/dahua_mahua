@@ -156,7 +156,7 @@ export interface CameraIpImportResult {
 export interface RecordingClip {
   start_epoch: number;   // UTC epoch seconds (inclusive)
   end_epoch: number;     // UTC epoch seconds (exclusive)
-  type: string;          // e.g. "dav" (container type from NVR)
+  type: string;          // semantic record type from Flags[0], e.g. "Timing" or "Event"
   stream: string;        // "Main" (always Main per spike V4)
 }
 

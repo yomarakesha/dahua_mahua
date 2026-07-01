@@ -67,15 +67,6 @@ describe("playerReducer", () => {
     expect(playerReducer(afterReinit, { type: "playing" })).toBe("playing");
   });
 
-  // ── gap ───────────────────────────────────────────────────────────────────────
-  it("gap with a next clip → seeking (auto-skip)", () => {
-    expect(playerReducer("playing", { type: "gap", next: 12345 })).toBe("seeking");
-  });
-
-  it("gap with next === null → end", () => {
-    expect(playerReducer("playing", { type: "gap", next: null })).toBe("end");
-  });
-
   // ── eof ────────────────────────────────────────────────────────────────────────
   it("eof → end", () => {
     expect(playerReducer("playing", { type: "eof" })).toBe("end");

@@ -1,8 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import PlaybackPage from "./PlaybackPage";
+
+// Mutable recording-index the mock returns — default null (no index) so the
+// existing tests keep seeing the "timeline-placeholder". The debounce test below
+// sets it to a real RecordingIndex so the Timeline mounts. vi.hoisted so it is
+// initialized before the hoisted vi.mock factory runs.
+const mockState = vi.hoisted(() => ({ index: null as unknown }));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -57,8 +63,12 @@ vi.mock("@/api/hooks", () => ({
   useNvrs: () => ({ data: MOCK_NVRS, isLoading: false }),
   useCameras: () => ({ data: MOCK_CAMERAS, isLoading: false }),
   useRecordingAvailability: () => ({ data: null, isLoading: false }),
-  useRecordingIndex: () => ({ data: null, isLoading: false }),
+  useRecordingIndex: () => ({ data: mockState.index, isLoading: false }),
 }));
+
+afterEach(() => {
+  mockState.index = null;
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -221,5 +231,64 @@ describe("PlaybackPage — deep link (?nvr=&ch=)", () => {
     renderPage(["/playback"]);
     const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
     expect(nvrSelect.value).toBe("");
+  });
+});
+
+// ── Seek debounce (HIGH-2 / Contract §7) ──────────────────────────────────────
+
+describe("PlaybackPage — seek debounce", () => {
+  // 2025-06-30 — safely in the past so the Timeline's clamp-to-now is a no-op here.
+  const DAY = 1_751_241_600;
+
+  it("collapses a rapid seek burst into ONE committed seek after 250 ms", () => {
+    vi.useFakeTimers();
+    mockState.index = {
+      tz_offset_minutes: 0,
+      day_start_epoch: DAY,
+      day_end_epoch: DAY + 86_400,
+      clips: [{ start_epoch: DAY + 3_600, end_epoch: DAY + 7_200, type: "Timing", stream: "Main" }],
+    };
+    try {
+      renderPage();
+      const placeholder = screen.getByTestId("player-placeholder");
+      const slider = screen.getByRole("slider");
+
+      // Rapid burst of keyboard seeks (each would otherwise respawn ffmpeg).
+      fireEvent.keyDown(slider, { key: "ArrowRight" });
+      fireEvent.keyDown(slider, { key: "ArrowRight" });
+      fireEvent.keyDown(slider, { key: "ArrowRight" });
+
+      // Still nothing committed while the 250 ms trailing timer is pending.
+      expect(placeholder.getAttribute("data-seek-target")).toBe("");
+
+      // Fire the trailing timer → exactly one seekTarget commit lands.
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(placeholder.getAttribute("data-seek-target")).toBe(String(DAY + 3_600));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not commit before the debounce window elapses", () => {
+    vi.useFakeTimers();
+    mockState.index = {
+      tz_offset_minutes: 0,
+      day_start_epoch: DAY,
+      day_end_epoch: DAY + 86_400,
+      clips: [{ start_epoch: DAY + 3_600, end_epoch: DAY + 7_200, type: "Timing", stream: "Main" }],
+    };
+    try {
+      renderPage();
+      const placeholder = screen.getByTestId("player-placeholder");
+      fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
+      act(() => {
+        vi.advanceTimersByTime(200); // under the 250 ms window
+      });
+      expect(placeholder.getAttribute("data-seek-target")).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
