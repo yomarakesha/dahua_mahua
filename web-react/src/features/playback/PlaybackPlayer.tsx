@@ -30,6 +30,19 @@ type Speed = 1 | 2 | 4 | 8;
 /** Seconds of buffer to keep behind currentTime when trimming on QuotaExceeded. */
 const TRIM_KEEP_SECONDS = 30;
 
+/** Read a SourceBuffer's buffered span SAFELY. Returns null when the SB has no
+ *  ranges OR has been detached from its MediaSource (rebuild on seek/reinit) —
+ *  reading `.buffered` on a detached SB throws InvalidStateError, which if
+ *  uncaught crashes the player and blanks the video. */
+function bufferedRange(sb: SourceBuffer | null): { start: number; end: number } | null {
+  try {
+    if (!sb || sb.buffered.length === 0) return null;
+    return { start: sb.buffered.start(0), end: sb.buffered.end(sb.buffered.length - 1) };
+  } catch {
+    return null; // SourceBuffer detached from its parent MediaSource
+  }
+}
+
 export interface PlaybackPlayerProps {
   nvrId: string;
   channel: number;
@@ -126,16 +139,14 @@ export default function PlaybackPlayer({
   const onAppendSuccess = useCallback(() => {
     quotaRetryRef.current = false;
     const video = videoRef.current;
-    const sb = sbRef.current;
+    const r = bufferedRange(sbRef.current);
     // Keep the playhead inside the buffered range. A fragmented MP4 whose first
     // fragment has a non-zero baseMediaDecodeTime leaves currentTime=0 OUTSIDE
     // [start,end], so the decoder renders nothing (black) even while "playing".
-    if (video && sb && sb.buffered.length > 0) {
-      const start = sb.buffered.start(0);
-      const end = sb.buffered.end(sb.buffered.length - 1);
-      if (video.currentTime < start || video.currentTime > end) {
+    if (video && r) {
+      if (video.currentTime < r.start || video.currentTime > r.end) {
         try {
-          video.currentTime = start;
+          video.currentTime = r.start;
         } catch {
           /* not seekable yet — a later append will retry */
         }
@@ -145,9 +156,8 @@ export default function PlaybackPlayer({
       firstAppendRef.current = false;
       // eslint-disable-next-line no-console
       console.info("[Playback] first append OK", {
-        bufferedRanges: sb?.buffered.length ?? 0,
-        start: sb && sb.buffered.length ? sb.buffered.start(0) : null,
-        end: sb && sb.buffered.length ? sb.buffered.end(sb.buffered.length - 1) : null,
+        start: r?.start ?? null,
+        end: r?.end ?? null,
         currentTime: video?.currentTime,
         readyState: video?.readyState,
       });
@@ -428,7 +438,7 @@ export default function PlaybackPlayer({
       // eslint-disable-next-line no-console
       console.warn("[Playback] <video> error (non-fatal, ignored)", err?.code, err?.message, {
         codec: codecRef.current,
-        buffered: sbRef.current?.buffered.length ?? 0,
+        buffered: bufferedRange(sbRef.current) ? "present" : "none/detached",
         currentTime: v.currentTime,
       });
     };
