@@ -11,7 +11,7 @@ covered here — see the on-network checklist in the task report.
 from __future__ import annotations
 
 import asyncio
-import time
+import logging
 from json import JSONDecodeError
 
 import pytest
@@ -21,6 +21,7 @@ from app.routers.playback import (
     _INIT_CODEC,
     _classify_session_end,
     _dispatch,
+    _drain_and_stop_egress,
     _egress_loop,
     _EGRESS_STOP,
     _emit_structural,
@@ -42,7 +43,6 @@ class FakeSession:
         self.speed = 1
         self.state = "playing"
         self.calls: list[tuple] = []
-        self._last_keepalive = 0.0
         self._paused_at = 0.0
         self._footage = 5000
 
@@ -158,13 +158,17 @@ async def test_dispatch_play_resumes_at_frozen_t0():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_keepalive_updates_timestamp_only():
+async def test_dispatch_keepalive_is_recognized_noop(caplog):
+    """Minor: keepalive is a recognised server-side NO-OP — it mutates nothing,
+    emits nothing, and is NOT logged as an unknown message.  (The old dead
+    ``_last_keepalive`` write was removed — it was read nowhere.)"""
     sess, out = FakeSession(), asyncio.Queue()
-    before = time.monotonic()
-    await _dispatch({"keepalive": True}, sess, out)
-    assert sess._last_keepalive >= before
+    with caplog.at_level(logging.WARNING, logger="dss.playback"):
+        await _dispatch({"keepalive": True}, sess, out)
     assert sess.calls == []
     assert _drain(out) == []
+    assert not hasattr(sess, "_last_keepalive")
+    assert "Unknown playback control message" not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -499,6 +503,99 @@ async def test_emit_structural_returns_quickly_when_egress_is_dead():
     )
     # Queue remains full — we gave up without enqueuing (nowhere to drain).
     assert out.qsize() == 2
+
+
+@pytest.mark.asyncio
+async def test_emit_structural_gives_up_when_egress_alive_but_not_draining():
+    """R1 (deadlock): the egress is ALIVE but blocked in ws.send_* to a client
+    that holds the socket open yet stopped reading, so the full queue NEVER
+    drains and egress.done() NEVER flips.  The old unbounded wait spun forever
+    (holding the session + NvrBudget slot for minutes).  _emit_structural must
+    now give up after the no-drain timeout and DROP the structural frame."""
+    out: asyncio.Queue = asyncio.Queue(maxsize=2)
+    out.put_nowait("a")
+    out.put_nowait("b")  # full — and it will stay full
+
+    async def _stuck() -> None:  # alive, but never touches the queue
+        await asyncio.sleep(3600)
+
+    egress = asyncio.create_task(_stuck())
+    await asyncio.sleep(0)
+    try:
+        assert not egress.done(), "precondition: egress must be ALIVE"
+        # Must return within the (tiny) no-drain bound rather than hang.
+        await asyncio.wait_for(
+            _emit_structural(
+                out, {"type": "eof"}, egress=egress, no_drain_timeout=0.05
+            ),
+            timeout=1.0,
+        )
+        # Gave up without enqueuing — dropping a trailing structural frame is
+        # strictly better than a permanent deadlock.
+        assert out.qsize() == 2
+    finally:
+        egress.cancel()
+        await asyncio.gather(egress, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_emit_structural_waits_for_slow_but_alive_client():
+    """R1 non-regression: a slow-but-alive client that KEEPS draining must NOT be
+    cut off.  The no-drain timer RESETS whenever a slot frees, so even though the
+    total wait (two drains) exceeds the no-drain timeout, no single gap does —
+    the structural group is delivered, not dropped."""
+    out: asyncio.Queue = asyncio.Queue(maxsize=3)
+    out.put_nowait("x")
+    out.put_nowait("y")
+    out.put_nowait("z")  # full; a group of 2 needs qsize to fall to 1
+
+    async def _steady_drainer() -> None:
+        # Two drains, each gap < the 0.05 s no-drain timeout, but the total
+        # (0.06 s) exceeds it — proving the timer resets on every freed slot.
+        await asyncio.sleep(0.03)
+        out.get_nowait()
+        await asyncio.sleep(0.03)
+        out.get_nowait()
+
+    drainer = asyncio.create_task(_steady_drainer())
+    await asyncio.wait_for(
+        _emit_structural(
+            out, {"type": "reinit", "t0": 1}, b"INIT", no_drain_timeout=0.05
+        ),
+        timeout=1.0,
+    )
+    await asyncio.gather(drainer, return_exceptions=True)
+    rest = _drain(out)
+    assert {"type": "reinit", "t0": 1} in rest and b"INIT" in rest  # delivered
+
+
+@pytest.mark.asyncio
+async def test_teardown_cancels_alive_but_stuck_egress(monkeypatch):
+    """R1 (teardown): an egress ALIVE-but-blocked on a non-reading client with a
+    full queue must still be cancelled + awaited by teardown — never let the
+    _EGRESS_STOP enqueue block the cancel — so teardown always completes and the
+    budget slot is freed."""
+    # Shrink the teardown bounds so the test is fast.
+    monkeypatch.setattr("app.routers.playback._EGRESS_STOP_TIMEOUT", 0.05)
+    monkeypatch.setattr("app.routers.playback._EGRESS_JOIN_TIMEOUT", 0.05)
+
+    out: asyncio.Queue = asyncio.Queue(maxsize=2)
+    out.put_nowait("a")
+    out.put_nowait("b")  # full
+
+    async def _stuck() -> None:
+        await asyncio.sleep(3600)
+
+    egress = asyncio.create_task(_stuck())
+    await asyncio.sleep(0)
+    assert not egress.done()
+
+    await asyncio.wait_for(
+        _drain_and_stop_egress(out, egress, already_done=False),
+        timeout=2.0,
+    )
+    # Teardown cancelled the stuck egress — no leak.
+    assert egress.done()
 
 
 # ── L2: malformed client frame must not tear the session down ────────────────

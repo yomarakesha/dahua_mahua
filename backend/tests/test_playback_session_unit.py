@@ -27,7 +27,7 @@ from app.services.playback.session import (
     _drain_stderr,
     footage_epoch_at,
 )
-from app.services.playback.url_builder import redact_url
+from app.services.playback.url_builder import PlaybackUrlError, redact_url
 
 
 # ── footage_epoch_at (pure) ────────────────────────────────────────────────
@@ -457,6 +457,83 @@ async def test_forward_seek_recomputes_valid_window(monkeypatch):
         assert sess.clip_end_epoch == fixed_now
         assert sess.t0 < sess.clip_end_epoch  # valid, non-inverted window
         await sess.close()
+
+
+async def test_forward_seek_to_now_clamps_to_valid_window(monkeypatch):
+    """R2: a forward seek to >= now is CLAMPED to just-before-now so the RTSP
+    window stays start<end.  Without the clamp, start>=now → clip_end=now →
+    build_playback_url raises and the session wedges in SEEKING with _proc=None,
+    holding its NvrBudget slot until max_lifetime."""
+    sess = _session()
+    procs = [_FakeProc(), _FakeProc()]
+    fixed_now = 1_700_100_000
+    monkeypatch.setattr(
+        "app.services.playback.session.time.time", lambda: fixed_now
+    )
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(side_effect=procs),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)
+        # Seek to exactly `now` — would build an inverted window without clamping.
+        await sess.seek(fixed_now)
+        assert sess.state == SessionState.PLAYING  # NOT wedged in SEEKING
+        assert sess._proc is not None
+        assert sess.t0 == fixed_now - 1          # clamped to < now
+        assert sess.t0 < sess.clip_end_epoch     # valid, non-inverted window
+        await sess.close()
+
+
+async def test_forward_seek_far_future_clamps(monkeypatch):
+    """R2: even a seek WAY past now is clamped to now-1 (latest available)."""
+    sess = _session()
+    procs = [_FakeProc(), _FakeProc()]
+    fixed_now = 1_700_100_000
+    monkeypatch.setattr(
+        "app.services.playback.session.time.time", lambda: fixed_now
+    )
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(side_effect=procs),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)
+        await sess.seek(fixed_now + 999_999)
+        assert sess.state == SessionState.PLAYING
+        assert sess.t0 == fixed_now - 1
+        assert sess.t0 < sess.clip_end_epoch
+        await sess.close()
+
+
+async def test_seek_url_error_closes_session_not_wedged(monkeypatch):
+    """R2 defense-in-depth: if the URL STILL can't be built during seek, the
+    session transitions to ERROR and close()s (freeing its budget slot) and
+    re-raises — it must NOT be left wedged in SEEKING with no proc."""
+    sess = _session()
+    fake = _FakeProc()
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(return_value=fake),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)
+
+        # Force the URL build to fail regardless of the clamp.
+        def _boom(_start_epoch: int) -> str:
+            raise PlaybackUrlError("forced")
+
+        monkeypatch.setattr(sess, "_build_url", _boom)
+        with pytest.raises(PlaybackUrlError):
+            await sess.seek(1_700_000_500)
+        assert sess.state == SessionState.CLOSED  # closed, not wedged in SEEKING
+        assert sess._proc is None
 
 
 async def test_reaper_closes_paused_session_past_idle(monkeypatch):

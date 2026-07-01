@@ -38,6 +38,7 @@ from typing import AsyncIterator
 from app.services.lockouts import get_active_lockout, record_lockout
 from app.services.playback.url_builder import (
     SPEED_WHITELIST,
+    PlaybackUrlError,
     build_playback_url,
     epoch_to_nvr_local,
     redact_url,
@@ -363,7 +364,6 @@ class PlaybackSession:
     _ring: asyncio.Queue | None = None
     _started_at: float = field(default_factory=time.monotonic)
     _paused_at: float = 0.0
-    _last_keepalive: float = 0.0
     _closing: bool = False
 
     # Egress counters — incremented by _enqueue; read by to_status_dict / close log.
@@ -412,11 +412,30 @@ class PlaybackSession:
         """Respawn ffmpeg at ``footage_epoch``.  Updates ``t0``.
 
         Caller sends a ``reinit`` to the client afterward.
+
+        R2 — forward seek to/after the live edge:
+          The requested epoch is CLAMPED to just-before-now (``now - 1``).  A
+          seek to ``epoch >= now`` would make ``_spawn`` compute
+          ``clip_end_epoch = min(start+86400, now) = now`` with ``start >= now``,
+          so ``build_playback_url`` raises ``PlaybackUrlError`` (start >= end) —
+          which used to leave the session wedged in SEEKING with ``_proc=None``,
+          holding its NvrBudget slot until ``max_lifetime``.  Clamping turns a
+          "seek to live" into "play the latest available footage".
+          Defense in depth: if the URL STILL can't be built, transition to ERROR
+          and ``close()`` (freeing the budget slot) instead of wedging, then
+          re-raise so the WS layer can surface a sanitised error to the client.
         """
         old_t0 = self.t0
         self._seek_count += 1
+        # Clamp to < now so the RTSP window can never be empty/inverted.
+        footage_epoch = min(footage_epoch, int(time.time()) - 1)
         self.state = SessionState.SEEKING
-        await self._respawn(footage_epoch)
+        try:
+            await self._respawn(footage_epoch)
+        except PlaybackUrlError:
+            self.state = SessionState.ERROR
+            await self.close()
+            raise
         self.state = SessionState.PLAYING
         _log_event(self, "seek", from_epoch=old_t0, to_epoch=self.t0)
 

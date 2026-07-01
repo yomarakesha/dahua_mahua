@@ -362,6 +362,21 @@ def _classify_session_end(returncode: int | None) -> str:
 # already-queued items (e.g. a final eof/error) and then stop.
 _EGRESS_STOP = object()
 
+# R1 anti-deadlock bounds.  _emit_structural waits for the egress to drain the
+# bounded queue, but a client that holds the TCP socket open yet stops READING
+# leaves the egress ALIVE-but-blocked in ws.send_* — the queue never drains and
+# egress.done() stays False, so the old unbounded wait spun forever and held the
+# session + NvrBudget slot until the OS finally errored the send (minutes).  We
+# now give up after this many seconds of NO drain progress (the timer resets
+# whenever a slot frees), dropping the structural frame — strictly better than a
+# permanent deadlock.
+_STRUCTURAL_NO_DRAIN_TIMEOUT = 10.0
+# Teardown bounds (R1 part 2): the _EGRESS_STOP enqueue is bounded so it can
+# never block the UNCONDITIONAL cancel that follows, guaranteeing teardown
+# always completes and the budget slot is released.
+_EGRESS_STOP_TIMEOUT = 2.0
+_EGRESS_JOIN_TIMEOUT = 2.0
+
 
 def _enqueue_clock(outbound: "asyncio.Queue", item) -> None:
     """Best-effort enqueue of a 2 s clock tick (Contract #3).
@@ -381,6 +396,7 @@ async def _emit_structural(
     outbound: "asyncio.Queue",
     *items,
     egress: "asyncio.Task | None" = None,
+    no_drain_timeout: float = _STRUCTURAL_NO_DRAIN_TIMEOUT,
 ) -> None:
     """Enqueue one or more structural messages that must NEVER be dropped or
     evicted (reinit / init segment / eof / error / the egress sentinel).
@@ -393,24 +409,82 @@ async def _emit_structural(
     Structural messages are small and rare, so this awaited back-pressure is
     cheap.  An unbounded queue (``maxsize == 0``) always has room.
 
-    ``egress`` — when supplied — is checked on every spin: if it is already done
-    (crashed or shut down), the function returns early rather than looping forever
-    against a dead drainer.  There is deliberately NO fixed-time cap (MED-7): a
-    structural message (init/reinit/init-segment/eof/error) must NEVER be dropped,
-    so a slow-but-alive client is waited on for as long as the egress task keeps
-    draining.  The only exits are "room became available" or "egress is dead".
-    When no ``egress`` is supplied the caller runs inside a producer task that the
-    control loop cancels on teardown, so the wait is still bounded by cancellation.
+    Exit conditions — the wait ends on ANY of (R1):
+      * **room became available** — the group is enqueued (normal path);
+      * **egress is dead** (``egress.done()``) — nowhere to drain, so return
+        without enqueuing (a crashed/closed sender);
+      * **no drain progress for ``no_drain_timeout`` seconds** — the egress is
+        ALIVE but blocked in ``ws.send_*`` to a client that holds the socket
+        open yet stopped reading; the queue never drains and ``egress.done()``
+        never flips, so an unbounded wait would deadlock forever and hold the
+        session + NvrBudget slot.  We give up and DROP this structural frame —
+        a stalled non-reading client losing a trailing structural message is
+        strictly better than a permanent deadlock.  The timer RESETS whenever a
+        slot frees, so a slow-but-alive client that keeps draining is never cut
+        off.
+    When no ``egress`` is supplied the caller runs inside a producer task that
+    the control loop cancels on teardown, so the wait is also bounded by
+    cancellation.
     """
     n = len(items)
     maxsize = outbound.maxsize
     if maxsize:
+        last_progress = time.monotonic()
+        last_qsize = outbound.qsize()
         while maxsize - outbound.qsize() < n:
             if egress is not None and egress.done():
                 return  # egress is dead — nowhere to drain; give up
+            cur_qsize = outbound.qsize()
+            if cur_qsize < last_qsize:
+                # A slot freed → the egress IS draining; reset the no-progress
+                # timer so a slow-but-alive client is waited on indefinitely.
+                last_progress = time.monotonic()
+                last_qsize = cur_qsize
+            elif time.monotonic() - last_progress > no_drain_timeout:
+                # Egress alive but not draining (client stopped reading) → give
+                # up rather than deadlock; drop this structural message.
+                log.warning(
+                    "playback egress stalled %.0fs with a full queue — dropping a "
+                    "structural frame to avoid deadlock", no_drain_timeout,
+                )
+                return
             await asyncio.sleep(0.005)  # let the egress loop drain; never evict
     for it in items:
         outbound.put_nowait(it)
+
+
+async def _drain_and_stop_egress(
+    outbound: "asyncio.Queue",
+    egress: "asyncio.Task",
+    already_done: bool,
+) -> None:
+    """Bounded, UNCONDITIONAL egress shutdown for ``_control_loop`` teardown (R1).
+
+    Enqueues ``_EGRESS_STOP`` so the egress can flush any already-queued final
+    ``eof``/``error`` — but the enqueue is DOUBLE-bounded (``_emit_structural``'s
+    own no-drain cap plus this ``wait_for``) so a client that holds the socket
+    open yet stops reading can never make it block.  The cancel is then
+    UNCONDITIONAL: whatever happened above, the egress is awaited and, if it
+    hasn't stopped, cancelled — so teardown always completes and the NvrBudget
+    slot is released (no minutes-long leak on a stuck send).
+    """
+    # Bounded attempt to flush the sentinel; never let it block the cancel.
+    try:
+        await asyncio.wait_for(
+            _emit_structural(outbound, _EGRESS_STOP, egress=egress),
+            timeout=_EGRESS_STOP_TIMEOUT,
+        )
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+        pass
+    if already_done:
+        return
+    # Bounded wait for a clean stop, then ALWAYS cancel + await so the egress
+    # task can never outlive teardown.
+    try:
+        await asyncio.wait_for(egress, timeout=_EGRESS_JOIN_TIMEOUT)
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+        egress.cancel()
+        await asyncio.gather(egress, return_exceptions=True)
 
 
 async def _dispatch(msg: dict, sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
@@ -450,13 +524,14 @@ async def _dispatch(msg: dict, sess: PlaybackSession, outbound: "asyncio.Queue")
             if sess.state != SessionState.PLAYING:
                 await sess.resume(sess.t0)
         elif "keepalive" in msg:
-            # HIGH-4: keepalive keeps the WS alive but must NOT reset the
-            # paused-idle timer — otherwise a walked-away viewer whose client
-            # keeps sending keepalives would hold its NvrBudget slot until
-            # max_lifetime.  So the paused-idle clock keeps counting and the
-            # reaper can close + release a session paused longer than the idle
-            # timeout.
-            sess._last_keepalive = time.monotonic()
+            # HIGH-4: keepalive is a recognised server-side NO-OP.  It keeps the
+            # WS/TCP path warm but must NOT reset the paused-idle timer —
+            # otherwise a walked-away viewer whose client keeps sending
+            # keepalives would hold its NvrBudget slot until max_lifetime.  So
+            # the paused-idle clock keeps counting and the reaper can close +
+            # release a session paused longer than the idle timeout.  (The old
+            # ``_last_keepalive`` write was dead — read nowhere — so it's gone.)
+            pass
         elif "stream" in msg:
             # Contract #5: NVR records main-only; silently ignore stream switches.
             log.debug("stream switch requested (%r) — ignored (main-only NVR)", msg["stream"])
@@ -630,15 +705,9 @@ async def _control_loop(ws: WebSocket, sess: PlaybackSession, clock_interval: fl
         t.cancel()
     await asyncio.gather(*(pending & producers), return_exceptions=True)
     # Let the egress drain whatever is already queued (e.g. a final eof/error),
-    # then stop on the sentinel.  Pass egress so _emit_structural can abort if
-    # egress already died (IMPORTANT 4b) — preventing an infinite spin.
-    await _emit_structural(outbound, _EGRESS_STOP, egress=egress)
-    if egress not in done:
-        try:
-            await asyncio.wait_for(egress, timeout=2.0)
-        except (asyncio.TimeoutError, Exception):  # noqa: BLE001
-            egress.cancel()
-            await asyncio.gather(egress, return_exceptions=True)
+    # then stop — bounded enqueue + UNCONDITIONAL cancel (R1) so a client that
+    # stops reading with a full queue can never wedge teardown or leak the slot.
+    await _drain_and_stop_egress(outbound, egress, already_done=egress in done)
     # Surface the first PRODUCER's exception (e.g. WebSocketDisconnect from recv,
     # eof-signal from frag).  Egress exceptions are NOT re-raised — an egress crash
     # silently tears the loop; the endpoint finally block owns all cleanup.
@@ -769,13 +838,13 @@ async def playback_stream(
             channel=channel,
             tz_offset_minutes=settings.playback_tz_offset_minutes,
             transport=validated_transport,
-            # Play from the seek target forward, but the RTSP endtime must NEVER
-            # be in the future: Dahua /cam/playback with a future endtime starves
-            # the stream — only the fMP4 init segment is produced, no media
-            # fragments (verified on 192.168.20.15, 2026-07-01). Cap the window
-            # at the live edge (now); the client re-seeks to move around. A seek
-            # far in the past still gets a bounded 24h forward window.
-            clip_end_epoch=min(start_epoch + 86400, int(time.time())),
+            # clip_end_epoch is the RTSP endtime — a bounded 24h forward window
+            # capped at the live edge (now), because Dahua /cam/playback with a
+            # future endtime starves the stream (only the fMP4 init segment, no
+            # media fragments; verified 192.168.20.15, 2026-07-01).  The value is
+            # (re)computed by _spawn on EVERY (re)spawn (single source of truth);
+            # this constructor value is just a placeholder overwritten by open().
+            clip_end_epoch=0,
             ffbin=settings.reencode_ffmpeg_bin,
             keyframe_seconds=settings.reencode_keyframe_seconds,
             maxrate_kbps=settings.reencode_maxrate_kbps,
