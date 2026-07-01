@@ -260,3 +260,45 @@ def test_transport_invalid_value_falls_back_to_udp(client, monkeypatch):
         f"/api/v1/playback/{NVR_ID}/1/stream?t={T_PARAM}&token=adm&transport=bogus",
     )
     assert _CapturingSession.captured[0]["transport"] == "udp"
+
+
+# ── L3: rate-limit is recorded only AFTER the budget is acquired ──────────────
+
+
+def test_budget_rejected_does_not_burn_rate_limit(client, monkeypatch):
+    """L3: a connect rejected at the budget gate (4429) must NOT record a
+    rate-limit attempt — otherwise budget churn would exhaust the user's
+    window and lock them out even once slots free up."""
+    monkeypatch.setattr(
+        playback_module, "decode_token", lambda _t: {"sub": str(ADMIN_ID)}
+    )
+
+    class _FullBudget:
+        def session(self, _nvr_id):
+            @asynccontextmanager
+            async def _cm():
+                raise BudgetExhausted("full")
+                yield  # pragma: no cover
+
+            return _cm()
+
+    monkeypatch.setattr(playback_module, "get_budget", lambda: _FullBudget())
+    code = _expect_close(
+        client, f"/api/v1/playback/{NVR_ID}/1/stream?t={T_PARAM}&token=adm"
+    )
+    assert code == 4429
+    # No attempt recorded for this user — the window stays empty.
+    assert not playback_module._rate_limits.get(str(ADMIN_ID))
+
+
+def test_successful_budget_records_rate_limit(client, monkeypatch):
+    """A connect that passes the budget gate records exactly one attempt (L3)."""
+    monkeypatch.setattr(
+        playback_module, "decode_token", lambda _t: {"sub": str(ADMIN_ID)}
+    )
+    monkeypatch.setattr(playback_module, "get_budget", lambda: _OpenBudget())
+    monkeypatch.setattr(playback_module, "PlaybackSession", _CapturingSession)
+    _connect_and_drain(
+        client, f"/api/v1/playback/{NVR_ID}/1/stream?t={T_PARAM}&token=adm"
+    )
+    assert len(playback_module._rate_limits.get(str(ADMIN_ID), [])) == 1

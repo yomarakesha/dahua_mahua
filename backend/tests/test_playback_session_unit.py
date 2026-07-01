@@ -25,9 +25,9 @@ from app.services.playback.session import (
     SessionState,
     _build_ffmpeg_argv,
     _drain_stderr,
-    _redact_url,
     footage_epoch_at,
 )
+from app.services.playback.url_builder import redact_url
 
 
 # ── footage_epoch_at (pure) ────────────────────────────────────────────────
@@ -385,13 +385,130 @@ def test_footage_now_uses_t0_and_speed():
         assert sess.footage_now() == 1010
 
 
+def test_footage_now_frozen_while_paused():
+    """HIGH-1: while PAUSED, footage_now() is frozen at t0 even as the wall clock
+    advances (without the freeze it would keep marching forward)."""
+    sess = _session()
+    sess.t0 = 1000
+    sess._wall_start = 100.0
+    sess.speed = 2
+    sess.state = SessionState.PAUSED
+    with patch("app.services.playback.session.time.monotonic", return_value=100_000.0):
+        assert sess.footage_now() == 1000  # frozen at t0, not 1000+huge*speed
+
+
+async def test_pause_freezes_and_play_resumes_at_frozen_epoch(monkeypatch):
+    """HIGH-1: pause captures the live footage epoch, then it stays frozen while
+    the wall clock advances — so resume() would start at the pause position, not
+    overshoot by the pause duration."""
+    sess = _session()
+    fake = _FakeProc()
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(
+        "app.services.playback.session.time.monotonic", lambda: clock["t"]
+    )
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(return_value=fake),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)  # t0=1.7e9, _wall_start=1000
+        # Advance the wall clock 50 s while PLAYING, then pause: the frozen
+        # position is the live footage epoch at that instant (50 s at 1×).
+        clock["t"] = 1050.0
+        await sess.pause()
+        frozen = sess.t0
+        assert frozen == 1_700_000_050
+        assert sess.state == SessionState.PAUSED
+        # Wall clock keeps advancing during the pause…
+        clock["t"] = 9999.0
+        # …but the position stays frozen (would be 1.7e9+~9000 without the fix).
+        assert sess.footage_now() == frozen
+        await sess.close()
+
+
+async def test_forward_seek_recomputes_valid_window(monkeypatch):
+    """HIGH-3: a forward seek PAST the window opened at connect time recomputes
+    clip_end_epoch so the RTSP window is always start<end (never start>end,
+    which starves the Dahua stream)."""
+    sess = _session()  # clip_end_epoch defaults to 2_000_000_000 at construction
+    procs = [_FakeProc(), _FakeProc()]
+    fixed_now = 1_700_100_000
+    monkeypatch.setattr(
+        "app.services.playback.session.time.time", lambda: fixed_now
+    )
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(side_effect=procs),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)
+        # After open the window end is capped at now (min(start+86400, now)).
+        assert sess.clip_end_epoch == 1_700_086_400
+        # Seek FORWARD to an epoch LATER than that just-opened window end — the
+        # exact bug that used to build starttime>endtime.
+        await sess.seek(1_700_090_000)
+        assert sess.t0 == 1_700_090_000
+        # Recomputed: min(1_700_090_000+86400, now) = now.
+        assert sess.clip_end_epoch == fixed_now
+        assert sess.t0 < sess.clip_end_epoch  # valid, non-inverted window
+        await sess.close()
+
+
+async def test_reaper_closes_paused_session_past_idle(monkeypatch):
+    """HIGH-4: a session paused longer than idle_timeout is reaped (closed +
+    deregistered) so its budget slot frees — keepalive no longer refreshes
+    _paused_at, so the idle clock keeps counting."""
+    import app.services.playback.session as sm
+
+    sm._active_sessions.clear()
+    sess = _session()
+    fake = _FakeProc()
+    with patch(
+        "app.services.playback.session.asyncio.create_subprocess_exec",
+        new=AsyncMock(return_value=fake),
+    ), patch(
+        "app.services.playback.session.get_active_lockout",
+        new=AsyncMock(return_value=None),
+    ):
+        await sess.open(1_700_000_000)
+        await sess.pause()
+        assert sess.session_id in sm._active_sessions
+        # Simulate a long pause: paused-at well beyond the idle timeout.
+        sess._paused_at = sm.time.monotonic() - 100
+
+        # Run exactly ONE reaper pass, then cancel on the next sleep.
+        calls = {"n": 0}
+        real_sleep = asyncio.sleep
+
+        async def _fake_sleep(_n):
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise asyncio.CancelledError
+            await real_sleep(0)
+
+        monkeypatch.setattr(
+            "app.services.playback.session.asyncio.sleep", _fake_sleep
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await sm._reaper_loop(idle_timeout=1, max_lifetime=10_000_000)
+
+        assert sess.state == SessionState.CLOSED
+        assert sess.session_id not in sm._active_sessions
+    sm._active_sessions.clear()
+
+
 # ── Contract #12: credential redaction in ffmpeg stderr (Task 7 review fix) ──
 
 
 def test_redact_url_strips_credentials_standalone():
-    """_redact_url on a bare RTSP URL replaces user:pw with ***."""
+    """redact_url on a bare RTSP URL replaces user:pw with ***."""
     raw = "rtsp://admin:pa%40ss%2Aword@10.0.0.1:554/cam/playback"
-    out = _redact_url(raw)
+    out = redact_url(raw)
     assert "admin" not in out
     assert "pa%40ss%2Aword" not in out
     assert "***" in out
@@ -399,9 +516,9 @@ def test_redact_url_strips_credentials_standalone():
 
 
 def test_redact_url_handles_embedded_url_in_stderr_line():
-    """_redact_url also redacts when the URL is embedded mid-line (ffmpeg error text)."""
+    """redact_url also redacts when the URL is embedded mid-line (ffmpeg error text)."""
     raw = "rtsp://admin:secret@1.2.3.4:554/cam/playback?channel=1: 401 Unauthorized"
-    out = _redact_url(raw)
+    out = redact_url(raw)
     assert "admin" not in out
     assert "secret" not in out
     assert "***" in out

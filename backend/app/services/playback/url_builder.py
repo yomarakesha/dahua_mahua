@@ -28,6 +28,7 @@ sent to the client).  Callers must not log the returned URL (Contract #12).
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
@@ -38,6 +39,7 @@ __all__ = [
     "validate_speed",
     "validate_footage_epoch",
     "epoch_to_nvr_local",
+    "redact_url",
     "SPEED_WHITELIST",
 ]
 
@@ -46,9 +48,24 @@ SPEED_WHITELIST: frozenset[int] = frozenset({1, 2, 4, 8})
 # Underscore format — VERIFIED spike finding (vs dash/colon mediaFileFind format).
 _RTSP_TIME_FMT = "%Y_%m_%d_%H_%M_%S"
 
+# Matches the ``user:pw@`` credential authority of an ``rtsp://…`` URL.
+_CRED_RE = re.compile(r"(rtsp://)[^@/]*@")
+
 
 class PlaybackUrlError(ValueError):
     """Raised when a playback URL cannot be built due to bad inputs."""
+
+
+def redact_url(url: str) -> str:
+    """Replace the credentials in an ``rtsp://user:pw@host`` URL with ``***``.
+
+    Credential hygiene (Contract #12): callers must never log the credentialed
+    URL, but if one slips through this guarantees the password never lands in a
+    log record.  Also redacts a credentialed URL embedded mid-line (e.g. an
+    ffmpeg stderr message).  This module owns credential hygiene for playback
+    URLs, so the helper lives here and is imported by ``session`` + ``snapshot``.
+    """
+    return _CRED_RE.sub(r"\1***@", url)
 
 
 def build_playback_url(
@@ -83,7 +100,19 @@ def build_playback_url(
 
     Returns:
         Fully-formed RTSP playback URL string.
+
+    Raises:
+        PlaybackUrlError: if ``start >= end`` — a non-positive window makes the
+            Dahua ``/cam/playback`` CGI starve the stream (only the fMP4 init
+            segment is produced, no media fragments; verified on 192.168.20.15,
+            2026-07-01).  A forward seek past the open window must recompute the
+            end boundary before building the URL (HIGH-3).
     """
+    if start >= end:
+        raise PlaybackUrlError(
+            f"playback window is empty or inverted: start={start.isoformat()} "
+            f">= end={end.isoformat()}"
+        )
     encoded_user = quote(user, safe="")
     encoded_pw   = quote(pw,   safe="")
     s = start.strftime(_RTSP_TIME_FMT)

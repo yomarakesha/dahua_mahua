@@ -10,8 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.services.playback.session import _redact_url
-from app.services.playback.url_builder import build_playback_url, epoch_to_nvr_local
+from app.services.playback.url_builder import (
+    build_playback_url,
+    epoch_to_nvr_local,
+    redact_url,
+)
 
 log = logging.getLogger("dss.playback.snapshot")
 
@@ -125,7 +128,7 @@ async def grab_frame(
         # Redact any credentialed RTSP URL that ffmpeg may print in stderr
         # (Contract #12: passwords must never appear in error messages or logs).
         raw_err = stderr.decode(errors="replace")[:500] if stderr else ""
-        err_text = _redact_url(raw_err)
+        err_text = redact_url(raw_err)
         raise SnapshotError(
             f"Snapshot ffmpeg returned empty output (rc={rc}): {err_text}"
         )

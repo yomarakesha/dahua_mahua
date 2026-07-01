@@ -40,6 +40,7 @@ from app.services.playback.url_builder import (
     SPEED_WHITELIST,
     build_playback_url,
     epoch_to_nvr_local,
+    redact_url,
     validate_speed,
 )
 
@@ -49,6 +50,8 @@ __all__ = [
     "PlaybackSession",
     "SessionState",
     "footage_epoch_at",
+    "iter_active_sessions",
+    "close_all",
     "start_reaper",
     "stop_reaper",
 ]
@@ -74,16 +77,6 @@ class SessionState(str):
     SEEKING = "seeking"
     CLOSED = "closed"
     ERROR = "error"
-
-
-def _redact_url(url: str) -> str:
-    """Replace the credentials in an ``rtsp://user:pw@host`` URL with ``***``.
-
-    Defence-in-depth: callers must never log the credentialed URL, but if one
-    slips through this guarantees the password never lands in a log record
-    (Contract #12).
-    """
-    return re.sub(r"(rtsp://)[^@/]*@", r"\1***@", url)
 
 
 def footage_epoch_at(t0: int, wall_start: float, speed: int, now_wall: float) -> int:
@@ -287,7 +280,7 @@ async def _drain_stderr(
         line = await proc.stderr.readline()
         if not line:
             break
-        text = _redact_url(line.decode(errors="replace").rstrip())
+        text = redact_url(line.decode(errors="replace").rstrip())
         if _AUTH_FAIL_RE.search(text):
             auth_failed = True
         lines.append(text)
@@ -486,7 +479,15 @@ class PlaybackSession:
         )
 
     def footage_now(self) -> int:
-        """Current footage epoch (UTC) based on wall clock + speed."""
+        """Current footage epoch (UTC) based on wall clock + speed.
+
+        While PAUSED the position is FROZEN at ``t0`` (HIGH-1): ffmpeg is dead
+        and the wall clock keeps advancing, so without this guard
+        ``footage_epoch_at`` would keep marching the epoch forward during the
+        pause and a subsequent ``play`` would overshoot by the pause duration.
+        """
+        if self.state == SessionState.PAUSED:
+            return self.t0
         return footage_epoch_at(self.t0, self._wall_start, self.speed, time.monotonic())
 
     def to_status_dict(self) -> dict:
@@ -602,6 +603,13 @@ class PlaybackSession:
 
     async def _spawn(self, start_epoch: int) -> None:
         """Spawn ffmpeg at ``start_epoch`` and start the drain + stderr tasks."""
+        # HIGH-3: the RTSP end boundary must always be AFTER start and never in
+        # the future — a forward seek past the window opened at connect time
+        # would otherwise build starttime>endtime and Dahua starves the stream
+        # (only the fMP4 init segment, no media fragments; verified 192.168.20.15
+        # 2026-07-01).  Recompute on EVERY (re)spawn so the window is always
+        # start<end with the end capped at the live edge.
+        self.clip_end_epoch = min(start_epoch + 86400, int(time.time()))
         rtsp_url = self._build_url(start_epoch)
         argv = _build_ffmpeg_argv(
             ffbin=self.ffbin,
@@ -616,7 +624,7 @@ class PlaybackSession:
         log.info(
             "playback session=%s spawning ffmpeg ch=%d t0=%d speed=%dx url=%s",
             self.session_id, self.channel, start_epoch, self.speed,
-            _redact_url(rtsp_url),
+            redact_url(rtsp_url),
         )
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -751,6 +759,26 @@ class PlaybackSession:
 # ── Idle + max-lifetime reaper ─────────────────────────────────────────────
 
 _active_sessions: dict[str, "PlaybackSession"] = {}
+
+
+def iter_active_sessions() -> list["PlaybackSession"]:
+    """Return a snapshot list of the currently active playback sessions.
+
+    Public accessor so callers (the ``/sessions`` endpoint, lifespan shutdown)
+    never reach into the private ``_active_sessions`` dict.  A list copy is
+    returned so callers can iterate while sessions close/deregister themselves.
+    """
+    return list(_active_sessions.values())
+
+
+async def close_all() -> None:
+    """Close every active playback session — no orphan ffmpeg (Contract #11).
+
+    Used by the FastAPI lifespan shutdown.  Iterates a snapshot because
+    ``close()`` deregisters the session from ``_active_sessions`` mid-loop.
+    """
+    for sess in iter_active_sessions():
+        await sess.close()
 
 
 async def _reaper_loop(idle_timeout: int, max_lifetime: int) -> None:

@@ -25,6 +25,7 @@ import time
 import uuid as _uuid
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from json import JSONDecodeError
 
 import jwt
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
@@ -43,7 +44,7 @@ from app.services.playback.snapshot import SnapshotError, grab_frame
 from app.services.playback.session import (
     PlaybackSession,
     SessionState,
-    _active_sessions,
+    iter_active_sessions,
 )
 from app.services.playback.url_builder import (
     PlaybackUrlError,
@@ -276,7 +277,7 @@ async def active_playback_sessions(user: AdminUser) -> dict:  # noqa: ARG001
 
     A 403 is raised (by the ``AdminUser`` dep) if the caller is not an admin.
     """
-    sessions = [s.to_status_dict() for s in _active_sessions.values()]
+    sessions = [s.to_status_dict() for s in iter_active_sessions()]
     return {
         "total": len(sessions),
         "sessions": sessions,
@@ -319,21 +320,29 @@ _RATE_WINDOW = 60.0
 _rate_limits: dict[str, deque] = {}
 
 
-def _check_rate_limit(user_id: str) -> bool:
-    """Sliding 60 s window of session-open attempts per user.
+def _rate_limit_exceeded(user_id: str) -> bool:
+    """Peek the sliding 60 s window WITHOUT recording an attempt.
 
-    Returns ``True`` if the attempt is within budget (and records it), ``False``
-    if the user has exceeded ``settings.playback_rate_limit_per_minute``.
+    Returns ``True`` if the user is already at/over
+    ``settings.playback_rate_limit_per_minute``.  Recording is deferred to
+    ``_record_rate_limit`` so a connect rejected later (e.g. by the budget) does
+    not burn the user's window (L3).
     """
     limit = get_settings().playback_rate_limit_per_minute
     now = time.monotonic()
     dq = _rate_limits.setdefault(user_id, deque())
     while dq and now - dq[0] > _RATE_WINDOW:
         dq.popleft()
-    if len(dq) >= limit:
-        return False
-    dq.append(now)
-    return True
+    return len(dq) >= limit
+
+
+def _record_rate_limit(user_id: str) -> None:
+    """Record one session-open attempt in the user's sliding window.
+
+    Called only AFTER the budget slot is acquired (L3), so budget-rejected
+    (4429) connects never count against the rate-limit window.
+    """
+    _rate_limits.setdefault(user_id, deque()).append(time.monotonic())
 
 
 def _classify_session_end(returncode: int | None) -> str:
@@ -386,21 +395,20 @@ async def _emit_structural(
 
     ``egress`` — when supplied — is checked on every spin: if it is already done
     (crashed or shut down), the function returns early rather than looping forever
-    against a dead drainer.  A hard cap of 400 spins (~2 s) is the final safety
-    valve (IMPORTANT 4).
+    against a dead drainer.  There is deliberately NO fixed-time cap (MED-7): a
+    structural message (init/reinit/init-segment/eof/error) must NEVER be dropped,
+    so a slow-but-alive client is waited on for as long as the egress task keeps
+    draining.  The only exits are "room became available" or "egress is dead".
+    When no ``egress`` is supplied the caller runs inside a producer task that the
+    control loop cancels on teardown, so the wait is still bounded by cancellation.
     """
     n = len(items)
     maxsize = outbound.maxsize
     if maxsize:
-        _max_spins = 400  # 400 × 0.005 s ≈ 2 s; prevents infinite spin on dead egress
-        _spins = 0
         while maxsize - outbound.qsize() < n:
             if egress is not None and egress.done():
                 return  # egress is dead — nowhere to drain; give up
-            if _spins >= _max_spins:
-                return  # safety valve: give up rather than loop forever
             await asyncio.sleep(0.005)  # let the egress loop drain; never evict
-            _spins += 1
     for it in items:
         outbound.put_nowait(it)
 
@@ -434,21 +442,30 @@ async def _dispatch(msg: dict, sess: PlaybackSession, outbound: "asyncio.Queue")
         elif "pause" in msg:
             await sess.pause()
         elif "play" in msg:
-            await sess.resume(sess.footage_now())
+            # HIGH-1: resume at the FROZEN footage epoch (sess.t0), NOT
+            # footage_now() — while paused footage_now is frozen at t0, but
+            # resuming from t0 is the explicit contract and guards against any
+            # caller that unfreezes.  No-op when already PLAYING so a stray
+            # {play} can't respawn a live stream.
+            if sess.state != SessionState.PLAYING:
+                await sess.resume(sess.t0)
         elif "keepalive" in msg:
-            now = time.monotonic()
-            sess._last_keepalive = now
-            # Keep a PAUSED session off the idle reaper's chopping block.
-            if sess.state == SessionState.PAUSED:
-                sess._paused_at = now
+            # HIGH-4: keepalive keeps the WS alive but must NOT reset the
+            # paused-idle timer — otherwise a walked-away viewer whose client
+            # keeps sending keepalives would hold its NvrBudget slot until
+            # max_lifetime.  So the paused-idle clock keeps counting and the
+            # reaper can close + release a session paused longer than the idle
+            # timeout.
+            sess._last_keepalive = time.monotonic()
         elif "stream" in msg:
             # Contract #5: NVR records main-only; silently ignore stream switches.
             log.debug("stream switch requested (%r) — ignored (main-only NVR)", msg["stream"])
         else:
             log.warning("Unknown playback control message: %r", msg)
-    except PlaybackUrlError as exc:
-        # str(exc) is a fixed validator message — no credentials (Contract #12).
-        await _emit_structural(outbound, {"type": "error", "reason": str(exc)})
+    except PlaybackUrlError:
+        # Sanitise to a generic reason (MED-7b): the exception string could
+        # otherwise leak validator/internal detail to the client (Contract #12).
+        await _emit_structural(outbound, {"type": "error", "reason": "invalid control message"})
 
 
 async def _egress_loop(ws: WebSocket, outbound: "asyncio.Queue") -> None:
@@ -573,7 +590,14 @@ async def _fragment_producer(sess: PlaybackSession, outbound: "asyncio.Queue") -
 async def _receive_loop(ws: WebSocket, sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
     """Read client control JSON and dispatch it (bad input → sanitised error)."""
     while True:
-        msg = await ws.receive_json()  # raises WebSocketDisconnect on close
+        try:
+            msg = await ws.receive_json()  # raises WebSocketDisconnect on close
+        except JSONDecodeError:
+            # L2: a malformed text frame must NOT tear the session down — log and
+            # ignore that frame, keep reading.  (WebSocketDisconnect still
+            # propagates to end the loop normally on a real client close.)
+            log.warning("Ignoring malformed playback control frame (invalid JSON)")
+            continue
         if not isinstance(msg, dict):
             log.warning("Ignoring non-object playback control message")
             continue
@@ -703,8 +727,8 @@ async def playback_stream(
         await websocket.close(code=4429)
         return
 
-    # ── 5. Per-user rate limit ────────────────────────────────────────────────
-    if not _check_rate_limit(str(user.id)):
+    # ── 5. Per-user rate limit (PEEK only — do not record yet, L3) ─────────────
+    if _rate_limit_exceeded(str(user.id)):
         log.warning("playback rate-limit hit user=%s nvr=%s", user.id, nvr_id)
         await websocket.close(code=4429)
         return
@@ -716,6 +740,10 @@ async def playback_stream(
     except BudgetExhausted:
         await websocket.close(code=4429)
         return
+
+    # L3: record the rate-limit attempt ONLY now that a budget slot is actually
+    # held — a budget-rejected (4429) connect above must not burn the window.
+    _record_rate_limit(str(user.id))
 
     # ── 7. Accept + run the session ───────────────────────────────────────────
     settings = get_settings()

@@ -19,7 +19,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-__all__ = ["BudgetExhausted", "NvrBudget", "budget", "init_budget", "get_budget"]
+# The module-level ``budget`` singleton is intentionally NOT exported: it is
+# mutable/late-bound (None until init_budget()); callers must go through
+# ``get_budget()`` which raises if used before initialisation.
+__all__ = ["BudgetExhausted", "NvrBudget", "init_budget", "get_budget"]
 
 
 class BudgetExhausted(Exception):

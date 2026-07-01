@@ -166,8 +166,7 @@ async def lifespan(app: FastAPI):
     finally:
         await _pb_session.stop_reaper()
         # No orphan ffmpeg: close every active playback session (Contract #11).
-        for sess in list(_pb_session._active_sessions.values()):
-            await sess.close()
+        await _pb_session.close_all()
         await source_watch.stop()
         await shutdown_client()
         # go2rtc client owns an httpx pool created lazily during reconcile; close it.

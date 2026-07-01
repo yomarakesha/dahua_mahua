@@ -19,6 +19,7 @@ from app.services.playback.url_builder import (
     PlaybackUrlError,
     build_playback_url,
     epoch_to_nvr_local,
+    redact_url,
     validate_channel,
     validate_footage_epoch,
     validate_speed,
@@ -32,6 +33,31 @@ _END   = datetime(2026, 6, 30, 17, 0, 0)
 
 def _url(channel: int = 1, user: str = "admin", pw: str = "secret") -> str:
     return build_playback_url("192.168.20.15", 554, user, pw, channel, _START, _END)
+
+
+# ── build_playback_url window guard (HIGH-3) ──────────────────────────────────
+
+
+def test_build_playback_url_rejects_inverted_window():
+    """HIGH-3: start>end (a forward seek past the window) must raise, not build a
+    starttime>endtime URL that starves the Dahua stream."""
+    with pytest.raises(PlaybackUrlError):
+        build_playback_url("1.2.3.4", 554, "u", "p", 1, _END, _START)
+
+
+def test_build_playback_url_rejects_empty_window():
+    """start == end is also an empty window and must raise."""
+    with pytest.raises(PlaybackUrlError):
+        build_playback_url("1.2.3.4", 554, "u", "p", 1, _START, _START)
+
+
+# ── redact_url (moved here from session — credential-hygiene module) ──────────
+
+
+def test_redact_url_strips_credentials():
+    out = redact_url("rtsp://admin:s3cr3t@10.0.0.1:554/cam/playback")
+    assert "admin" not in out and "s3cr3t" not in out
+    assert "***" in out and "10.0.0.1" in out
 
 
 # ── build_playback_url ────────────────────────────────────────────────────────

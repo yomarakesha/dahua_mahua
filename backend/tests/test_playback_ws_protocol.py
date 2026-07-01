@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import time
+from json import JSONDecodeError
 
 import pytest
+from starlette.websockets import WebSocketDisconnect
 
 from app.routers.playback import (
     _INIT_CODEC,
@@ -24,6 +26,7 @@ from app.routers.playback import (
     _emit_structural,
     _enqueue_clock,
     _fragment_producer,
+    _receive_loop,
 )
 from app.services.playback.session import SessionState
 
@@ -131,10 +134,26 @@ async def test_dispatch_pause_calls_pause_no_reinit():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_play_resumes_at_footage_now_no_reinit():
+async def test_dispatch_play_when_playing_is_noop():
+    """HIGH-1: {play} on an already-PLAYING session is a no-op (no respawn)."""
     sess, out = FakeSession(), asyncio.Queue()
+    sess.state = SessionState.PLAYING
     await _dispatch({"play": True}, sess, out)
-    assert ("resume", sess._footage) in sess.calls
+    assert sess.calls == []
+    assert _drain(out) == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_play_resumes_at_frozen_t0():
+    """HIGH-1: {play} on a PAUSED session resumes at the FROZEN t0 (not
+    footage_now), so a pause→play round-trip can't overshoot by the pause
+    duration."""
+    sess, out = FakeSession(), asyncio.Queue()
+    sess.state = SessionState.PAUSED
+    sess.t0 = 1234
+    sess._footage = 9999  # footage_now would overshoot; must NOT be used
+    await _dispatch({"play": True}, sess, out)
+    assert ("resume", 1234) in sess.calls
     assert _drain(out) == []
 
 
@@ -146,6 +165,31 @@ async def test_dispatch_keepalive_updates_timestamp_only():
     assert sess._last_keepalive >= before
     assert sess.calls == []
     assert _drain(out) == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_keepalive_does_not_refresh_paused_at():
+    """HIGH-4: keepalive must NOT reset the paused-idle timer — otherwise a
+    walked-away paused viewer whose client keeps sending keepalives would hold
+    its NvrBudget slot until max_lifetime and starve others (4429)."""
+    sess, out = FakeSession(), asyncio.Queue()
+    sess.state = SessionState.PAUSED
+    sess._paused_at = 111.0
+    await _dispatch({"keepalive": True}, sess, out)
+    assert sess._paused_at == 111.0  # idle clock keeps counting; not refreshed
+    assert sess.calls == []
+    assert _drain(out) == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_error_reason_is_generic_not_leaky():
+    """MED-7b: a validation failure yields a GENERIC error reason so no internal
+    exception text can leak to the client (Contract #12)."""
+    sess, out = FakeSession(), asyncio.Queue()
+    await _dispatch({"speed": 3}, sess, out)  # invalid speed → error
+    items = _drain(out)
+    assert items[0]["type"] == "error"
+    assert items[0]["reason"] == "invalid control message"
 
 
 @pytest.mark.asyncio
@@ -455,3 +499,34 @@ async def test_emit_structural_returns_quickly_when_egress_is_dead():
     )
     # Queue remains full — we gave up without enqueuing (nowhere to drain).
     assert out.qsize() == 2
+
+
+# ── L2: malformed client frame must not tear the session down ────────────────
+
+
+class _MalformedThenClosedWS:
+    """receive_json raises JSONDecodeError on the 1st call (bad text frame),
+    then WebSocketDisconnect on the 2nd (a normal client close)."""
+
+    def __init__(self) -> None:
+        self._frames = 0
+
+    async def receive_json(self):
+        self._frames += 1
+        if self._frames == 1:
+            raise JSONDecodeError("Expecting value", "", 0)
+        raise WebSocketDisconnect(1000)
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_ignores_malformed_json_frame(caplog):
+    """L2: a malformed text frame is logged + ignored; the receive loop keeps
+    running (reaches the 2nd frame) instead of tearing the session down."""
+    ws = _MalformedThenClosedWS()
+    sess, out = FakeSession(), asyncio.Queue()
+    with pytest.raises(WebSocketDisconnect):
+        await _receive_loop(ws, sess, out)
+    # We reached the 2nd receive (the disconnect), proving the malformed 1st
+    # frame did NOT end the loop; and it dispatched nothing.
+    assert ws._frames == 2
+    assert sess.calls == []
