@@ -49,9 +49,13 @@ spike findings + the user's RBAC decision of 2026-06-30).
    HTTP CGI (`mediaFileFind`, Phase-1) is port **80**. Never mix them.
 
 10. **ffmpeg I/O.** Sessions output **fMP4** (`-f mp4 -movflags
-    frag_keyframe+empty_moov+default_base_moof pipe:1`); audio transcoded to
-    **AAC**. One-shot snapshots pull **TCP** (reliability over speed). argv is
-    always a **list** (no shell).
+    frag_keyframe+empty_moov+default_base_moof pipe:1`); **audio is dropped
+    (`-an`)** — the MSE init MIME is video-only (`avc1...`), so an AAC track
+    makes Chrome reject the whole append (`CHUNK_DEMUXER_ERROR`, verified
+    2026-07-01 on the AAC-audio testik cameras → black). Playback is muted
+    anyway. Follow-up for playback audio: emit `mp4a.40.2` in `init.codec` +
+    an unmute control. One-shot snapshots pull **TCP** (reliability over
+    speed). argv is always a **list** (no shell).
 
     The RTSP **transport is now selectable per playback session** via the WS
     `?transport=udp|tcp` query param (validated server-side; anything other

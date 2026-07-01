@@ -154,8 +154,14 @@ def _build_ffmpeg_argv(
         # seconds of footage time.
         argv += ["-vf", f"select=not(mod(n\\,{speed})),setpts=N/(FRAME_RATE*TB)"]
         argv += ["-fps_mode", "vfr"]
-    # Audio: transcode to AAC (handles G.711, G.726 — V7 unmeasured on new NVR).
-    argv += ["-c:a", "aac"]
+    # Drop audio (-an): the init MIME we hand MSE is video-only
+    # (video/mp4; codecs="avc1..."), so an AAC track in the fMP4 makes Chrome
+    # reject the whole append — CHUNK_DEMUXER_ERROR "audio object type 0x40 does
+    # not match the mimetype" — and NOTHING decodes (black). Playback is muted
+    # anyway (autoplay), so audio adds nothing here. Verified black→render on
+    # testik (AAC cameras) 2026-07-01. Follow-up for playback audio: also emit
+    # the audio codec (mp4a.40.2) in init.codec + an unmute control.
+    argv += ["-an"]
     # fMP4 fragmented output on stdout.
     argv += [
         "-f", "mp4",

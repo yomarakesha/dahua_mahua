@@ -135,10 +135,12 @@ def test_argv_transport_tcp_overrides_default():
     assert argv[argv.index("-rtsp_transport") + 1] == "tcp"
 
 
-def test_argv_has_aac_audio():
+def test_argv_drops_audio():
+    # Audio is dropped (-an): the MSE init MIME is video-only, so an AAC track
+    # makes Chrome reject the append (CHUNK_DEMUXER_ERROR). Playback is muted.
     argv = _argv()
-    assert "-c:a" in argv
-    assert argv[argv.index("-c:a") + 1] == "aac"
+    assert "-an" in argv
+    assert "-c:a" not in argv
 
 
 def test_argv_ffbin_first():
