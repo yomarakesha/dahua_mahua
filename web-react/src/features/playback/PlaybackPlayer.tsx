@@ -128,11 +128,31 @@ export default function PlaybackPlayer({
 
   const onAppendSuccess = useCallback(() => {
     quotaRetryRef.current = false;
+    const video = videoRef.current;
+    const sb = sbRef.current;
+    // Keep the playhead inside the buffered range. A fragmented MP4 whose first
+    // fragment has a non-zero baseMediaDecodeTime leaves currentTime=0 OUTSIDE
+    // [start,end], so the decoder renders nothing (black) even while "playing".
+    if (video && sb && sb.buffered.length > 0) {
+      const start = sb.buffered.start(0);
+      const end = sb.buffered.end(sb.buffered.length - 1);
+      if (video.currentTime < start || video.currentTime > end) {
+        try {
+          video.currentTime = start;
+        } catch {
+          /* not seekable yet — a later append will retry */
+        }
+      }
+    }
     if (firstAppendRef.current) {
       firstAppendRef.current = false;
       dispatch({ type: "playing" });
+      // Start playback now that media is present. The element is muted, so the
+      // browser allows autoplay (unmuted autoplay from this async WS handler is
+      // blocked → black video with a false "playing" state).
+      void video?.play().catch(() => {});
     }
-  }, []);
+  }, [videoRef]);
 
   /** Trim buffered ranges older than currentTime - 30 s (async; updateend retries). */
   const trimBuffer = useCallback(() => {
@@ -350,9 +370,13 @@ export default function PlaybackPlayer({
     }
   }, [speed, setAnchor]);
 
-  // ── Audio muting: muted whenever speed > 1 (Contract #13/§4) ─────────────────────
+  // ── Muted by default so autoplay is always permitted ────────────────────────────
+  // Browsers block UNMUTED autoplay from a non-gesture context (our WS init
+  // handler) — it showed as a black frame with a false "playing" state. Most
+  // recorded footage here has no audio anyway; keep muted (Contract #13/§4 also
+  // requires muted at speed>1). Follow-up: an explicit unmute control.
   useEffect(() => {
-    if (videoRef.current) videoRef.current.muted = speed > 1;
+    if (videoRef.current) videoRef.current.muted = true;
   }, [speed, videoRef]);
 
   // ── Playhead RAF loop while playing ───────────────────────────────────────────────
@@ -404,6 +428,7 @@ export default function PlaybackPlayer({
         ref={videoRef}
         className="h-full w-full object-contain"
         playsInline
+        muted
         // controls intentionally omitted — controls are WS messages, not native UI
         data-player-state={state}
       />
