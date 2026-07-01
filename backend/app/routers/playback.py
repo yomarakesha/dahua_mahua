@@ -734,9 +734,13 @@ async def playback_stream(
             rtsp_pw=password,
             channel=channel,
             tz_offset_minutes=settings.playback_tz_offset_minutes,
-            # Open-ended window from the seek target; the client re-seeks to
-            # move around.  Bounding the RTSP endtime is an integration concern.
-            clip_end_epoch=start_epoch + 86400,
+            # Play from the seek target forward, but the RTSP endtime must NEVER
+            # be in the future: Dahua /cam/playback with a future endtime starves
+            # the stream — only the fMP4 init segment is produced, no media
+            # fragments (verified on 192.168.20.15, 2026-07-01). Cap the window
+            # at the live edge (now); the client re-seeks to move around. A seek
+            # far in the past still gets a bounded 24h forward window.
+            clip_end_epoch=min(start_epoch + 86400, int(time.time())),
             ffbin=settings.reencode_ffmpeg_bin,
             keyframe_seconds=settings.reencode_keyframe_seconds,
             maxrate_kbps=settings.reencode_maxrate_kbps,
