@@ -79,8 +79,10 @@ export default function PlaybackPlayer({
   const sbRef = useRef<SourceBuffer | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const codecRef = useRef<string>("");
-  /** appendBuffer queue: AT MOST ONE pending buffer (video-rtc.js pattern). */
-  const pendingRef = useRef<ArrayBuffer | null>(null);
+  /** FIFO of fMP4 chunks awaiting appendBuffer. A queue (not one-pending) because
+   *  data can arrive BEFORE `sourceopen` — dropping it loses the init segment and
+   *  nothing decodes. For VOD we never drop mid-stream either (server back-pressures). */
+  const queueRef = useRef<ArrayBuffer[]>([]);
   /** Whether a QuotaExceeded trim+retry is already in flight (Contract C2: single retry). */
   const quotaRetryRef = useRef(false);
   /** True until the first chunk is appended after an init/reinit (loading→playing). */
@@ -109,22 +111,9 @@ export default function PlaybackPlayer({
     }
   }, [state, onStateChange, onReady]);
 
-  // ── MSE append queue (drain on updateend) ───────────────────────────────────────
-  const onUpdateEnd = useCallback(() => {
-    const sb = sbRef.current;
-    const ms = msRef.current;
-    if (!sb || !ms || ms.readyState !== "open" || sb.updating) return;
-    const data = pendingRef.current;
-    if (data == null) return;
-    pendingRef.current = null;
-    try {
-      sb.appendBuffer(data);
-      onAppendSuccess();
-    } catch (e) {
-      handleAppendError(e, data);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ── MSE append: a FIFO queue, drained once the SourceBuffer is ready ─────────────
+  /** Safety cap so a wedged SourceBuffer can't OOM the tab (server bounds this). */
+  const MAX_QUEUE = 600;
 
   const onAppendSuccess = useCallback(() => {
     quotaRetryRef.current = false;
@@ -164,7 +153,7 @@ export default function PlaybackPlayer({
         const start = sb.buffered.start(0);
         const cutoff = video.currentTime - TRIM_KEEP_SECONDS;
         if (cutoff > start) {
-          sb.remove(start, cutoff); // async → updateend drains pendingRef (the retry)
+          sb.remove(start, cutoff); // async → updateend drains the queue (the retry)
           return true;
         }
       }
@@ -189,34 +178,44 @@ export default function PlaybackPlayer({
         return;
       }
       quotaRetryRef.current = true;
-      pendingRef.current = data; // retried by onUpdateEnd after the remove completes
+      queueRef.current.unshift(data); // put it back at the front; retried after the trim
       if (!trimBuffer()) {
         // Nothing to trim → the single retry can't help.
         quotaRetryRef.current = false;
-        pendingRef.current = null;
+        queueRef.current.shift();
         dispatch({ type: "quota_failed" });
       }
     },
     [trimBuffer],
   );
 
+  /** Append the next queued chunk if the SourceBuffer is ready and idle. */
+  const drainQueue = useCallback(() => {
+    const sb = sbRef.current;
+    const ms = msRef.current;
+    if (!sb || !ms || ms.readyState !== "open" || sb.updating) return;
+    const data = queueRef.current.shift();
+    if (data === undefined) return;
+    try {
+      sb.appendBuffer(data);
+      onAppendSuccess();
+    } catch (e) {
+      handleAppendError(e, data);
+    }
+  }, [onAppendSuccess, handleAppendError]);
+
+  const onUpdateEnd = useCallback(() => {
+    drainQueue();
+  }, [drainQueue]);
+
   const appendData = useCallback(
     (data: ArrayBuffer) => {
-      const sb = sbRef.current;
-      const ms = msRef.current;
-      if (!sb || !ms || ms.readyState !== "open") return;
-      if (sb.updating || pendingRef.current != null) {
-        pendingRef.current = data; // one-pending-buffer queue (drops any older pending)
-        return;
-      }
-      try {
-        sb.appendBuffer(data);
-        onAppendSuccess();
-      } catch (e) {
-        handleAppendError(e, data);
-      }
+      const q = queueRef.current;
+      q.push(data);
+      if (q.length > MAX_QUEUE) q.shift(); // defensive; never hit in normal operation
+      drainQueue();
     },
-    [handleAppendError, onAppendSuccess],
+    [drainQueue],
   );
 
   // ── MSE (re)build — on each init/reinit ──────────────────────────────────────────
@@ -231,7 +230,7 @@ export default function PlaybackPlayer({
         objectUrlRef.current = null;
       }
       sbRef.current = null;
-      pendingRef.current = null;
+      queueRef.current = [];
       quotaRetryRef.current = false;
       firstAppendRef.current = true;
       codecRef.current = codec;
@@ -251,6 +250,7 @@ export default function PlaybackPlayer({
             sb.mode = "segments";
             sb.addEventListener("updateend", onUpdateEnd);
             sbRef.current = sb;
+            drainQueue(); // flush anything that arrived before sourceopen (init segment!)
           } catch {
             dispatch({ type: "error" }); // wrong MIME / unsupported codec
           }
@@ -258,7 +258,7 @@ export default function PlaybackPlayer({
         { once: true },
       );
     },
-    [onUpdateEnd, videoRef],
+    [onUpdateEnd, drainQueue, videoRef],
   );
 
   // ── Signal handling ──────────────────────────────────────────────────────────────
@@ -402,7 +402,7 @@ export default function PlaybackPlayer({
       }
       msRef.current = null;
       sbRef.current = null;
-      pendingRef.current = null;
+      queueRef.current = [];
     };
   }, []);
 
