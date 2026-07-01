@@ -31,15 +31,20 @@ export function httpToWsBase(httpBase: string): string {
  *
  * `initialSeek` is the footage epoch (UTC seconds) to start playback from.
  * The backend requires `?t=<epoch>` before accept() and closes 4004 if missing.
+ *
+ * `transport` selects the ffmpeg RTSP input transport for this session:
+ * "udp" (default; near-realtime but lossy on this NVR) or "tcp" (clean but
+ * slow). Omitting it is equivalent to "udp" — the backend defaults there too.
  */
 export function buildPlaybackWsUrl(
   nvrId: string,
   channel: number,
   token: string,
   initialSeek: number,
+  transport?: "udp" | "tcp",
 ): string {
   const wsBase = httpToWsBase(CONFIG.backendBase);
-  return `${wsBase}/playback/${nvrId}/${channel}/stream?token=${encodeURIComponent(token)}&t=${initialSeek}`;
+  return `${wsBase}/playback/${nvrId}/${channel}/stream?token=${encodeURIComponent(token)}&t=${initialSeek}&transport=${transport ?? "udp"}`;
 }
 
 // ── Footage-time mapping ───────────────────────────────────────────────────────

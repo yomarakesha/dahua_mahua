@@ -75,7 +75,7 @@ def test_footage_epoch_zero_elapsed_always_t0(speed):
 _URL = "rtsp://u:%2A%2A%2A@1.2.3.4:554/cam/playback?channel=1&starttime=x&endtime=y"
 
 
-def _argv(speed=1, maxrate=8000):
+def _argv(speed=1, maxrate=8000, transport="udp"):
     return _build_ffmpeg_argv(
         ffbin="ffmpeg",
         rtsp_url=_URL,
@@ -83,6 +83,7 @@ def _argv(speed=1, maxrate=8000):
         keyframe_seconds=0.5,
         speed=speed,
         maxrate_kbps=maxrate,
+        transport=transport,
     )
 
 
@@ -125,6 +126,13 @@ def test_argv_has_udp_rtsp_transport():
     argv = _argv()
     assert "-rtsp_transport" in argv
     assert argv[argv.index("-rtsp_transport") + 1] == "udp"
+
+
+def test_argv_transport_tcp_overrides_default():
+    """Transport toggle (Clear = TCP): the ffmpeg input uses -rtsp_transport tcp."""
+    argv = _argv(transport="tcp")
+    assert "-rtsp_transport" in argv
+    assert argv[argv.index("-rtsp_transport") + 1] == "tcp"
 
 
 def test_argv_has_aac_audio():

@@ -37,6 +37,13 @@ export interface PlaybackPlayerProps {
   seekTarget: number | null;
   /** Playback speed (backend-owned). When changed the player sends {speed}. */
   speed: Speed;
+  /**
+   * RTSP transport for this session: "udp" (Smooth, default; near-realtime
+   * but lossy on this NVR) or "tcp" (Clear; clean but slow). Changing it
+   * reopens the WS with the new query param (Contract #10) — same
+   * teardown/reconnect path as the reconnectNonce Retry mechanism.
+   */
+  transport?: "udp" | "tcp";
   /** Optional external ref to the <video> (for Task 15 snapshot). */
   videoRef?: React.RefObject<HTMLVideoElement>;
   /** Notifies parent of state-machine changes (snapshot enable, overlays, …). */
@@ -56,6 +63,7 @@ export default function PlaybackPlayer({
   channel,
   seekTarget,
   speed,
+  transport = "udp",
   videoRef: externalVideoRef,
   onStateChange,
   onPlayhead,
@@ -339,6 +347,7 @@ export default function PlaybackPlayer({
       nvrId,
       channel,
       initialSeek: seekTarget ?? 0,
+      transport,
       reconnectNonce,
       onSignal: handleSignal,
       onData: appendData,
@@ -346,8 +355,10 @@ export default function PlaybackPlayer({
     }),
     // seekTarget included so optsRef.current.initialSeek stays current for reconnects.
     // reconnectNonce included so a Retry reopens the socket (hook's own dep).
+    // transport included so a Smooth/Clear toggle reopens the socket (the hook's own
+    // effect deps include `transport`, mirroring the reconnectNonce teardown path).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nvrId, channel, seekTarget, reconnectNonce, handleSignal, appendData, handleClose],
+    [nvrId, channel, seekTarget, transport, reconnectNonce, handleSignal, appendData, handleClose],
   );
   const session = usePlaybackSession(sessionOpts);
   const sessionRef = useRef(session);
@@ -379,6 +390,20 @@ export default function PlaybackPlayer({
       dispatch({ type: "seek" }); // speed change awaits a backend reinit (→ seeking)
     }
   }, [speed, setAnchor]);
+
+  // ── Transport prop changes → the WS itself is torn down + reopened by
+  // usePlaybackSession's own effect deps (transport is one of them); this effect
+  // only drives the UI feedback, mirroring the speed-change effect above: show the
+  // seeking/loading overlay while the fresh socket handshakes and sends its {init}. ──
+  const transportMountedRef = useRef(false);
+  useEffect(() => {
+    if (!transportMountedRef.current) {
+      transportMountedRef.current = true;
+      return;
+    }
+    setAnchor(null); // refreshed by the upcoming init on the fresh WS
+    dispatch({ type: "seek" }); // transport toggle awaits a fresh WS + init (→ seeking)
+  }, [transport, setAnchor]);
 
   // ── Muted by default so autoplay is always permitted ────────────────────────────
   // Browsers block UNMUTED autoplay from a non-gesture context (our WS init

@@ -21,6 +21,13 @@ export interface PlaybackSessionOptions {
   /** Initial seek target (footage epoch). Sent as {seek:N} once the WS opens. */
   initialSeek: number;
   /**
+   * RTSP transport for this session: "udp" (default; near-realtime but lossy
+   * on this NVR) or "tcp" (clean but slow). A change is included in the
+   * hook's effect deps so it tears down the socket and reopens with the new
+   * query param — same as a reconnect.
+   */
+  transport?: "udp" | "tcp";
+  /**
    * Increment to force a fresh WS session (Retry after ws_close error).
    * Bumping this tears down any existing socket and opens a new one, which
    * sends {seek: initialSeek} on open. Safe to omit (treated as 0).
@@ -58,6 +65,9 @@ export function usePlaybackSession(
   // updates opts every render when seekTarget changes), so the fresh WS seeks to the
   // right position.
   const reconnectNonce = opts?.reconnectNonce ?? 0;
+  // transport is also an effect dep: toggling Smooth/Clear must reopen the WS with
+  // the new ?transport= query param (same teardown-and-reconnect path as a nonce bump).
+  const transport = opts?.transport ?? "udp";
 
   useEffect(() => {
     if (!enabled || nvrId == null || channel == null) {
@@ -70,7 +80,13 @@ export function usePlaybackSession(
       return;
     }
 
-    const url = buildPlaybackWsUrl(nvrId, channel, getToken() ?? "", opts?.initialSeek ?? 0);
+    const url = buildPlaybackWsUrl(
+      nvrId,
+      channel,
+      getToken() ?? "",
+      opts?.initialSeek ?? 0,
+      transport,
+    );
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
 
@@ -129,7 +145,8 @@ export function usePlaybackSession(
     };
   // reconnectNonce is intentionally in deps: a bump tears down the old socket and
   // opens a fresh one (Retry-after-ws_close fix). nvrId/channel changes also reconnect.
-  }, [enabled, nvrId, channel, reconnectNonce]);
+  // transport is also in deps: a Smooth/Clear toggle must reopen the WS (Contract #10).
+  }, [enabled, nvrId, channel, reconnectNonce, transport]);
 
   return session;
 }

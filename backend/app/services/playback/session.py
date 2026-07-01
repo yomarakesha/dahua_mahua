@@ -110,6 +110,7 @@ def _build_ffmpeg_argv(
     keyframe_seconds: float,
     speed: int,
     maxrate_kbps: int,
+    transport: str = "udp",
 ) -> list[str]:
     """Build the ffmpeg argv for playback (list, no shell).
 
@@ -117,6 +118,11 @@ def _build_ffmpeg_argv(
     Speed > 1: an I-frame-stride filter drops non-keyframe frames and remaps
     PTS so the output plays at realtime pace on the client (each output second
     covers ``speed`` seconds of footage).
+
+    ``transport`` — RTSP transport for the ffmpeg input (``"udp"`` or
+    ``"tcp"``). UDP (default) is near-realtime but lossy on this NVR; TCP is
+    clean but slow (Contract #10). Callers must validate the value before
+    calling this (only "udp"/"tcp" are meaningful to ffmpeg).
 
     Note: the exact ``-vf`` filter for speed>1 must be validated during
     integration testing.  The signature and structure are specced here; the
@@ -128,7 +134,7 @@ def _build_ffmpeg_argv(
         # emits an RTSP TEARDOWN and the NVR releases the playback session
         # (see _kill_proc / _GRACEFUL_QUIT_SECONDS).
         "-loglevel", "error",
-        "-rtsp_transport", "udp",
+        "-rtsp_transport", transport,
         "-i", rtsp_url,
     ]
     # Video re-encode.
@@ -325,6 +331,11 @@ class PlaybackSession:
     rtsp_pw: str = ""          # decrypted, never logged
     channel: int = 1
     tz_offset_minutes: int = 0
+
+    # RTSP transport for the ffmpeg input — "udp" (default; near-realtime but
+    # lossy on this NVR) or "tcp" (clean but slow).  Validated by the WS
+    # endpoint before construction (Contract #10).
+    transport: str = "udp"
 
     # Clip end boundary — ffmpeg end time; updated on seek.
     clip_end_epoch: int = 0
@@ -593,6 +604,7 @@ class PlaybackSession:
             keyframe_seconds=self.keyframe_seconds,
             speed=self.speed,
             maxrate_kbps=self.maxrate_kbps,
+            transport=self.transport,
         )
         # Credential hygiene: log only the redacted URL (Contract #12).
         log.info(

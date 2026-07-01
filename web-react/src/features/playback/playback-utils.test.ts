@@ -272,7 +272,7 @@ describe("buildPlaybackWsUrl", () => {
   it("targets the /playback/{nvr}/{channel}/stream WS path", () => {
     const url = buildPlaybackWsUrl("nvr-1", 3, "tok", 1_719_734_400);
     expect(url).toBe(
-      `${httpToWsBase(CONFIG.backendBase)}/playback/nvr-1/3/stream?token=tok&t=1719734400`,
+      `${httpToWsBase(CONFIG.backendBase)}/playback/nvr-1/3/stream?token=tok&t=1719734400&transport=udp`,
     );
   });
 
@@ -296,6 +296,22 @@ describe("buildPlaybackWsUrl", () => {
 
   it("places t= after token= in the query string", () => {
     const url = buildPlaybackWsUrl("nvr-1", 1, "tok", 9_999_999);
-    expect(url).toMatch(/token=.*&t=9999999$/);
+    expect(url).toMatch(/token=.*&t=9999999&transport=udp$/);
+  });
+
+  it("defaults transport to udp when omitted", () => {
+    const url = buildPlaybackWsUrl("nvr-1", 1, "tok", 1_719_734_400);
+    expect(url).toContain("&transport=udp");
+  });
+
+  it("appends transport=tcp when the Clear (TCP) transport is selected", () => {
+    const url = buildPlaybackWsUrl("nvr-1", 1, "tok", 1_719_734_400, "tcp");
+    expect(url).toContain("&transport=tcp");
+    expect(url).not.toContain("transport=udp");
+  });
+
+  it("appends transport=udp when explicitly passed", () => {
+    const url = buildPlaybackWsUrl("nvr-1", 1, "tok", 1_719_734_400, "udp");
+    expect(url).toContain("&transport=udp");
   });
 });

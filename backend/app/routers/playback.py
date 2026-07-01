@@ -634,6 +634,7 @@ async def playback_stream(
     session: SessionDep,
     token: str | None = None,   # JWT from ?token= (browsers can't set WS headers)
     t: int | None = None,       # initial footage epoch (UTC seconds) to play from
+    transport: str | None = None,  # RTSP transport: "udp" (default) or "tcp"
 ) -> None:
     """Persistent playback WebSocket — auth handshake + control protocol.
 
@@ -675,6 +676,11 @@ async def playback_stream(
         # bad target rather than accepting and immediately erroring.
         await websocket.close(code=4004)
         return
+
+    # Transport toggle (Contract #10): "udp" (default, near-realtime but lossy
+    # on this NVR) or "tcp" (clean but slow). Anything else quietly falls back
+    # to "udp" rather than rejecting the connection.
+    validated_transport = transport if transport in ("udp", "tcp") else "udp"
 
     # ── 3. Per-camera RBAC (Contract #1) ──────────────────────────────────────
     nvr = (
@@ -734,6 +740,7 @@ async def playback_stream(
             rtsp_pw=password,
             channel=channel,
             tz_offset_minutes=settings.playback_tz_offset_minutes,
+            transport=validated_transport,
             # Play from the seek target forward, but the RTSP endtime must NEVER
             # be in the future: Dahua /cam/playback with a future endtime starves
             # the stream — only the fMP4 init segment is produced, no media

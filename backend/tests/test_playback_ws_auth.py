@@ -170,3 +170,93 @@ def test_budget_exhausted_closes_4429(client, monkeypatch):
         client, f"/api/v1/playback/{NVR_ID}/1/stream?t={T_PARAM}&token=adm"
     )
     assert code == 4429
+
+
+# ── Transport toggle (?transport=udp|tcp) ─────────────────────────────────────
+#
+# The transport query param must reach the PlaybackSession constructor
+# unchanged when it's "udp"/"tcp", and fall back to "udp" for anything else
+# (missing, empty, garbage).  A fake PlaybackSession captures its constructor
+# kwargs and fails fast in open() so the test never spawns real ffmpeg.
+
+
+class _CapturingSession:
+    """Stand-in for PlaybackSession: records constructor kwargs, fails fast."""
+
+    captured: list[dict] = []
+
+    def __init__(self, **kwargs):
+        _CapturingSession.captured.append(kwargs)
+        self.session_id = "capturing-session"
+
+    async def open(self, start_epoch):  # noqa: ARG002
+        raise RuntimeError("stop before any real ffmpeg spawn")
+
+    async def close(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_captured_sessions():
+    _CapturingSession.captured.clear()
+    yield
+    _CapturingSession.captured.clear()
+
+
+class _OpenBudget:
+    """A budget that always grants (unlike _FullBudget) — for tests that need
+    to get PAST the budget gate and into PlaybackSession construction."""
+
+    def session(self, _nvr_id):
+        @asynccontextmanager
+        async def _cm():
+            yield
+
+        return _cm()
+
+
+def _connect_and_drain(client, url: str) -> None:
+    """Connect, read whatever the server sends (the error json), then let the
+    server-initiated close play out — mirrors the fail-fast-in-open() path."""
+    try:
+        with client.websocket_connect(url) as ws:
+            ws.receive_json()
+    except WebSocketDisconnect:
+        pass
+
+
+def test_transport_tcp_query_param_reaches_session(client, monkeypatch):
+    monkeypatch.setattr(
+        playback_module, "decode_token", lambda _t: {"sub": str(ADMIN_ID)}
+    )
+    monkeypatch.setattr(playback_module, "get_budget", lambda: _OpenBudget())
+    monkeypatch.setattr(playback_module, "PlaybackSession", _CapturingSession)
+    _connect_and_drain(
+        client, f"/api/v1/playback/{NVR_ID}/1/stream?t={T_PARAM}&token=adm&transport=tcp"
+    )
+    assert _CapturingSession.captured[0]["transport"] == "tcp"
+
+
+def test_transport_defaults_to_udp_when_omitted(client, monkeypatch):
+    monkeypatch.setattr(
+        playback_module, "decode_token", lambda _t: {"sub": str(ADMIN_ID)}
+    )
+    monkeypatch.setattr(playback_module, "get_budget", lambda: _OpenBudget())
+    monkeypatch.setattr(playback_module, "PlaybackSession", _CapturingSession)
+    _connect_and_drain(
+        client, f"/api/v1/playback/{NVR_ID}/1/stream?t={T_PARAM}&token=adm"
+    )
+    assert _CapturingSession.captured[0]["transport"] == "udp"
+
+
+def test_transport_invalid_value_falls_back_to_udp(client, monkeypatch):
+    monkeypatch.setattr(
+        playback_module, "decode_token", lambda _t: {"sub": str(ADMIN_ID)}
+    )
+    monkeypatch.setattr(playback_module, "get_budget", lambda: _OpenBudget())
+    monkeypatch.setattr(playback_module, "PlaybackSession", _CapturingSession)
+    _connect_and_drain(
+        client,
+        f"/api/v1/playback/{NVR_ID}/1/stream?t={T_PARAM}&token=adm&transport=bogus",
+    )
+    assert _CapturingSession.captured[0]["transport"] == "udp"

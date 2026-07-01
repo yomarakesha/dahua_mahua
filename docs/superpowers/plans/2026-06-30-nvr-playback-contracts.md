@@ -48,10 +48,23 @@ spike findings + the user's RBAC decision of 2026-06-30).
 9. **Ports.** `nvr.port` (554) is the **RTSP** port for the playback URL. The
    HTTP CGI (`mediaFileFind`, Phase-1) is port **80**. Never mix them.
 
-10. **ffmpeg I/O.** Sessions pull **UDP** (`-rtsp_transport udp`) and output
-    **fMP4** (`-f mp4 -movflags frag_keyframe+empty_moov+default_base_moof
-    pipe:1`); audio transcoded to **AAC**. One-shot snapshots pull **TCP**
-    (reliability over speed). argv is always a **list** (no shell).
+10. **ffmpeg I/O.** Sessions output **fMP4** (`-f mp4 -movflags
+    frag_keyframe+empty_moov+default_base_moof pipe:1`); audio transcoded to
+    **AAC**. One-shot snapshots pull **TCP** (reliability over speed). argv is
+    always a **list** (no shell).
+
+    The RTSP **transport is now selectable per playback session** via the WS
+    `?transport=udp|tcp` query param (validated server-side; anything other
+    than `"udp"`/`"tcp"` falls back to `"udp"`), threaded through
+    `PlaybackSession.transport` → `_build_ffmpeg_argv(transport=...)` →
+    `-rtsp_transport <transport>`. Frontend toggle: **Smooth = UDP** (default)
+    vs **Clear = TCP**; toggling reopens the WS (same teardown/reconnect path
+    as a seek/Retry) so the new transport takes effect on respawn.
+
+    Verified 2026-07-01 on the 4MP NVR: **UDP** ≈ 0.73× realtime, near-live but
+    **lossy** (occasional corruption); **TCP** is clean but ≈ 0.15× realtime
+    (slow — buffers noticeably). TCP being slow is expected/by design for MVP;
+    no realtime-clock changes were made for the TCP path.
 
 11. **No orphan ffmpeg.** `close()` kills the process, `await`s it, and cancels
     the drain + stderr tasks. Windows: assign a **Job Object (kill-on-close)** on

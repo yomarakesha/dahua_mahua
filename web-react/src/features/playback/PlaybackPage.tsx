@@ -13,6 +13,7 @@ import { useSnapshot } from "./useSnapshot";
 import type { FootageAnchor, PlayerState } from "./types";
 
 type Speed = 1 | 2 | 4 | 8;
+type Transport = "udp" | "tcp";
 
 /** Today as "YYYY-MM-DD" (UTC). The NVR tz offset is applied to the min/max
  *  constraints once `indexData.tz_offset_minutes` is available. */
@@ -34,6 +35,9 @@ export default function PlaybackPage() {
   /** Footage epoch (UTC seconds) committed by the Timeline on drag-release. */
   const [seekTarget, setSeekTarget] = useState<number | null>(null);
   const [speed, setSpeed] = useState<Speed>(1);
+  /** Transport toggle: Smooth = udp (default, near-realtime but lossy on this
+   *  NVR), Clear = tcp (clean but slow). Per-playback; changing it reopens the WS. */
+  const [transport, setTransport] = useState<Transport>("udp");
   /**
    * Player state — set via PlaybackPlayer's onStateChange.
    * Defaults to "loading"; Timeline disables drag/seek when "error".
@@ -283,6 +287,42 @@ export default function PlaybackPage() {
           ))}
         </div>
 
+        {/* Transport toggle — Smooth (udp, default) vs Clear (tcp): per-playback
+            RTSP transport (Contract #10). Reopens the WS on change. */}
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1" aria-label="Playback transport">
+            <button
+              aria-label="Smooth transport (UDP)"
+              aria-pressed={transport === "udp"}
+              onClick={() => setTransport("udp")}
+              className={[
+                "h-8 rounded-md px-3 text-sm font-semibold transition",
+                transport === "udp"
+                  ? "bg-accent/[.18] text-accent-light ring-1 ring-accent/30"
+                  : "text-ink-dim hover:bg-white/[.05] hover:text-ink-soft",
+              ].join(" ")}
+            >
+              Smooth
+            </button>
+            <button
+              aria-label="Clear transport (TCP)"
+              aria-pressed={transport === "tcp"}
+              onClick={() => setTransport("tcp")}
+              className={[
+                "h-8 rounded-md px-3 text-sm font-semibold transition",
+                transport === "tcp"
+                  ? "bg-accent/[.18] text-accent-light ring-1 ring-accent/30"
+                  : "text-ink-dim hover:bg-white/[.05] hover:text-ink-soft",
+              ].join(" ")}
+            >
+              Clear
+            </button>
+          </div>
+          {transport === "tcp" && (
+            <span className="text-[10px] text-ink-dim">Clear = sharp but loads slowly</span>
+          )}
+        </div>
+
         {/* Snapshot — enabled when snapshotAvailable (video ready + anchor set) */}
         <button
           aria-label="Snapshot"
@@ -312,6 +352,7 @@ export default function PlaybackPage() {
             channel={channel}
             seekTarget={effectiveSeek}
             speed={speed}
+            transport={transport}
             videoRef={videoRef}
             onStateChange={setPlayerState}
             onPlayhead={setPlayhead}

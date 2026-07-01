@@ -155,6 +155,32 @@ describe("PlaybackPage", () => {
     ).toBe("false");
   });
 
+  it("renders both transport toggle buttons, Smooth active by default", () => {
+    renderPage();
+    const smooth = screen.getByRole("button", { name: /smooth transport/i });
+    const clear = screen.getByRole("button", { name: /clear transport/i });
+    expect(smooth).toBeTruthy();
+    expect(clear).toBeTruthy();
+    expect(smooth.getAttribute("aria-pressed")).toBe("true");
+    expect(clear.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("clicking Clear activates it and deactivates Smooth", () => {
+    renderPage();
+    const smooth = screen.getByRole("button", { name: /smooth transport/i });
+    const clear = screen.getByRole("button", { name: /clear transport/i });
+    fireEvent.click(clear);
+    expect(clear.getAttribute("aria-pressed")).toBe("true");
+    expect(smooth.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows the slow-loading caption only when Clear is active", () => {
+    renderPage();
+    expect(screen.queryByText(/loads slowly/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /clear transport/i }));
+    expect(screen.getByText(/loads slowly/i)).toBeTruthy();
+  });
+
   it("renders player placeholder area", () => {
     renderPage();
     expect(screen.getByTestId("player-placeholder")).toBeTruthy();
