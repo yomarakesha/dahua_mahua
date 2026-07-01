@@ -62,9 +62,9 @@ vi.mock("@/api/hooks", () => ({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function renderPage() {
+function renderPage(initialEntries: string[] = ["/playback"]) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <AuthProvider>
         <PlaybackPage />
       </AuthProvider>
@@ -163,5 +163,37 @@ describe("PlaybackPage", () => {
   it("renders timeline placeholder area", () => {
     renderPage();
     expect(screen.getByTestId("timeline-placeholder")).toBeTruthy();
+  });
+});
+
+// ── Deep-link preselect (Item 4: Live tile "Watch in Playback") ────────────────
+
+describe("PlaybackPage — deep link (?nvr=&ch=)", () => {
+  it("preselects NVR + camera from query params and defaults date to today", () => {
+    renderPage(["/playback?nvr=nvr1&ch=2"]);
+
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
+    expect(nvrSelect.value).toBe("nvr1");
+
+    const camSelect = screen.getByRole("combobox", { name: /camera/i }) as HTMLSelectElement;
+    expect(camSelect.value).toBe("cam2");
+
+    const dateInput = screen.getByLabelText(/date/i) as HTMLInputElement;
+    expect(dateInput.value).toBe(new Date().toISOString().slice(0, 10));
+  });
+
+  it("ignores an unknown deep-link camera and behaves like no params", () => {
+    renderPage(["/playback?nvr=nvr1&ch=99"]);
+
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
+    expect(nvrSelect.value).toBe("");
+    const camSelect = screen.getByRole("combobox", { name: /camera/i }) as HTMLSelectElement;
+    expect(camSelect.disabled).toBe(true);
+  });
+
+  it("behaves exactly as today when no deep-link params are present", () => {
+    renderPage(["/playback"]);
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
+    expect(nvrSelect.value).toBe("");
   });
 });

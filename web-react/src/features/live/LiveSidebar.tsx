@@ -95,7 +95,13 @@ export function LiveSidebar({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onSelectNvr(active ? null : n.id)}
+                    onClick={() => onSelectNvr(n.id)}
+                    onDoubleClick={() => {
+                      onSelectNvr(n.id);
+                      toggleExpand(n.id);
+                    }}
+                    aria-pressed={active}
+                    title={`Show ${n.label} (double-click to expand)`}
                     className="flex h-full flex-1 items-center gap-2.5 overflow-hidden text-left"
                   >
                     <span

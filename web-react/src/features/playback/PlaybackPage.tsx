@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   useNvrs,
   useCameras,
@@ -49,6 +50,38 @@ export default function PlaybackPage() {
 
   const { data: nvrs = [] } = useNvrs();
   const { data: allCameras = [] } = useCameras();
+
+  // ── Deep-link preselect (Live grid → "Watch in Playback") ──────────────────
+  // A live tile's context menu links here as /playback?nvr=<id>&ch=<channel>.
+  // Consume it once the camera list has loaded, preselecting NVR + camera and
+  // defaulting the date to today, then strip the params so later manual
+  // selection doesn't re-trigger it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    const nvrParam = searchParams.get("nvr");
+    const chParam = searchParams.get("ch");
+    if (!nvrParam || !chParam) return;
+    if (allCameras.length === 0) return; // wait for cameras to load
+
+    const channelNum = Number(chParam);
+    const cam = allCameras.find(
+      (c) => c.nvr_id === nvrParam && c.channel === channelNum && c.enabled,
+    );
+    deepLinkAppliedRef.current = true;
+    if (!cam) return;
+
+    setSelectedNvrId(nvrParam);
+    setSelectedCamId(cam.id);
+    const today = todayIso();
+    setSelectedDate(today);
+    setViewMonth(today.slice(0, 7));
+    setSeekTarget(null);
+    setPlayhead(null);
+    setSearchParams({}, { replace: true });
+  }, [allCameras, searchParams, setSearchParams]);
 
   /** Cameras belonging to the selected NVR, enabled, sorted by channel. */
   const cameras = allCameras
@@ -140,7 +173,15 @@ export default function PlaybackPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
       {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-none flex-wrap items-end gap-3 border-b border-white/[.06] bg-[#0c1014] px-4 py-2">
+      <div
+        className={[
+          "flex flex-none flex-wrap items-end gap-3 border-b border-white/[.06] bg-[#0c1014] px-4 pt-2",
+          // Extra bottom padding reserves room for the absolutely-positioned
+          // "Oldest recording" hint under the date field so it never shifts
+          // the NVR/CAMERA/DATE controls off their shared baseline.
+          oldestDate ? "pb-5" : "pb-2",
+        ].join(" ")}
+      >
         {/* NVR selector */}
         <div className="flex flex-col gap-0.5">
           <label
@@ -191,7 +232,7 @@ export default function PlaybackPage() {
         </div>
 
         {/* Date picker */}
-        <div className="flex flex-col gap-0.5">
+        <div className="relative flex flex-col gap-0.5">
           <label
             htmlFor="pb-date"
             className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim"
@@ -210,7 +251,10 @@ export default function PlaybackPage() {
             className="h-8 rounded-md border border-white/[.08] bg-[#161b22] px-2 text-sm text-ink-soft focus:outline-none focus:ring-1 focus:ring-accent/50 disabled:opacity-40"
           />
           {oldestDate && (
-            <span className="mt-0.5 text-[10px] text-ink-dim">
+            // Absolutely positioned so it never contributes to this column's
+            // flex height — keeps the DATE control on the same baseline as
+            // NVR/CAMERA regardless of whether this hint is shown.
+            <span className="pointer-events-none absolute left-0 top-full mt-0.5 whitespace-nowrap text-[10px] text-ink-dim">
               Oldest recording: {oldestDate}
             </span>
           )}
