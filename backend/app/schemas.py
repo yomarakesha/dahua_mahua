@@ -113,10 +113,12 @@ class NvrBase(BaseModel):
     group: str | None = None
     region_id: uuid.UUID | None = None
 
-    _v_ip = field_validator("ip")(_validate_ip_str)
-
 
 class NvrCreate(NvrBase):
+    # IP validated on INPUT only (create/update) — NvrRead must stay permissive
+    # so a legacy DB row with a non-IP value can't 500 every GET /nvrs.
+    _v_ip = field_validator("ip")(_validate_ip_str)
+
     # id is optional — if omitted the router derives one from the IP address
     # (e.g. "192.168.20.34" → "nvr-192-168-20-34") so casual users don't have
     # to invent an identifier.
