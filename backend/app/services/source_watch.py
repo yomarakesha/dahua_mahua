@@ -163,7 +163,9 @@ async def _fetch_paths() -> dict[str, dict] | None:
     if get_settings().relay == "go2rtc":
         try:
             return await go2rtc_api.get_client().list_stream_states()
-        except (go2rtc_api.Go2rtcError, httpx.HTTPError) as e:
+        except (go2rtc_api.Go2rtcError, httpx.HTTPError, ValueError) as e:
+            # ValueError covers a non-JSON 200 body (proxy/HTML error page) —
+            # same quiet-degrade as unreachable, not a traceback every 3s.
             log.debug("source-watch poll skipped (go2rtc unreachable): %s", type(e).__name__)
             return None
     try:
@@ -183,8 +185,12 @@ async def _poll_once(
     threshold: int,
     cam_threshold: int,
     recovery_seconds: float,
+    nvr_first_fail: dict[str, float] | None = None,
+    dial_grace_seconds: float = 0.0,
 ) -> None:
     now = time.monotonic()
+    if nvr_first_fail is None:
+        nvr_first_fail = {}
     paths = await _fetch_paths()
     if paths is None:
         return
@@ -220,6 +226,7 @@ async def _poll_once(
         ch_last_ready[key] = now
     for nvr_id in ok_nvrs:
         nvr_last_ready[nvr_id] = now
+        nvr_first_fail.pop(nvr_id, None)
         if nvr_fail.pop(nvr_id, None):
             log.info("source-watch: %s recovered, NVR counter cleared", nvr_id)
 
@@ -262,6 +269,20 @@ async def _poll_once(
         else:
             # No channel on this NVR is ready → account-wide failure
             # (wrong password / host unreachable). Disable the whole NVR.
+            #
+            # First-dial grace: when an NVR left idle > recovery_seconds is
+            # reopened, ALL its channels legitimately show consumer-attached +
+            # no-producer while go2rtc dials (slow on the via-NVR/exec-ffmpeg
+            # sites). Without a grace, interval×threshold ≈ 6s of dialing
+            # would auto-disable a HEALTHY recorder. Count failures only once
+            # the NVR has been failing continuously past the grace window.
+            first = nvr_first_fail.setdefault(nvr_id, now)
+            if dial_grace_seconds > 0 and (now - first) < dial_grace_seconds:
+                log.debug(
+                    "source-watch: %s dialing (grace %.0fs/%.0fs) — not counted",
+                    nvr_id, now - first, dial_grace_seconds,
+                )
+                continue
             last_ok = nvr_last_ready.get(nvr_id)
             if last_ok is not None and (now - last_ok) < recovery_seconds:
                 # The NVR streamed fine moments ago, so every channel dropping
@@ -284,6 +305,13 @@ async def _poll_once(
                     "Fix the password via the lock button, then re-enable.",
                 )
                 nvr_fail.pop(nvr_id, None)
+                nvr_first_fail.pop(nvr_id, None)
+
+    # Drop first-fail marks for NVRs no longer in a failing episode, so a stale
+    # timestamp from an old episode can't skip the dial grace next time.
+    for nvr_id in list(nvr_first_fail):
+        if nvr_id not in failing_by_nvr:
+            nvr_first_fail.pop(nvr_id, None)
 
 
 async def reenable_auto_disabled() -> None:
@@ -338,10 +366,12 @@ async def _run() -> None:
     cam_threshold = settings.source_watch_camera_threshold
     grace = settings.source_watch_startup_grace_seconds
     recovery = settings.source_watch_camera_recovery_seconds
+    dial_grace = settings.source_watch_dial_grace_seconds
     nvr_fail: dict[str, int] = {}
     cam_fail: dict[tuple[str, int], int] = {}
     ch_last_ready: dict[tuple[str, int], float] = {}
     nvr_last_ready: dict[str, float] = {}
+    nvr_first_fail: dict[str, float] = {}
     log.info(
         "Source watchdog running (interval=%.1fs nvr_threshold=%d cam_threshold=%d grace=%.0fs)",
         interval, threshold, cam_threshold, grace,
@@ -362,6 +392,8 @@ async def _run() -> None:
                 await _poll_once(
                     nvr_fail, cam_fail, ch_last_ready, nvr_last_ready,
                     threshold, cam_threshold, recovery,
+                    nvr_first_fail=nvr_first_fail,
+                    dial_grace_seconds=dial_grace,
                 )
             except Exception as e:  # noqa: BLE001 — watchdog must never die
                 log.exception("source-watch poll error: %s", e)

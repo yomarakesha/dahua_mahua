@@ -70,6 +70,57 @@ async def test_never_ready_nvr_is_still_disabled(monkeypatch):
     assert disabled == [nvr]
 
 
+async def test_dial_grace_spares_cold_redial_then_still_catches_real_failure(monkeypatch):
+    """First-dial grace: a healthy NVR reopened after a long idle shows
+    consumer-attached + no-producer while go2rtc dials — polls inside the
+    grace window must NOT count toward the disable threshold. Once the NVR
+    keeps failing PAST the grace, the IP-ban guard still fires."""
+    disabled = _patch(monkeypatch)
+    state = ({}, {}, {}, {})
+    first_fail: dict[str, float] = {}
+    nvr = "nvr-slow-dial"
+    _FakeClient.paths = {f"{nvr}_ch1": {"ready": False, "readers": ["x"], "source": {}}}
+
+    # Polls within the grace window: not counted, nothing disabled.
+    await source_watch._poll_once(
+        *state, 1, 4, 180, nvr_first_fail=first_fail, dial_grace_seconds=3600
+    )
+    await source_watch._poll_once(
+        *state, 1, 4, 180, nvr_first_fail=first_fail, dial_grace_seconds=3600
+    )
+    assert disabled == []
+    assert nvr in first_fail  # episode is being tracked
+
+    # Same episode, grace elapsed (simulate by backdating the first-fail mark):
+    first_fail[nvr] -= 7200
+    await source_watch._poll_once(
+        *state, 1, 4, 180, nvr_first_fail=first_fail, dial_grace_seconds=3600
+    )
+    assert disabled == [nvr]  # genuine persistent failure still caught
+
+
+async def test_dial_grace_mark_cleared_on_recovery(monkeypatch):
+    """A recovered NVR clears its first-fail mark, so the NEXT failing episode
+    gets a fresh grace window instead of inheriting a stale timestamp."""
+    _patch(monkeypatch)
+    state = ({}, {}, {}, {})
+    first_fail: dict[str, float] = {}
+    nvr = "nvr-192-168-20-39"
+
+    _FakeClient.paths = {f"{nvr}_ch1": {"ready": False, "readers": ["x"], "source": {}}}
+    await source_watch._poll_once(
+        *state, 1, 4, 180, nvr_first_fail=first_fail, dial_grace_seconds=3600
+    )
+    assert nvr in first_fail
+
+    # Dial completes → ready. The mark must be dropped.
+    _FakeClient.paths = {f"{nvr}_ch1": {"ready": True, "readers": ["x"], "source": {}}}
+    await source_watch._poll_once(
+        *state, 1, 4, 180, nvr_first_fail=first_fail, dial_grace_seconds=3600
+    )
+    assert nvr not in first_fail
+
+
 # ── go2rtc relay mode ────────────────────────────────────────────────────────
 # Production runs relay == "go2rtc" with MediaMTX absent; the watchdog must
 # police go2rtc's /api/streams instead, using the same disable logic.

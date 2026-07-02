@@ -190,6 +190,13 @@ class Settings(BaseSettings):
     # source restart) must not be disabled — otherwise transient network loss
     # makes working cameras vanish from the grid.
     source_watch_camera_recovery_seconds: float = 180.0
+    # First-dial grace for the NVR-wide disable path. When an NVR idle longer
+    # than the recovery window is reopened, EVERY channel briefly shows
+    # "consumer attached, no producer" while go2rtc (re)dials — on the
+    # via-NVR / exec-ffmpeg sites that dial can exceed interval×threshold, and
+    # without this grace a HEALTHY recorder would be auto-disabled. Failures
+    # are counted only after the NVR has been failing continuously this long.
+    source_watch_dial_grace_seconds: float = 20.0
     # Startup grace period. On a cold start the grid immediately pulls streams
     # while MediaMTX is still spinning up the on-demand RTSP sources, so for the
     # first few seconds every path is "active but not ready" — which looks
