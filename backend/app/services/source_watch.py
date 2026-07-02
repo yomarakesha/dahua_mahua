@@ -10,7 +10,9 @@ password locks you out of the NVR's own web UI.
 
 How it works
 ------------
-We poll MediaMTX's runtime API (`/v3/paths/list`) every few seconds. For each
+We poll the active relay's runtime API every few seconds — MediaMTX's
+`/v3/paths/list`, or (the production default, `relay == "go2rtc"`) go2rtc's
+`/api/streams`, both normalised to the same shape in `_fetch_paths`. For each
 DSS-managed path we look at whether the source is up (`ready`) and whether a
 viewer is actively pulling it (`readers` present, or a `source` attempt in
 flight). An NVR is considered "failing" only when it has active-but-unready
@@ -35,7 +37,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import Nvr, NvrEvent
-from app.services import nvr_events, path_sync
+from app.services import go2rtc_api, nvr_events, path_sync
 from app.services.mediamtx_api import MediaMTXError, get_client
 from app.settings import get_settings
 
@@ -145,6 +147,34 @@ async def _disable_nvr(nvr_id: str, reason: str) -> None:
     log.warning("Auto-disabled NVR %s — %s", nvr_id, reason)
 
 
+async def _fetch_paths() -> dict[str, dict] | None:
+    """Runtime path/stream states from whichever relay is active, normalised to
+    a common ``{name: {ready, readers, source}}`` shape so the disable-decision
+    logic below is identical for both relays.
+
+    Production default is ``relay == "go2rtc"`` (MediaMTX is absent), so polling
+    MediaMTX there would silently no-op forever and the IP-ban guard would never
+    fire — this branch is what makes the watchdog actually run in production.
+
+    Returns ``None`` when the relay API is unreachable (restarting / down): the
+    caller then does nothing this round. The watchdog must never flap an NVR
+    just because the relay bounced, so unreachable == quiet-degrade, not failure.
+    """
+    if get_settings().relay == "go2rtc":
+        try:
+            return await go2rtc_api.get_client().list_stream_states()
+        except (go2rtc_api.Go2rtcError, httpx.HTTPError) as e:
+            log.debug("source-watch poll skipped (go2rtc unreachable): %s", type(e).__name__)
+            return None
+    try:
+        return await get_client().list_active_paths()
+    except (MediaMTXError, httpx.HTTPError) as e:
+        # MediaMTX down / restarting / unreachable. Nothing to police this
+        # round — keep it to one quiet line, not a traceback every 3s.
+        log.debug("source-watch poll skipped (MediaMTX unreachable): %s", type(e).__name__)
+        return None
+
+
 async def _poll_once(
     nvr_fail: dict[str, int],
     cam_fail: dict[tuple[str, int], int],
@@ -155,13 +185,8 @@ async def _poll_once(
     recovery_seconds: float,
 ) -> None:
     now = time.monotonic()
-    client = get_client()
-    try:
-        paths = await client.list_active_paths()
-    except (MediaMTXError, httpx.HTTPError) as e:
-        # MediaMTX down / restarting / unreachable. Nothing to police this
-        # round — keep it to one quiet line, not a traceback every 3s.
-        log.debug("source-watch poll skipped (MediaMTX unreachable): %s", type(e).__name__)
+    paths = await _fetch_paths()
+    if paths is None:
         return
 
     ok_nvrs: set[str] = set()
