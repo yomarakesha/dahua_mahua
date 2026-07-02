@@ -259,6 +259,15 @@ export function MsePlayer({
       if (!el) return;
       const hs = hiddenRef.current;
       if (document.hidden) {
+        // Cancel any in-flight heal reconnect: a heal timer firing while
+        // hidden would open a fresh socket on a hidden tile (streams until
+        // the grace teardown below — a pointless ~9s of hidden decode).
+        const heal = healRef.current;
+        if (heal.timer) {
+          window.clearTimeout(heal.timer);
+          heal.timer = 0;
+        }
+        heal.healing = false;
         if (hs.timer) window.clearTimeout(hs.timer);
         hs.timer = window.setTimeout(() => {
           hs.timer = 0;

@@ -69,11 +69,13 @@ export default function LiveWall() {
   );
 
   // #4: patrol churn floor. Each page flip unmounts N tiles and mounts N new ones
-  // (socket + RTSP churn). A fast dwell (<15s) across many pages (>2) makes that
-  // churn continuous, which can overwhelm go2rtc / the NVR's concurrent-pull cap.
+  // (socket + RTSP churn). A fast dwell across many pages (>2) makes that churn
+  // continuous, which can overwhelm go2rtc / the NVR's concurrent-pull cap.
   // Clamp the EFFECTIVE dwell to ≥10s in that regime (the operator's selection is
-  // still shown/cycled in the topbar) and surface a subtle hint.
-  const churnRisk = patrol && totalPages > 2 && patrolInterval < 15;
+  // still shown/cycled in the topbar) and surface a subtle hint — only when the
+  // clamp actually CHANGED the dwell (<10s); for 10s+ max() is a no-op and
+  // "held at Ns" would be misleading.
+  const churnRisk = patrol && totalPages > 2 && patrolInterval < 10;
   const effectivePatrolInterval = churnRisk ? Math.max(patrolInterval, 10) : patrolInterval;
 
   // Patrol: auto-advance pages when more than one exists.
