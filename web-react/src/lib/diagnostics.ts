@@ -127,17 +127,24 @@ function levelToBackend(l: DiagLevel): BackendEntry["level"] {
   return l === "warn" ? "WARNING" : l === "error" ? "ERROR" : "INFO";
 }
 
+/** Ship reasons that must NEVER be throttled: the page may be about to die
+ *  (crash/unload), so this is the last chance to get the evidence out. */
+const CRASH_REASONS = new Set(["react-crash", "uncaught"]);
+
 /**
  * Ship the current ring to the backend client-log endpoint. Crash-safe:
- * uses navigator.sendBeacon when available, else fetch(keepalive). Throttled
- * to at most one ship per 30 s (further attempts are counted and reported on
- * the next successful ship). The ring is NOT cleared — it keeps rolling.
+ * uses navigator.sendBeacon when available (with a fetch(keepalive) fallback
+ * when the beacon is rejected, e.g. over the browser's beacon size budget),
+ * else fetch(keepalive). Throttled to at most one ship per 30 s — EXCEPT
+ * crash-class reasons (react-crash / uncaught), which always ship: a crash is
+ * often the last event of the page's life and must not be starved by an
+ * earlier routine ship. The ring is NOT cleared — it keeps rolling.
  *
  * Returns true if a ship was attempted, false if throttled.
  */
 export function shipLogs(reason: string): boolean {
   const now = Date.now();
-  if (now - lastShipAt < SHIP_THROTTLE_MS) {
+  if (!CRASH_REASONS.has(reason) && now - lastShipAt < SHIP_THROTTLE_MS) {
     droppedShips += 1;
     return false;
   }
@@ -174,10 +181,14 @@ export function shipLogs(reason: string): boolean {
   const body = JSON.stringify({ entries });
 
   try {
+    let sent = false;
     if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
       const blob = new Blob([body], { type: "application/json" });
-      navigator.sendBeacon(endpoint, blob);
-    } else if (typeof fetch === "function") {
+      // sendBeacon returns false without sending when the payload exceeds the
+      // browser's beacon budget (~64KB) — fall through to fetch in that case.
+      sent = navigator.sendBeacon(endpoint, blob);
+    }
+    if (!sent && typeof fetch === "function") {
       void fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

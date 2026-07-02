@@ -59,4 +59,46 @@ describe("diagnostics shipLogs throttle", () => {
     const endpoint = beacon.mock.calls[0][0] as string;
     expect(endpoint).toContain("/client-log");
   });
+
+  it("crash-class reasons bypass the throttle (last chance to ship)", () => {
+    expect(shipLogs("routine")).toBe(true);
+    expect(shipLogs("routine")).toBe(false); // throttled
+    expect(shipLogs("react-crash")).toBe(true); // crash always ships
+    expect(shipLogs("uncaught")).toBe(true);
+    expect(beacon).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to fetch(keepalive) when sendBeacon rejects the payload", async () => {
+    beacon.mockReturnValue(false); // e.g. over the ~64KB beacon budget
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response()));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      expect(shipLogs("big")).toBe(true);
+      expect(beacon).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+      expect(init.keepalive).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shipped body matches the backend ClientLogEntry schema", () => {
+    recordEvent("test", "hello schema");
+    shipLogs("shape");
+    const blob = beacon.mock.calls[0][1] as Blob;
+    // jsdom Blob supports .text() — but keep it sync-safe via the constructor parts
+    return blob.text().then((text) => {
+      const payload = JSON.parse(text) as { entries: Record<string, unknown>[] };
+      expect(Array.isArray(payload.entries)).toBe(true);
+      expect(payload.entries.length).toBeGreaterThan(0);
+      for (const e of payload.entries) {
+        // exactly the backend model's fields — nothing extra, nothing missing
+        expect(Object.keys(e).sort()).toEqual(["detail", "level", "msg", "path", "ts"]);
+        expect(["DEBUG", "INFO", "WARNING", "ERROR"]).toContain(e.level);
+        expect(typeof e.msg).toBe("string");
+        expect((e.msg as string).length).toBeLessThanOrEqual(2000);
+      }
+    });
+  });
 });
