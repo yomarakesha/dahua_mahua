@@ -17,9 +17,9 @@ import logging.handlers
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.db import Base, SessionLocal, engine
 from app.middleware import RequestIDMiddleware
@@ -249,6 +249,37 @@ def create_app() -> FastAPI:
     @app.get("/healthz", tags=["meta"])
     async def healthz() -> dict:
         return {"status": "ok"}
+
+    @app.get("/readyz", tags=["meta"])
+    async def readyz(response: Response) -> dict:
+        """Readiness probe: verifies the backend can actually serve traffic, not
+        just that the process is up (that's /healthz). Checks the DB (a trivial
+        SELECT 1) and, when go2rtc is the active relay, that the relay API answers.
+        Returns 200 only if every check is "ok", else 503. Never raises and never
+        leaks internal error detail — the body is a fixed per-check status map."""
+        checks: dict[str, str] = {}
+
+        try:
+            async with SessionLocal() as session:
+                await session.execute(text("SELECT 1"))
+            checks["db"] = "ok"
+        except Exception:  # noqa: BLE001
+            checks["db"] = "fail"
+
+        try:
+            if settings.relay == "go2rtc":
+                from app.services import go2rtc_api
+                await go2rtc_api.get_client().ping()
+            else:
+                if not await get_client().ping():
+                    raise RuntimeError("relay ping failed")
+            checks["relay"] = "ok"
+        except Exception:  # noqa: BLE001
+            checks["relay"] = "fail"
+
+        if any(v != "ok" for v in checks.values()):
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return checks
 
     return app
 

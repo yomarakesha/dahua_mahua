@@ -84,12 +84,17 @@ describe("diagnostics shipLogs throttle", () => {
   });
 
   it("shipped body matches the backend ClientLogEntry schema", () => {
-    recordEvent("test", "hello schema");
-    shipLogs("shape");
-    const blob = beacon.mock.calls[0][1] as Blob;
-    // jsdom Blob supports .text() — but keep it sync-safe via the constructor parts
-    return blob.text().then((text) => {
-      const payload = JSON.parse(text) as { entries: Record<string, unknown>[] };
+    // Route through the fetch path (raw string body) — jsdom's Blob has no .text().
+    beacon.mockReturnValue(false);
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response()));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      recordEvent("test", "hello schema");
+      shipLogs("shape");
+      const [, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+      const payload = JSON.parse(init.body as string) as {
+        entries: Record<string, unknown>[];
+      };
       expect(Array.isArray(payload.entries)).toBe(true);
       expect(payload.entries.length).toBeGreaterThan(0);
       for (const e of payload.entries) {
@@ -99,6 +104,8 @@ describe("diagnostics shipLogs throttle", () => {
         expect(typeof e.msg).toBe("string");
         expect((e.msg as string).length).toBeLessThanOrEqual(2000);
       }
-    });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

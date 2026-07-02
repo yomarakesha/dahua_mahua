@@ -8,6 +8,7 @@ the first login).
 
 from __future__ import annotations
 
+import secrets
 import time
 from typing import Any
 
@@ -18,6 +19,12 @@ from argon2.exceptions import InvalidHash, VerifyMismatchError
 from app.settings import get_settings
 
 _hasher = PasswordHasher()
+
+# A throwaway Argon2 hash of a random secret, computed once at import. The login
+# path verifies an unknown/inactive user's password against THIS so an Argon2
+# verify always runs — otherwise skipping the hash for a missing username is a
+# fast-fail timing oracle that lets an attacker enumerate valid usernames.
+_DUMMY_PASSWORD_HASH = _hasher.hash(secrets.token_urlsafe(32))
 
 
 def hash_password(plaintext: str) -> str:
@@ -30,6 +37,12 @@ def verify_password(plaintext: str, hashed: str) -> bool:
         return True
     except (VerifyMismatchError, InvalidHash):
         return False
+
+
+def dummy_verify(plaintext: str) -> None:
+    """Run a throwaway Argon2 verify to equalize timing on the unknown-user login
+    path (constant work whether or not the username exists). Result is discarded."""
+    verify_password(plaintext, _DUMMY_PASSWORD_HASH)
 
 
 def needs_rehash(hashed: str) -> bool:

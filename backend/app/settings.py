@@ -85,11 +85,16 @@ class Settings(BaseSettings):
     reencode_enabled: bool = False
     reencode_keyframe_seconds: float = 0.5
     reencode_qualities: str = "sub"  # "sub" | "main" | "both"
-    # "auto" probes the host (real test-encode) and picks the best WORKING encoder:
+    # Video encoder. Default is the portable CPU encoder "libx264" (works
+    # everywhere) — this preserves the deployed default (the auto-probe box has
+    # no GPU, so it would resolve to libx264 anyway). The auto-probe-best-encoder
+    # feature is OPT-IN via env: set REENCODE_VCODEC=auto to have the host probed
+    # (real test-encode) and the best WORKING encoder picked:
     # h264_qsv → h264_nvenc → h264_vaapi → libx264 (CPU). A codec can be compiled
-    # into ffmpeg yet fail at runtime when the GPU is absent (this box: no GPU →
-    # auto resolves to libx264). Set an explicit codec to skip probing.
-    reencode_vcodec: str = "auto"
+    # into ffmpeg yet fail at runtime when the GPU is absent, which is why the
+    # probe runs a tiny real encode rather than trusting ffmpeg's encoder list.
+    # Set an explicit codec (e.g. h264_qsv) to skip probing entirely.
+    reencode_vcodec: str = "libx264"
     reencode_preset: str = "veryfast"
     reencode_ffmpeg_bin: str = "ffmpeg"
     # Cap the re-encoded bitrate (VBV: -maxrate/-bufsize). 0 = unconstrained CRF.
@@ -162,37 +167,6 @@ class Settings(BaseSettings):
     sub_close_after: str = "30s"
     main_start_timeout: str = "20s"
     main_close_after: str = "60s"
-
-    # ── Re-encode (anti-freeze) ──────────────────────────────────────────────
-    # The Dahua cameras emit a keyframe only every ~2s (GOP=50 @ 25fps). Over
-    # WebRTC/MSE (inter-frame H.264) that means every cold start — and every
-    # patrol/layout re-subscribe — waits up to 2s for a keyframe and freezes,
-    # and any hiccup freezes until the next sparse keyframe. Measured: a raw
-    # sub stream froze 8.1s/16s; re-encoded to a 0.5s GOP it dropped to 2.8s
-    # and ~2.5× the delivered frames (docs: zoneminder/keyframe + rtcstats run).
-    #
-    # When enabled, MediaMTX pulls each requested path through an ffmpeg
-    # `runOnDemand` that re-emits the same H.264 with a forced short keyframe
-    # interval, so cold starts and recoveries are sub-second. Requires `ffmpeg`
-    # on the relay host. CPU scales with the number of *concurrently viewed*
-    # tiles (sourceOnDemand keeps idle paths off), not the whole fleet — size
-    # the relay accordingly, or enable for sub only / use a GPU encoder.
-    reencode_enabled: bool = False
-    # Force a keyframe at least this often (seconds). 0.5 = keyframe every 500ms.
-    reencode_keyframe_seconds: float = 0.5
-    # Which qualities to re-encode: "sub", "main", or "both". Sub feeds the grid
-    # (where freezes are most visible across many tiles); main is fullscreen.
-    reencode_qualities: str = "sub"
-    # Video encoder. "libx264" (CPU, works everywhere) is the safe default.
-    # Hardware encoders slash CPU and let one box drive far more tiles:
-    # "h264_qsv" (Intel QuickSync), "h264_nvenc" (NVIDIA), "h264_vaapi" (Linux).
-    reencode_vcodec: str = "libx264"
-    # x264 preset — trade CPU for quality. ultrafast/superfast/veryfast/faster.
-    reencode_preset: str = "veryfast"
-    # ffmpeg binary used by the relay's runOnDemand. "ffmpeg" (on PATH) suits
-    # Linux/containers; on Windows set an absolute path (no spaces) because the
-    # already-running relay process won't pick up a PATH change after install.
-    reencode_ffmpeg_bin: str = "ffmpeg"
 
     # ── Source watchdog ──────────────────────────────────────────────────────
     # Polls MediaMTX's runtime API and auto-disables an NVR whose source keeps

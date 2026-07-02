@@ -8,12 +8,24 @@ Conventions:
 
 from __future__ import annotations
 
+import ipaddress
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import Role, StreamQuality, Vendor
+
+
+def _validate_ip_str(v: str) -> str:
+    """Accept only a literal IPv4/IPv6 address (deployment uses raw IPs — no
+    hostnames). Stored as a plain str; this just rejects garbage at the edge so a
+    typo fails on create/update instead of silently producing a dead RTSP URL."""
+    try:
+        ipaddress.ip_address(v)
+    except ValueError as e:
+        raise ValueError(f"'{v}' is not a valid IP address") from e
+    return v
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────
@@ -94,12 +106,14 @@ class RegionRead(RegionBase):
 class NvrBase(BaseModel):
     label: str = Field(min_length=1, max_length=128)
     ip: str
-    port: int = 554
+    port: int = Field(default=554, ge=1, le=65535)
     rtsp_username: str = "admin"
     vendor: Vendor = Vendor.dahua
     enabled: bool = True
     group: str | None = None
     region_id: uuid.UUID | None = None
+
+    _v_ip = field_validator("ip")(_validate_ip_str)
 
 
 class NvrCreate(NvrBase):
@@ -130,13 +144,18 @@ class SetChannelsRequest(BaseModel):
 class NvrUpdate(BaseModel):
     label: str | None = None
     ip: str | None = None
-    port: int | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
     rtsp_username: str | None = None
     rtsp_password: str | None = None
     vendor: Vendor | None = None
     enabled: bool | None = None
     group: str | None = None
     region_id: uuid.UUID | None = None
+
+    @field_validator("ip")
+    @classmethod
+    def _v_ip(cls, v: str | None) -> str | None:
+        return None if v is None else _validate_ip_str(v)
 
 
 class NvrRead(NvrBase):
