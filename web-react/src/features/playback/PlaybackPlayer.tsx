@@ -19,11 +19,12 @@
  * checklist in the task report, not unit tests.
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { footageEpoch } from "./playback-utils";
+import { footageEpoch, mapCloseCode } from "./playback-utils";
 import { playerReducer, INITIAL_PLAYER_STATE } from "./player-machine";
 import { usePlaybackSession } from "./usePlaybackSession";
 import type { PlaybackSessionOptions } from "./usePlaybackSession";
 import type { FootageAnchor, PlayerState, ServerMsg } from "./types";
+import { recordEvent, registerSessionId } from "@/lib/diagnostics";
 
 type Speed = 1 | 2 | 4 | 8;
 
@@ -95,6 +96,13 @@ export default function PlaybackPlayer({
   // stuck in the error overlay while the new WS handshakes.
   const [reconnectNonce, setReconnectNonce] = useState(0);
 
+  // ── Error surface — operator-facing text + retry gating ─────────────────────────
+  // errorText is the server {error.reason} or the mapped WS close-code message
+  // (shown under the generic "playback error" title). retryHidden suppresses the
+  // Retry button for non-retryable closes (4003 no-permission, 4004 not-found).
+  const [errorText, setErrorText] = useState<string | null>(null);
+  const [retryHidden, setRetryHidden] = useState(false);
+
   // ── MSE refs ──────────────────────────────────────────────────────────────────
   const msRef = useRef<MediaSource | null>(null);
   const sbRef = useRef<SourceBuffer | null>(null);
@@ -129,7 +137,14 @@ export default function PlaybackPlayer({
 
   // ── Notify parent on state change + emit onReady once ───────────────────────────
   const readyFiredRef = useRef(false);
+  const prevStateRef = useRef<PlayerState>(state);
   useEffect(() => {
+    if (prevStateRef.current !== state) {
+      // Record every state-machine transition for the diagnostics ring — this is
+      // the single most useful trail when a stream wedges in the field.
+      recordEvent("player", `${prevStateRef.current}→${state}`);
+      prevStateRef.current = state;
+    }
     onStateChange?.(state);
     if (state === "playing" && !readyFiredRef.current) {
       readyFiredRef.current = true;
@@ -298,6 +313,7 @@ export default function PlaybackPlayer({
       const video = videoRef.current;
       switch (msg.type) {
         case "init": {
+          if (msg.session_id) registerSessionId(msg.session_id); // optional; backend rollout
           rebuildMse(msg.codec);
           // baseCt is captured in onAppendSuccess after currentTime settles (MED-6).
           pendingAnchorRef.current = { t0: msg.t0, speed: speedRef.current };
@@ -307,6 +323,7 @@ export default function PlaybackPlayer({
           break;
         }
         case "reinit": {
+          if (msg.session_id) registerSessionId(msg.session_id); // optional; backend rollout
           rebuildMse(codecRef.current); // reinit reuses the last init's codec
           pendingAnchorRef.current = { t0: msg.t0, speed: speedRef.current };
           setAnchor(null); // captured in onAppendSuccess once currentTime settles (MED-6)
@@ -330,7 +347,13 @@ export default function PlaybackPlayer({
           dispatch({ type: "eof" });
           break;
         case "error":
-          dispatch({ type: "error" });
+          // Keep the diagnostic reason: record it and surface it in the overlay
+          // (previously discarded — the single most useful string when a stream
+          // errors in the field).
+          recordEvent("player-error", msg.reason || "(no reason)");
+          setErrorText(msg.reason || null);
+          setRetryHidden(false); // a server error is retryable (reopen the socket)
+          dispatch({ type: "error", reason: msg.reason });
           break;
         default:
           // {stream} is a client-side main-only no-op (Contract #5); the server
@@ -341,7 +364,12 @@ export default function PlaybackPlayer({
     [rebuildMse, setAnchor, videoRef],
   );
 
-  const handleClose = useCallback(() => {
+  const handleClose = useCallback((code?: number, reason?: string) => {
+    // usePlaybackSession already recorded the raw close; here we map the code to
+    // operator text and gate Retry for non-retryable closes (4003/4004).
+    const { text, retryable } = mapCloseCode(code);
+    setErrorText(text ?? (reason ? String(reason) : null));
+    setRetryHidden(!retryable);
     dispatch({ type: "ws_close" });
   }, []);
 
@@ -539,19 +567,28 @@ export default function PlaybackPlayer({
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" />
             playback error
           </span>
-          <button
-            onClick={() => {
-              // Bump the nonce so usePlaybackSession tears down the dead socket and
-              // opens a fresh WS (handles ws_close + all other error origins uniformly).
-              // dispatch("reconnect") moves error→loading immediately so the spinner
-              // shows while the new handshake completes — no stuck-in-seeking risk.
-              setReconnectNonce((n) => n + 1);
-              dispatch({ type: "reconnect" });
-            }}
-            className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
-          >
-            Retry
-          </button>
+          {errorText && (
+            <span className="max-w-[80%] text-center font-mono text-3xs text-ink-mute">
+              {errorText}
+            </span>
+          )}
+          {!retryHidden && (
+            <button
+              onClick={() => {
+                // Bump the nonce so usePlaybackSession tears down the dead socket and
+                // opens a fresh WS (handles ws_close + all other error origins uniformly).
+                // dispatch("reconnect") moves error→loading immediately so the spinner
+                // shows while the new handshake completes — no stuck-in-seeking risk.
+                setErrorText(null);
+                setRetryHidden(false);
+                setReconnectNonce((n) => n + 1);
+                dispatch({ type: "reconnect" });
+              }}
+              className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
+            >
+              Retry
+            </button>
+          )}
         </div>
       )}
 

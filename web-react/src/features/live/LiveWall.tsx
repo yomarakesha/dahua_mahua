@@ -15,7 +15,12 @@ const GRID_MAX = 8;
 const clampGrid = (n: number) => Math.max(GRID_MIN, Math.min(GRID_MAX, n));
 
 export default function LiveWall() {
-  const { data: cameras, isLoading: camsLoading } = useCameras();
+  const {
+    data: cameras,
+    isLoading: camsLoading,
+    isError: camsError,
+    refetch: refetchCameras,
+  } = useCameras();
   const { data: nvrs } = useNvrs();
 
   const [cols, setCols] = useState(4); // columns × rows grid (default 4×4)
@@ -125,6 +130,8 @@ export default function LiveWall() {
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-deep">
           {camsLoading ? (
             <SkeletonGrid cols={cols} rows={rows} />
+          ) : camsError ? (
+            <CamerasErrorState onRetry={() => void refetchCameras()} />
           ) : filtered.length === 0 ? (
             <EmptyState filtered={enabled.length > 0} />
           ) : (
@@ -249,6 +256,24 @@ function SkeletonGrid({ cols, rows }: { cols: number; rows: number }) {
           className="animate-pulse rounded border border-white/[.04] bg-white/[.02]"
         />
       ))}
+    </div>
+  );
+}
+
+function CamerasErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+      <div className="text-base font-semibold text-ink-mute">Couldn&apos;t load cameras</div>
+      <div className="max-w-sm text-2xs text-ink-faint">
+        The camera list request failed. Check the connection to the server and try again.
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1.5 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
+      >
+        Retry
+      </button>
     </div>
   );
 }

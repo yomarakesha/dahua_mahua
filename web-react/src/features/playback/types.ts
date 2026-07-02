@@ -16,6 +16,10 @@ export interface InitMsg {
   type: "init";
   t0: number;        // footage epoch of the first frame in this segment
   codec: string;     // full MIME for addSourceBuffer, e.g. 'video/mp4; codecs="avc1.640032"'
+  // Optional playback session id (backend rollout in progress; may be absent
+  // until deployed). When present it's registered with diagnostics so it rides
+  // along on shipped logs. Code defensively — treat as possibly undefined.
+  session_id?: string;
   // NOTE: no `audio` field — the backend drops audio server-side (`-an`, Contract #10),
   // so the init MIME is always video-only and no audio track is ever present.
 }
@@ -23,6 +27,7 @@ export interface InitMsg {
 export interface ReinitMsg {
   type: "reinit";
   t0: number;        // footage epoch of the first frame after seek/speed change
+  session_id?: string; // optional; see InitMsg.session_id (backend rollout in progress)
 }
 
 /**

@@ -47,6 +47,30 @@ export function buildPlaybackWsUrl(
   return `${wsBase}/playback/${nvrId}/${channel}/stream?token=${encodeURIComponent(token)}&t=${initialSeek}&transport=${transport ?? "udp"}`;
 }
 
+// ── WebSocket close-code → operator text ────────────────────────────────────────
+
+/**
+ * Map a playback WS close code to operator-facing text + whether a Retry makes
+ * sense. Codes are the backend's application close codes (Contract):
+ *   4001 auth expired · 4003 forbidden · 4004 not found/disabled · 4429 busy.
+ * Unknown/absent codes → generic error text, retryable (could be transient).
+ * 4003/4004 are NON-retryable (permission / missing camera won't fix on retry).
+ */
+export function mapCloseCode(code?: number): { text: string | null; retryable: boolean } {
+  switch (code) {
+    case 4001:
+      return { text: "Session expired — sign in again", retryable: true };
+    case 4003:
+      return { text: "No permission for this camera", retryable: false };
+    case 4004:
+      return { text: "Camera not found or disabled", retryable: false };
+    case 4429:
+      return { text: "Recorder is busy — too many playback sessions", retryable: true };
+    default:
+      return { text: null, retryable: true };
+  }
+}
+
 // ── Footage-time mapping ───────────────────────────────────────────────────────
 
 /**

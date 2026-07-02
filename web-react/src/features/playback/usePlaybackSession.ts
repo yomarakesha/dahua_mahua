@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { getToken } from "@/api/client";
+import { recordEvent } from "@/lib/diagnostics";
 import { buildPlaybackWsUrl } from "./playback-utils";
 import type { ClientMsg, ServerMsg } from "./types";
 
@@ -37,8 +38,12 @@ export interface PlaybackSessionOptions {
   onSignal: (msg: ServerMsg) => void;
   /** A binary fMP4 fragment arrived. */
   onData: (data: ArrayBuffer) => void;
-  /** The socket closed UNEXPECTEDLY (not via our own close()/teardown). */
-  onClose: () => void;
+  /**
+   * The socket closed UNEXPECTEDLY (not via our own close()/teardown).
+   * Receives the WS close `code` and `reason` so the caller can map them to
+   * operator-facing text (see mapCloseCode).
+   */
+  onClose: (code?: number, reason?: string) => void;
 }
 
 export interface PlaybackSession {
@@ -121,9 +126,12 @@ export function usePlaybackSession(
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev: CloseEvent) => {
       clearKeepalive();
-      if (!closedByUs) optsRef.current?.onClose();
+      if (!closedByUs) {
+        recordEvent("ws-close", `code=${ev.code} reason=${ev.reason || ""}`);
+        optsRef.current?.onClose(ev.code, ev.reason);
+      }
     };
 
     // onerror is followed by onclose; the close handler owns the teardown/notify.

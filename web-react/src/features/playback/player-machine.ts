@@ -26,8 +26,9 @@ export type PlayerEvent =
   | { type: "seek" }
   /** Backend `eof` — end of the last clip. */
   | { type: "eof" }
-  /** Backend `{type:"error"}`. */
-  | { type: "error" }
+  /** Backend `{type:"error"}`. `reason` is the sanitized server text (surfaced
+   *  in the error overlay); it does not affect the transition itself. */
+  | { type: "error"; reason?: string }
   /** MSE QuotaExceeded survived a trim + single retry (Contract C2). */
   | { type: "quota_failed" }
   /** WebSocket closed (usePlaybackSession only fires onClose for UNEXPECTED closes). */
