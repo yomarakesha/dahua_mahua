@@ -10,6 +10,9 @@ const SHADOW = "0 1px 3px #000";
 interface Props {
   cam: Camera;
   onOpen: (cam: Camera) => void;
+  /** Per-tile first-connect stagger (ms) so a page/patrol flip doesn't open all
+   *  N sockets at once. Forwarded to the player. */
+  connectDelayMs?: number;
 }
 
 /**
@@ -20,7 +23,7 @@ interface Props {
  * Memoized + no ticking time prop: the camera burns its own timestamp into the
  * video, so we don't re-render every tile once per second just for an overlay.
  */
-export const CameraTile = memo(function CameraTile({ cam, onOpen }: Props) {
+export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs }: Props) {
   const quality = cam.has_sub ? "sub" : cam.has_main ? "main" : null;
   const [status, setStatus] = useState<PlayerStatus>("connecting");
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -66,6 +69,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen }: Props) {
           <MsePlayer
             src={streamName(cam, quality)}
             onStatus={setStatus}
+            connectDelayMs={connectDelayMs}
             className="absolute inset-0 h-full w-full"
           />
         ) : (

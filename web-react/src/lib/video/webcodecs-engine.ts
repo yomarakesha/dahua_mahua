@@ -49,6 +49,11 @@ const MAX_DEPTH = 6;
 // Absolute memory guard (frames are GPU-backed; never let the queue grow wild).
 const HARD_CAP = 30;
 const DEFAULT_FRAME_MS = 40; // 25 fps until measured from timestamps
+// #6: bounded ws reconnect before giving up to MSE. go2rtc restarts / transient
+// socket drops shouldn't permanently demote fullscreen to MSE — retry a couple
+// times (growing backoff) and only fail() (→ MSE) if the stream really won't come.
+const MAX_WS_RETRIES = 2;
+const WS_RETRY_BACKOFF_MS = [1000, 3000];
 
 export interface EngineCallbacks {
   onStatus?: (s: EngineStatus) => void;
@@ -77,6 +82,10 @@ export class WebCodecsEngine {
   private ws: WebSocket | null = null;
   private mp4: ISOFile | null = null;
   private decoder: VideoDecoder | null = null;
+
+  private wsUrl = "";
+  private wsRetries = 0;
+  private retryTimer = 0;
 
   private appendPos = 0;
   private sawKey = false;
@@ -111,6 +120,7 @@ export class WebCodecsEngine {
   }
 
   start(wsUrl: string): void {
+    this.wsUrl = wsUrl;
     this.setStatus("connecting");
     this.openWs(wsUrl);
     this.rafId = requestAnimationFrame(this.render);
@@ -133,6 +143,13 @@ export class WebCodecsEngine {
     this.destroyed = true;
     cancelAnimationFrame(this.rafId);
     if (this.dbgTimer) window.clearInterval(this.dbgTimer);
+    if (this.retryTimer) window.clearTimeout(this.retryTimer);
+    this.teardownStream();
+  }
+
+  /** Close the ws + decoder + demuxer and reset per-connection state, WITHOUT
+   *  ending the engine — reused by destroy() and by the #6 reconnect path. */
+  private teardownStream(): void {
     for (const f of this.queue) safeClose(f);
     this.queue = [];
     if (this.decoder) {
@@ -148,6 +165,12 @@ export class WebCodecsEngine {
       try { this.ws.close(); } catch { /* ignore */ }
       this.ws = null;
     }
+    // A reconnect gets a brand-new fMP4 file → restart the demux offsets/keyframe
+    // gate so mp4box parses the new moov from byte 0.
+    this.appendPos = 0;
+    this.sawKey = false;
+    this.firstFrame = false;
+    this.lastFrameTs = -1;
   }
 
   private setStatus(s: EngineStatus): void {
@@ -159,6 +182,23 @@ export class WebCodecsEngine {
     // eslint-disable-next-line no-console
     console.warn("[webcodecs] falling back:", reason);
     this.setStatus("error"); // FullscreenView sees this → switches to MSE → destroy()
+  }
+
+  /** #6: ws error/close → retry a bounded number of times (growing backoff)
+   *  before giving up to MSE. */
+  private retryOrFail(reason: string): void {
+    if (this.destroyed) return;
+    if (this.wsRetries >= MAX_WS_RETRIES) return this.fail(reason);
+    const backoff = WS_RETRY_BACKOFF_MS[this.wsRetries] ?? 3000;
+    this.wsRetries += 1;
+    // eslint-disable-next-line no-console
+    console.warn(`[webcodecs] ws reconnect ${this.wsRetries}/${MAX_WS_RETRIES} in ${backoff}ms: ${reason}`);
+    this.teardownStream();
+    this.setStatus("connecting");
+    this.retryTimer = window.setTimeout(() => {
+      this.retryTimer = 0;
+      if (!this.destroyed) this.openWs(this.wsUrl);
+    }, backoff);
   }
 
   private openWs(wsUrl: string): void {
@@ -175,8 +215,8 @@ export class WebCodecsEngine {
       if (typeof ev.data === "string") return; // control frame (codec echo) — ignore
       this.onFmp4(ev.data as ArrayBuffer);
     };
-    ws.onerror = () => this.fail("websocket error");
-    ws.onclose = () => { if (!this.destroyed) this.fail("websocket closed"); };
+    ws.onerror = () => this.retryOrFail("websocket error");
+    ws.onclose = () => { if (!this.destroyed) this.retryOrFail("websocket closed"); };
   }
 
   private initMp4(): void {
@@ -257,6 +297,7 @@ export class WebCodecsEngine {
     while (this.queue.length > HARD_CAP) { safeClose(this.queue.shift()!); this.dbg.dropped++; }
     if (!this.firstFrame) {
       this.firstFrame = true;
+      this.wsRetries = 0; // a healthy (re)connect refills the retry budget
       this.setStatus("live");
     }
   }

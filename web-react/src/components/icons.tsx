@@ -103,6 +103,14 @@ export const CameraIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
     <circle cx="12" cy="13" r="4" />
   </Ic>
 );
+export const CameraOffIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
+  <Ic {...p}>
+    <path d="M1 1l22 22" />
+    <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3" />
+    <path d="M9 3h6l2 3h4a2 2 0 0 1 2 2v9" />
+    <path d="M14.5 10.5a4 4 0 0 1-5 5" />
+  </Ic>
+);
 export const ActivityIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
   <Ic {...p}>
     <path d="M22 12h-4l-3 9L9 3l-3 9H2" />

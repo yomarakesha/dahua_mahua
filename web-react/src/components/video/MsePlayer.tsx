@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CONFIG } from "@/lib/config";
+import { recordEvent } from "@/lib/diagnostics";
+import { CameraOffIcon, RefreshIcon } from "@/components/icons";
 import { registerDssMse } from "./dss-mse";
 import type { VideoRTC } from "@/lib/vendor/video-rtc.js";
 
@@ -7,6 +9,21 @@ registerDssMse();
 
 export type PlayerStatus = "connecting" | "live" | "error";
 type Status = PlayerStatus;
+
+/** Max self-heal reconnect attempts before we give up and show a manual Retry. */
+const MAX_HEAL = 3;
+/** Grace before a hidden tab tears its socket down — quick tab flips shouldn't churn. */
+const HIDDEN_GRACE_MS = 10_000;
+
+/**
+ * Growing backoff (ms) for auto-heal reconnects: 1s → 2s → 4s (capped), plus up
+ * to 1s of jitter so a wall of tiles healing at once doesn't slam go2rtc in
+ * lockstep (mirrors the vendor onclose jitter). Exported for unit testing.
+ */
+export function healBackoffMs(attempt: number): number {
+  const base = Math.min(4000, 1000 * 2 ** Math.max(0, attempt - 1));
+  return base + Math.random() * 1000;
+}
 
 interface Props {
   /** go2rtc stream name, e.g. `nvr-…_ch3` (sub) or `nvr-…_ch3_main`. */
@@ -25,6 +42,12 @@ interface Props {
   /** Notified when the stream status changes (so the parent can reflect it, e.g.
    *  hide a "LIVE" badge when the feed is lost). */
   onStatus?: (status: Status) => void;
+  /**
+   * Delay (ms) before this tile opens its FIRST socket. The live wall uses a
+   * per-tile stagger on page/patrol flips so N tiles don't slam go2rtc (N sockets
+   * + N RTSP pulls) at the same instant. Only applied on the initial connect.
+   */
+  connectDelayMs?: number;
 }
 
 /**
@@ -32,14 +55,68 @@ interface Props {
  * `.src` when the stream changes, and tears it down on unmount (the element owns
  * its WebSocket + MediaSource/PeerConnection + reconnect lifecycle).
  */
-export function MsePlayer({ src, className, muted = true, mode = "mse", onStatus }: Props) {
+export function MsePlayer({
+  src,
+  className,
+  muted = true,
+  mode = "mse",
+  onStatus,
+  connectDelayMs = 0,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const elRef = useRef<VideoRTC | null>(null);
   const firstSrcRef = useRef(true);
+  // The WebSocket URL for the current src — used by the auto-heal (#1), the
+  // manual Retry (#2), and the hidden→visible reconnect (#5), all of which need
+  // to re-point `.src` without going through the src-prop effect.
+  const wsUrlRef = useRef<URL | null>(null);
+  // Self-heal bookkeeping. `attempts` counts consecutive auto-heals since the
+  // last time the stream was live; `healing` is true while a heal teardown is
+  // mid-flight (socket down, waiting to re-open) — during which the poller must
+  // NOT flip to error on the synthetic empty-src video error ondisconnect() causes.
+  const healRef = useRef<{ attempts: number; healing: boolean; timer: number }>({
+    attempts: 0,
+    healing: false,
+    timer: 0,
+  });
+  // Hidden-tab teardown state (#5): grace timer id + whether we tore down on hide.
+  const hiddenRef = useRef<{ timer: number; torn: boolean }>({ timer: 0, torn: false });
   const [status, setStatus] = useState<Status>("connecting");
   useEffect(() => {
     onStatus?.(status);
   }, [status, onStatus]);
+
+  // Re-point the element at wsUrlRef after a fresh teardown (heal / visible /
+  // manual retry). ondisconnect() closes the old socket; a short backoff+jitter
+  // avoids a synchronous reopen and spreads simultaneous reconnects.
+  const reconnect = useCallback((backoffMs: number) => {
+    const el = elRef.current;
+    const url = wsUrlRef.current;
+    if (!el || !url) return;
+    const h = healRef.current;
+    if (h.timer) window.clearTimeout(h.timer);
+    try {
+      el.ondisconnect();
+    } catch {
+      /* ignore */
+    }
+    setStatus("connecting");
+    h.timer = window.setTimeout(() => {
+      h.timer = 0;
+      h.healing = false;
+      const e = elRef.current;
+      if (e) e.src = url;
+    }, backoffMs);
+  }, []);
+
+  // Manual retry (#2): operator clicked Retry on a dead tile → reset the heal
+  // budget and reconnect immediately.
+  const handleRetry = useCallback(() => {
+    healRef.current.attempts = 0;
+    healRef.current.healing = false;
+    recordEvent("live-heal", `${src} manual-retry`);
+    reconnect(0);
+  }, [reconnect, src]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -55,6 +132,8 @@ export function MsePlayer({ src, className, muted = true, mode = "mse", onStatus
       // src="" early-returns in onconnect without closing the socket — which
       // leaks a go2rtc consumer (and its RTSP pull) per unmount. ondisconnect()
       // closes ws + pc and clears the <video>.
+      if (healRef.current.timer) window.clearTimeout(healRef.current.timer);
+      if (hiddenRef.current.timer) window.clearTimeout(hiddenRef.current.timer);
       try {
         el.ondisconnect();
       } catch {
@@ -79,7 +158,8 @@ export function MsePlayer({ src, className, muted = true, mode = "mse", onStatus
     // CONNECTING socket ("closed before the connection is established"). On first
     // mount there's nothing to tear down anyway. (video-rtc.js also now guards the
     // error handler against this synthetic error, for the stream-switch case.)
-    if (!firstSrcRef.current) {
+    const first = firstSrcRef.current;
+    if (!first) {
       try {
         el.ondisconnect();
       } catch {
@@ -87,9 +167,25 @@ export function MsePlayer({ src, className, muted = true, mode = "mse", onStatus
       }
     }
     firstSrcRef.current = false;
+    // A new src invalidates any in-flight heal / hidden state for the old stream.
+    healRef.current.attempts = 0;
+    healRef.current.healing = false;
+    hiddenRef.current.torn = false;
     setStatus("connecting");
-    el.src = new URL(`${CONFIG.go2rtcWsBase}/api/ws?src=${encodeURIComponent(src)}`);
-  }, [src]);
+    const url = new URL(`${CONFIG.go2rtcWsBase}/api/ws?src=${encodeURIComponent(src)}`);
+    wsUrlRef.current = url;
+    // #4: on the FIRST connect only, honour the caller's stagger so a page/patrol
+    // flip doesn't open N sockets in the same tick. Later re-points (heal/visible)
+    // never take this path.
+    if (first && connectDelayMs > 0) {
+      const t = window.setTimeout(() => {
+        const e = elRef.current;
+        if (e) e.src = url;
+      }, connectDelayMs);
+      return () => window.clearTimeout(t);
+    }
+    el.src = url;
+  }, [src, connectDelayMs]);
 
   // Status overlay — a purely additive OBSERVER of the <video> (never touches the
   // connection). Drives the connecting-spinner / "signal lost" badge so the wall
@@ -101,9 +197,26 @@ export function MsePlayer({ src, className, muted = true, mode = "mse", onStatus
     let stall = 0;
     let played = false;
     let connectTicks = 0;
+    // #1: force a real reconnect. video-rtc only reconnects on WS close / video
+    // error; when go2rtc keeps the socket OPEN but data stops, it never heals →
+    // the tile shows "signal lost" forever. Tear down + re-point after backoff.
+    const heal = () => {
+      const h = healRef.current;
+      h.attempts += 1;
+      h.healing = true;
+      recordEvent("live-heal", `${src} attempt ${h.attempts}/${MAX_HEAL}`);
+      reconnect(healBackoffMs(h.attempts));
+    };
     const id = window.setInterval(() => {
       const v = el.video;
       if (!v) return;
+      const h = healRef.current;
+      // A hidden tab is torn down on purpose (#5) — don't heal it; the visible
+      // handler reconnects. Also skip while a heal teardown is mid-flight.
+      if (document.hidden || h.healing) {
+        lastCt = v.currentTime;
+        return;
+      }
       if (v.error) {
         setStatus("error");
         return;
@@ -113,17 +226,70 @@ export function MsePlayer({ src, className, muted = true, mode = "mse", onStatus
       if (advancing) {
         stall = 0;
         played = true;
+        h.attempts = 0; // healthy again → refill the heal budget
         setStatus("live");
       } else if (played) {
-        // stalled mid-stream → signal lost after ~4.5s
-        if (++stall >= 3) setStatus("error");
+        // stalled mid-stream (~4.5s). If the socket is still OPEN, go2rtc won't
+        // reconnect on its own → self-heal (bounded); otherwise the vendor's own
+        // close-driven reconnect is already running, so just surface the error.
+        if (++stall >= 3) {
+          const wsOpen = el.ws != null && el.ws.readyState === WebSocket.OPEN;
+          if (wsOpen && h.attempts < MAX_HEAL) {
+            stall = 0;
+            heal();
+          } else {
+            setStatus("error");
+          }
+        }
       } else {
         // never connected → give up the spinner after ~15s
         if (++connectTicks >= 10) setStatus("error");
       }
     }, 1500);
     return () => window.clearInterval(id);
-  }, [src]);
+  }, [src, reconnect]);
+
+  // #5: hidden-tab tiles keep decoding because background=true skips the vendor's
+  // visibility handling. Tear the socket down after a grace period when the tab
+  // goes hidden, and reconnect (staggered) when it returns. Guarded against the
+  // stall-heal via hiddenRef/document.hidden checks in the poller.
+  useEffect(() => {
+    const onVis = () => {
+      const el = elRef.current;
+      if (!el) return;
+      const hs = hiddenRef.current;
+      if (document.hidden) {
+        if (hs.timer) window.clearTimeout(hs.timer);
+        hs.timer = window.setTimeout(() => {
+          hs.timer = 0;
+          hs.torn = true;
+          healRef.current.healing = false;
+          try {
+            el.ondisconnect();
+          } catch {
+            /* ignore */
+          }
+          setStatus("connecting");
+        }, HIDDEN_GRACE_MS);
+      } else {
+        if (hs.timer) {
+          window.clearTimeout(hs.timer);
+          hs.timer = 0;
+        }
+        if (hs.torn) {
+          hs.torn = false;
+          healRef.current.attempts = 0;
+          // small per-tile jitter so a wall of tiles doesn't reconnect in lockstep
+          reconnect(Math.random() * 800);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      if (hiddenRef.current.timer) window.clearTimeout(hiddenRef.current.timer);
+    };
+  }, [reconnect]);
 
   // Apply mute to the underlying <video>. The element starts muted (so autoplay
   // works); when audio is wanted we poll briefly to keep it unmuted across the
@@ -183,19 +349,44 @@ export function MsePlayer({ src, className, muted = true, mode = "mse", onStatus
   return (
     <div className={`${className ?? ""} overflow-hidden`}>
       <div ref={hostRef} className="absolute inset-0" />
-      {status !== "live" && (
+      {status === "connecting" && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
-          {status === "connecting" ? (
-            <span className="flex items-center gap-2 font-mono text-3xs uppercase tracking-wider text-ink-faint">
-              <span className="h-3 w-3 animate-spin rounded-full border border-ink-faint/50 border-t-transparent" />
-              connecting
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 rounded border border-danger/40 bg-danger/[.14] px-2 py-1 font-mono text-3xs font-bold uppercase tracking-wider text-danger">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" />
-              signal lost
-            </span>
-          )}
+          <span className="flex items-center gap-2 font-mono text-3xs uppercase tracking-wider text-ink-faint">
+            <span className="h-3 w-3 animate-spin rounded-full border border-ink-faint/50 border-t-transparent" />
+            connecting
+          </span>
+        </div>
+      )}
+      {status === "error" && (
+        // #2: dead tiles were a dead end (only "signal lost"). Give the operator a
+        // camera-off glyph and a Retry that resets the heal budget + reconnects.
+        // The container stays pointer-events-none so it never blocks the tile's
+        // click/context-menu; only the Retry control is interactive.
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45">
+          <CameraOffIcon size={22} className="text-danger/80" />
+          <span className="font-mono text-3xs font-bold uppercase tracking-wider text-danger">
+            signal lost
+          </span>
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Retry stream"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRetry();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                handleRetry();
+              }
+            }}
+            className="pointer-events-auto flex h-8 min-w-[32px] cursor-pointer items-center gap-1.5 rounded-md border border-white/15 bg-white/[.06] px-2.5 font-mono text-3xs font-semibold uppercase tracking-wider text-ink-soft transition hover:bg-white/[.12] focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+          >
+            <RefreshIcon size={13} />
+            Retry
+          </div>
         </div>
       )}
     </div>

@@ -41,12 +41,16 @@ export function FullscreenView({ cam, onClose }: Props) {
   const transport: "webcodecs" | "mse" =
     preferWebCodecs && canWebCodecs && !audioOn && !forceMse ? "webcodecs" : "mse";
 
-  // Reset the fallback when the source or engine preference changes, so WebCodecs
-  // gets a fresh try.
+  // Reset the fallback when the source, engine preference, OR camera changes, so
+  // WebCodecs gets a fresh try. #6: forceMse was sticky for the whole session — a
+  // single WebCodecs failure demoted to MSE and never re-tried, even after
+  // switching to a different camera via the sidebar (same FullscreenView instance,
+  // new `cam` prop). Including cam.id clears the latch on a camera switch; closing
+  // the view unmounts the component, so the next open also starts fresh.
   useEffect(() => {
     setForceMse(false);
     setStatus("connecting");
-  }, [viaNvr, preferWebCodecs]);
+  }, [viaNvr, preferWebCodecs, cam.id]);
 
   // Fallback: if WebCodecs hasn't gone live within 6s (or errored), drop to MSE.
   useEffect(() => {

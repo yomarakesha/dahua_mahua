@@ -33,7 +33,7 @@ export default function LiveWall() {
   const [fullscreen, setFullscreen] = useState<Camera | null>(null);
 
   const cellCount = cols * rows;
-  const patrolInterval = PATROL[patrolIdx];
+  const patrolInterval = PATROL[patrolIdx]; // the value the operator selected (topbar)
 
   // Enabled cameras only, optionally filtered by NVR + search text.
   const enabled = useMemo(
@@ -68,15 +68,23 @@ export default function LiveWall() {
     [filtered, page, cellCount],
   );
 
+  // #4: patrol churn floor. Each page flip unmounts N tiles and mounts N new ones
+  // (socket + RTSP churn). A fast dwell (<15s) across many pages (>2) makes that
+  // churn continuous, which can overwhelm go2rtc / the NVR's concurrent-pull cap.
+  // Clamp the EFFECTIVE dwell to ≥10s in that regime (the operator's selection is
+  // still shown/cycled in the topbar) and surface a subtle hint.
+  const churnRisk = patrol && totalPages > 2 && patrolInterval < 15;
+  const effectivePatrolInterval = churnRisk ? Math.max(patrolInterval, 10) : patrolInterval;
+
   // Patrol: auto-advance pages when more than one exists.
   useEffect(() => {
     if (!patrol || totalPages <= 1) return;
     const id = window.setInterval(
       () => setPage((p) => (p + 1) % totalPages),
-      patrolInterval * 1000,
+      effectivePatrolInterval * 1000,
     );
     return () => window.clearInterval(id);
-  }, [patrol, totalPages, patrolInterval]);
+  }, [patrol, totalPages, effectivePatrolInterval]);
 
   // Counts for sidebar (enabled cameras per nvr) + a load proxy.
   const countByNvr = useMemo(() => {
@@ -147,9 +155,22 @@ export default function LiveWall() {
                   freeing the camera segment cuts the UDP packet loss that corrupts
                   the 4MP main (the segment is shared; concurrent pulls add loss).
                   Tiles remount (reconnect) when fullscreen closes. */}
+              {/* #4 chosen approach: keep only the current page mounted (mounting
+                  ALL pages would multiply load — background=true keeps hidden tiles
+                  streaming), but STAGGER each tile's first connect so a page/patrol
+                  flip opens sockets ~120ms apart instead of N at once. Trade-off:
+                  later tiles in a big grid take up to ~3s to appear (capped), which
+                  is far cheaper than a simultaneous N-socket + N-RTSP stampede. */}
               {!fullscreen &&
-                pageCams.map((cam) => (
-                  <CameraTile key={cam.id} cam={cam} onOpen={setFullscreen} />
+                pageCams.map((cam, i) => (
+                  <CameraTile
+                    // key includes the page so a flip remounts tiles (fresh connect
+                    // → the stagger applies) even when a cam id repeats across pages.
+                    key={`${page}:${cam.id}`}
+                    cam={cam}
+                    onOpen={setFullscreen}
+                    connectDelayMs={Math.min(i * 120, 3000)}
+                  />
                 ))}
             </div>
           )}
@@ -182,6 +203,13 @@ export default function LiveWall() {
               >
                 <ChevronRight size={14} />
               </button>
+            </div>
+          )}
+
+          {/* #4: patrol dwell clamped to limit reconnect churn — tell the operator. */}
+          {churnRisk && (
+            <div className="pointer-events-none absolute bottom-12 left-1/2 -translate-x-1/2 rounded-lg border border-white/[.08] bg-panel/90 px-3 py-1 font-mono text-2xs text-ink-faint">
+              patrol dwell held at {effectivePatrolInterval}s to limit reconnect churn
             </div>
           )}
         </div>
