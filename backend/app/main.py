@@ -13,13 +13,16 @@ Routers live under `settings.api_prefix` (default `/api/v1`).
 from __future__ import annotations
 
 import logging
+import logging.handlers
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from app.db import Base, SessionLocal, engine
+from app.middleware import RequestIDMiddleware
 from app.models import User, Role  # noqa: F401  (ensure mappers register before create_all)
 from app.routers import (
     auth,
@@ -108,13 +111,50 @@ async def _initial_reconcile() -> None:
     log.info("Startup reconcile: %s", report.summary())
 
 
+def _configure_logging(settings) -> None:
+    """Set up stream (stderr) + optional rotating-file logging.
+
+    NSSM does not persist stderr, so a RotatingFileHandler keeps bounded logs on
+    disk. On Windows rotation can fail if another process holds the file, so the
+    handler uses ``delay=True`` (open lazily) and we degrade gracefully to
+    stderr-only if the log dir isn't writable — never crash startup on logging.
+    """
+    level = logging.DEBUG if settings.debug else logging.INFO
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    formatter = logging.Formatter(fmt)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    handlers: list[logging.Handler] = [stream_handler]
+
+    if settings.log_file:
+        try:
+            log_path = Path(settings.log_file)
+            if log_path.parent and not log_path.parent.exists():
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_path,
+                maxBytes=settings.log_file_max_bytes,
+                backupCount=settings.log_file_backup_count,
+                encoding="utf-8",
+                delay=True,  # open lazily — avoids a Windows file-lock on boot
+            )
+            file_handler.setFormatter(formatter)
+            handlers.append(file_handler)
+        except OSError:
+            log.warning(
+                "Log file %s not writable — continuing with stderr only",
+                settings.log_file,
+                exc_info=True,
+            )
+
+    logging.basicConfig(level=level, handlers=handlers, force=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    logging.basicConfig(
-        level=logging.DEBUG if settings.debug else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    _configure_logging(settings)
     # httpx logs every request at INFO — the source watchdog polls MediaMTX
     # every few seconds, so that would flood the console. Keep it to warnings.
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -189,6 +229,10 @@ def create_app() -> FastAPI:
     # 172.16-31.x) on the frontend port, so the browser's Origin varies per client
     # machine. allow_credentials=True forbids "*", so we match any private-LAN
     # origin (any port) via regex, alongside the explicit cors_origins list.
+    # Correlation id + JSON 500 on unhandled HTTP errors. Added before CORS so
+    # it runs innermost (closest to the route); WebSocket routes are untouched.
+    app.add_middleware(RequestIDMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

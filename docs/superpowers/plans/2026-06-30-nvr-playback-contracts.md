@@ -25,7 +25,10 @@ spike findings + the user's RBAC decision of 2026-06-30).
 
 4. **`t0`** in `init`/`reinit` = footage epoch of the requested seek target.
    MVP does not parse the fMP4 TRUN box; error is bounded by one GOP (~0.5 s
-   after re-encode) and the `clock` heartbeat corrects drift.
+   after re-encode) and the `clock` heartbeat corrects drift. Both `init` and
+   `reinit` also carry **`session_id`** (= `sess.session_id`) so the client can
+   echo it in shipped logs and field reports correlate with the backend
+   `playback_event session=…` lines.
 
 5. **`{stream}` is a main-only no-op.** The NVR records the 4 MP main only
    (spike V4). Backend silently ignores `{stream}`; the frontend shows **no**

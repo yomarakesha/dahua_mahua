@@ -280,6 +280,7 @@ class _ProducerSession:
         self._closing = False
         self._spawn_gen = 1
         self.t0 = 1000
+        self.session_id = "sess-abc"
         self.ring_buffer_chunks = 8
         self._ring: asyncio.Queue = asyncio.Queue()
         self._proc = None
@@ -311,13 +312,38 @@ async def test_producer_emits_init_then_reinit_init_fragment_in_order():
 
     items = _drain(out)
     assert items == [
-        {"type": "init", "t0": 1000, "codec": _INIT_CODEC},
+        {"type": "init", "t0": 1000, "codec": _INIT_CODEC, "session_id": "sess-abc"},
         b"INIT-G1",
         b"FRAG-1",
-        {"type": "reinit", "t0": 2000},
+        {"type": "reinit", "t0": 2000, "session_id": "sess-abc"},
         b"INIT-G2",
         b"FRAG-2",
     ]
+
+
+@pytest.mark.asyncio
+async def test_init_and_reinit_carry_session_id():
+    """Contract #4: init AND reinit heads carry ``session_id`` so the client can
+    echo it in shipped logs and field reports correlate with the backend
+    ``playback_event session=…`` lines."""
+    sess = _ProducerSession()
+    out: asyncio.Queue = asyncio.Queue()
+    sess._ring.put_nowait(b"FRAG-1")
+
+    task = asyncio.create_task(_fragment_producer(sess, out))
+    await asyncio.sleep(0.05)
+    sess.t0 = 2000
+    sess._spawn_gen = 2
+    sess._ring.put_nowait(b"FRAG-2")
+    await asyncio.sleep(0.05)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    heads = [x for x in _drain(out) if isinstance(x, dict)]
+    init = next(h for h in heads if h["type"] == "init")
+    reinit = next(h for h in heads if h["type"] == "reinit")
+    assert init["session_id"] == "sess-abc"
+    assert reinit["session_id"] == "sess-abc"
 
 
 # ── clean-vs-crash death helper (#2) ────────────────────────────────────────
@@ -354,6 +380,7 @@ class _HeldProducerSession:
         self._closing = False
         self._spawn_gen = 1
         self.t0 = 1000
+        self.session_id = "sess-abc"
         self.ring_buffer_chunks = 8
         self._ring: asyncio.Queue = asyncio.Queue()
         self._proc = None
@@ -405,9 +432,9 @@ async def test_double_respawn_drops_stale_held_chunk():
 
     items = _drain(out)
     assert items == [
-        {"type": "init", "t0": 1000, "codec": _INIT_CODEC},
+        {"type": "init", "t0": 1000, "codec": _INIT_CODEC, "session_id": "sess-abc"},
         b"INIT-G1",
-        {"type": "reinit", "t0": 3000},
+        {"type": "reinit", "t0": 3000, "session_id": "sess-abc"},
         b"INIT-G3",
         b"FRAG-G3",
     ]
@@ -438,9 +465,9 @@ async def test_single_respawn_emits_held_chunk():
 
     items = _drain(out)
     assert items == [
-        {"type": "init", "t0": 1000, "codec": _INIT_CODEC},
+        {"type": "init", "t0": 1000, "codec": _INIT_CODEC, "session_id": "sess-abc"},
         b"INIT-G1",
-        {"type": "reinit", "t0": 2000},
+        {"type": "reinit", "t0": 2000, "session_id": "sess-abc"},
         b"INIT-G2",
         b"HELD-FRAG-G2",  # held chunk emitted because its gen still matches
     ]

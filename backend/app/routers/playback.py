@@ -603,9 +603,9 @@ async def _fragment_producer(sess: PlaybackSession, outbound: "asyncio.Queue") -
             # reinit/init JSON + the pinned init segment are emitted as ONE
             # contiguous group so no clock tick can interleave the pair.
             head = (
-                {"type": "init", "t0": sess.t0, "codec": _INIT_CODEC}
+                {"type": "init", "t0": sess.t0, "codec": _INIT_CODEC, "session_id": sess.session_id}
                 if last_gen == -1
-                else {"type": "reinit", "t0": sess.t0}
+                else {"type": "reinit", "t0": sess.t0, "session_id": sess.session_id}
             )
             if init:
                 await _emit_structural(outbound, head, init)

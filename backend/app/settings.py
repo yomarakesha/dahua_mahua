@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
 
+    # ── Logging ──────────────────────────────────────────────────────────────
+    # On NSSM (Windows service) stderr is not persisted, so add a rotating file
+    # handler alongside the stream handler. Empty string disables the file
+    # handler (stderr only). The parent dir is created if missing; if it can't
+    # be written, startup logs a warning and continues with stderr only.
+    log_file: str = "logs/backend.log"
+    log_file_max_bytes: int = 10_485_760  # 10 MiB
+    log_file_backup_count: int = 5
+
     # ── Database ─────────────────────────────────────────────────────────────
     # SQLite is the default so local dev works without installing Postgres.
     # For prod set DATABASE_URL=postgresql+asyncpg://dss:dss@host:5432/dss
