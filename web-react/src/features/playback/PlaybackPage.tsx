@@ -326,6 +326,7 @@ export default function PlaybackPage() {
           <div className="flex items-center gap-1" aria-label="Playback transport">
             <button
               aria-label="Smooth transport (UDP)"
+              title="Smooth — real-time, may show artifacts on weak links"
               aria-pressed={transport === "udp"}
               onClick={() => setTransport("udp")}
               className={[
@@ -339,6 +340,7 @@ export default function PlaybackPage() {
             </button>
             <button
               aria-label="Clear transport (TCP)"
+              title="Clear — clean image, buffers slower"
               aria-pressed={transport === "tcp"}
               onClick={() => setTransport("tcp")}
               className={[

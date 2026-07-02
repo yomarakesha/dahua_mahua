@@ -38,6 +38,20 @@
   *::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
   }
+
+  /* Respect the operator's OS "reduce motion" setting: neutralize the pulsing
+     LIVE dots, spinner rings, and transitions that would otherwise animate
+     continuously across the wall. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 /* video tile: the <dss-mse> web component + its <video> must fill the cell */

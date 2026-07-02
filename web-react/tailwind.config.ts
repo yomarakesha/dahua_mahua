@@ -27,7 +27,10 @@ export default {
         "ink-soft": "#cdd6db",
         "ink-mute": "#9aa6ad",
         "ink-dim": "#7c878e",
-        "ink-faint": "#5e6a71",
+        // #8a97a0 on #0a0d10 ≈ 6.5:1 — clears WCAG AA (4.5:1) for small text.
+        // (Was #5e6a71 ≈ 3.5:1.) Only used as text/placeholder + a couple of
+        // /50-opacity spinner rings — no structural borders rely on it.
+        "ink-faint": "#8a97a0",
         // status
         warn: "#e0a030",
         danger: "#e76b5e",

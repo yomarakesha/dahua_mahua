@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MsePlayer, type PlayerStatus } from "@/components/video/MsePlayer";
 import { WebCodecsPlayer } from "@/components/video/WebCodecsPlayer";
 import { WebCodecsEngine } from "@/lib/video/webcodecs-engine";
@@ -64,17 +64,30 @@ export function FullscreenView({ cam, onClose }: Props) {
     return () => window.clearTimeout(t);
   }, [transport, status]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
+    // Move initial focus into the dialog; restore to the opener on close.
+    const opener = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener?.focus?.();
+    };
   }, [onClose]);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-sm"
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${cam.display_name} — fullscreen live view`}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-sm focus:outline-none"
       onClick={onClose}
     >
       <div className="flex flex-none items-center gap-3 px-6 py-4" onClick={(e) => e.stopPropagation()}>
@@ -88,15 +101,21 @@ export function FullscreenView({ cam, onClose }: Props) {
               setPreferWebCodecs((v) => !v);
               setForceMse(false);
             }}
-            title="Video engine — MSE (buffered, with audio) ⇄ WebCodecs (drop-late, video-only)"
+            title={
+              transport === "webcodecs"
+                ? "Engine: WebCodecs — hardware decode, drops late frames (low latency, video-only). Click for buffered MSE."
+                : "Engine: MSE — buffered, plays every frame, carries audio (compatible). Click for low-latency WebCodecs."
+            }
             className={[
-              "rounded px-1.5 py-0.5 font-mono text-3xs font-bold uppercase tracking-wider transition",
+              "rounded px-1.5 py-0.5 text-2xs font-semibold transition",
               transport === "webcodecs"
                 ? "bg-accent/[.12] text-accent-light hover:bg-accent/[.18]"
                 : "bg-white/[.06] text-ink-dim hover:bg-white/[.1]",
             ].join(" ")}
           >
-            {transport}
+            {transport === "webcodecs"
+              ? "Engine: WebCodecs (low latency)"
+              : "Engine: MSE (compatible)"}
           </button>
         )}
 

@@ -17,7 +17,8 @@ interface Props {
   onCyclePatrolInterval: () => void;
   search: string;
   onSearch: (v: string) => void;
-  online: number;
+  /** How many cameras the current filter matches (a view count, NOT health). */
+  showing: number;
   total: number;
 }
 
@@ -65,7 +66,7 @@ export function LiveTopbar({
   onCyclePatrolInterval,
   search,
   onSearch,
-  online,
+  showing,
   total,
 }: Props) {
   return (
@@ -119,11 +120,18 @@ export function LiveTopbar({
         />
       </label>
 
-      {/* online count */}
-      <div className="flex h-[34px] items-center gap-2 rounded-lg border border-accent/25 bg-accent/[.10] px-3">
-        <span className="h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_#2ecc71]" />
-        <span className="font-mono text-base font-bold text-[#cfe9da]">
-          {online}
+      {/* Filter/view count — how many cameras match the current NVR + search.
+          Deliberately neutral (no green health dot): this is NOT a health metric,
+          the app doesn't track per-stream connection state. */}
+      <div
+        className="flex h-[34px] items-center gap-2 rounded-lg border border-white/[.07] bg-panel px-3"
+        title="Cameras matching the current filter — not a health metric"
+      >
+        <span className="text-2xs font-semibold uppercase tracking-wide text-ink-mute">
+          Showing
+        </span>
+        <span className="font-mono text-base font-bold text-ink-soft">
+          {showing}
           <span className="text-ink-faint">/{total}</span>
         </span>
       </div>

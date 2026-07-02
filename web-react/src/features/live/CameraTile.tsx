@@ -56,6 +56,8 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
       <button
         type="button"
         onClick={() => onOpen(cam)}
+        title={cam.display_name}
+        aria-label={`Open ${cam.display_name} (ch${cam.channel}) fullscreen`}
         // Capture phase: the inner <video>/dss-mse element swallows the bubbling
         // contextmenu event, so intercept it on the way DOWN at the container.
         onContextMenuCapture={(e) => {
@@ -87,7 +89,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
           <div className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_6px_#2ecc71]" />
             <span
-              className="text-3xs font-extrabold tracking-wide text-[#d8efe2]"
+              className="text-2xs font-extrabold tracking-wide text-[#d8efe2]"
               style={{ textShadow: SHADOW }}
             >
               LIVE
@@ -96,10 +98,16 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
         )}
 
         <div
-          className="pointer-events-none absolute bottom-1.5 left-1.5 max-w-[90%] truncate text-3xs font-bold text-[#eef4f0]"
+          className="pointer-events-none absolute bottom-1.5 left-1.5 flex max-w-[92%] items-baseline gap-1"
           style={{ textShadow: SHADOW }}
         >
-          {cam.display_name}
+          <span className="truncate text-xs font-bold text-[#eef4f0]">
+            {cam.display_name}
+          </span>
+          {/* channel disambiguates same-named cameras (subtle) */}
+          <span className="flex-none font-mono text-3xs font-semibold text-white/55">
+            ch{cam.channel}
+          </span>
         </div>
       </button>
 

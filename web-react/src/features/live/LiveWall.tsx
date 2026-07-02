@@ -101,7 +101,9 @@ export default function LiveWall() {
 
   const visibleStreams = pageCams.length;
   const total = enabled.length;
-  const online = filtered.length; // streams we are attempting/showing
+  // How many cameras the current filter/search matches — a VIEW count, not a
+  // health signal. Shown as "Showing X/Y" (see LiveTopbar).
+  const showing = filtered.length;
   // Load proxy: how full the current page is vs. the grid capacity.
   const load = Math.min(1, visibleStreams / cellCount);
 
@@ -118,7 +120,7 @@ export default function LiveWall() {
         onCyclePatrolInterval={() => setPatrolIdx((i) => (i + 1) % PATROL.length)}
         search={search}
         onSearch={setSearch}
-        online={online}
+        showing={showing}
         total={total}
       />
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useUsers,
   useCameras,
@@ -180,6 +180,21 @@ function UserEditor({
   const isSelf = !isNew && user.id === meId;
   const pending = create.isPending || update.isPending;
 
+  // Dialog a11y: initial focus in, Esc to close, restore focus to the opener.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener?.focus?.();
+    };
+  }, [onClose]);
+
   const toggle = (id: string) =>
     setGrants((prev) => {
       const next = new Set(prev);
@@ -222,7 +237,12 @@ function UserEditor({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 p-6 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="dss-panel flex max-h-full w-full max-w-2xl flex-col"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isNew ? "New user" : `Edit user ${user.username}`}
+        tabIndex={-1}
+        className="dss-panel flex max-h-full w-full max-w-2xl flex-col focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-none items-center gap-2 border-b border-white/[.06] px-5 py-3">

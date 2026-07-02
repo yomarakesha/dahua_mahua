@@ -21,6 +21,7 @@ import { useRef, useState } from "react";
 import type { RecordingClip } from "@/api/types";
 import type { PlayerState } from "./types";
 import { epochToNvrTimeStr, snapToNearest } from "./playback-utils";
+import { ChevronRight } from "@/components/icons";
 
 // ── Pure helpers (exported for Vitest) ────────────────────────────────────────
 
@@ -254,24 +255,26 @@ export default function Timeline({
 
   return (
     <div className="relative flex flex-col select-none px-6">
-      {/* Prev clip button — left edge */}
+      {/* Prev clip button — left edge (≥32px hit target) */}
       <button
         aria-label="Previous clip"
+        title="Previous clip"
         disabled={isDisabled || playheadEpoch === null || clips.length === 0}
         onClick={seekToPrevClip}
-        className="absolute left-0 top-0 z-10 flex h-14 w-6 items-center justify-center text-lg text-ink-dim transition hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-30"
+        className="absolute -left-2 top-0 z-10 flex h-14 w-8 items-center justify-center text-ink-dim transition hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-30"
       >
-        ‹
+        <ChevronRight size={18} className="rotate-180" />
       </button>
 
-      {/* Next clip button — right edge */}
+      {/* Next clip button — right edge (≥32px hit target) */}
       <button
         aria-label="Next clip"
+        title="Next clip"
         disabled={isDisabled || playheadEpoch === null || clips.length === 0}
         onClick={seekToNextClip}
-        className="absolute right-0 top-0 z-10 flex h-14 w-6 items-center justify-center text-lg text-ink-dim transition hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-30"
+        className="absolute -right-2 top-0 z-10 flex h-14 w-8 items-center justify-center text-ink-dim transition hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-30"
       >
-        ›
+        <ChevronRight size={18} />
       </button>
 
       {/* ── Main bar (role="slider") ─────────────────────────────────────── */}
@@ -372,13 +375,18 @@ export default function Timeline({
           return (
             <span
               key={hour}
-              className="absolute -translate-x-1/2 text-[9px] leading-none text-ink-dim/50 select-none"
+              className="absolute -translate-x-1/2 text-[10px] leading-none text-ink-dim select-none"
               style={{ left: `${pct}%` }}
             >
               {label}
             </span>
           );
         })}
+      </div>
+
+      {/* Clock caption — operators must know which clock the axis is in. */}
+      <div className="mt-0.5 text-right text-[10px] font-medium uppercase tracking-wide text-ink-faint select-none">
+        NVR local time
       </div>
     </div>
   );
