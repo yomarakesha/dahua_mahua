@@ -252,6 +252,25 @@ class Settings(BaseSettings):
     # (Task 8); excess attempts are rejected with code 4429.
     playback_rate_limit_per_minute: int = 10
 
+    # ── Warm-stream pool (live-open latency) ─────────────────────────────────
+    # Keeps a bounded set of server-side consumers draining go2rtc SUB streams so
+    # those cameras open ~instantly (warm producer + cached keyframe → ~0.5s vs
+    # 2.6–5s cold). SUBS ONLY — mains use an mpegts pipe with no keyframe cache
+    # and don't benefit. DEFAULT OFF: over-warming would exhaust an NVR's hard
+    # concurrent-pull cap (e.g. testik 192.168.20.39). When False the POST
+    # /live/warm endpoint is a 202 no-op so the frontend can call it uncondition-
+    # ally. Enable per deploy with WARM_POOL_ENABLED=true.
+    warm_pool_enabled: bool = False
+    # Global cap on concurrently-warmed streams across all NVRs.
+    warm_pool_max_streams: int = 24
+    # Per-NVR cap. A warm stream is cheaper than a playback session but STILL
+    # counts against the NVR's real concurrent-pull budget — never warm any NVR
+    # beyond this (mirrors the NvrBudget per-NVR discipline).
+    warm_pool_per_nvr_max: int = 8
+    # De-selected streams are kept warm this long before teardown, so a quick
+    # page flip (open → close → reopen) doesn't re-dial the NVR.
+    warm_pool_drop_grace_seconds: float = 10.0
+
     # ── Bootstrap ────────────────────────────────────────────────────────────
     # On first startup, create this user if no users exist. Operator must
     # change the password on first login.

@@ -30,6 +30,7 @@ from app.routers import (
     client_log,
     discovery,
     events,
+    live as live_router,
     mediamtx as mediamtx_router,
     nvrs,
     playback as playback_router,
@@ -201,9 +202,23 @@ async def lifespan(app: FastAPI):
         settings.playback_max_lifetime_seconds,
     )
 
+    # Warm-stream pool: idles with an empty desired set until the frontend posts
+    # to /live/warm. Always started (cheap when idle); the endpoint is a no-op
+    # while warm_pool_enabled is False, so nothing is warmed until opted in.
+    from app.services.warm_pool import get_warm_pool
+    _warm_pool = get_warm_pool()
+    _warm_pool.start()
+    log.info(
+        "Warm pool started: enabled=%s max_streams=%d per_nvr_max=%d",
+        settings.warm_pool_enabled,
+        settings.warm_pool_max_streams,
+        settings.warm_pool_per_nvr_max,
+    )
+
     try:
         yield
     finally:
+        await _warm_pool.close_all()
         await _pb_session.stop_reaper()
         # No orphan ffmpeg: close every active playback session (Contract #11).
         await _pb_session.close_all()
@@ -243,7 +258,7 @@ def create_app() -> FastAPI:
     )
 
     prefix = settings.api_prefix
-    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery, client_log, playback_router):
+    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery, client_log, playback_router, live_router):
         app.include_router(r.router, prefix=prefix)
 
     @app.get("/healthz", tags=["meta"])
