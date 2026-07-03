@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MsePlayer, type PlayerStatus } from "@/components/video/MsePlayer";
-import { WebCodecsPlayer } from "@/components/video/WebCodecsPlayer";
-import { WebCodecsEngine } from "@/lib/video/webcodecs-engine";
 import { streamName } from "@/api/types";
 import { XIcon, VolumeOn, VolumeOff, ServerIcon, CameraIcon } from "@/components/icons";
 import type { Camera } from "@/api/types";
@@ -33,17 +31,17 @@ export function FullscreenView({ cam, onClose }: Props) {
   // as a per-camera fallback when a camera isn't directly reachable.
   const [viaNvr, setViaNvr] = useState(false);
 
-  // Transport for the main. MSE is the DEFAULT (buffered TCP — stable now that
-  // go2rtc delivers a clean short-GOP main, and it carries AUDIO). WebCodecs
-  // (hardware decode + drop-late) is an opt-in toggle for the 4MP-under-congestion
-  // case, but it's video-only so it's off by default and any audio/failure routes
-  // back to MSE. The grid is always MSE. (WebRTC remains disabled — MsePlayer keeps
-  // a mode="webrtc" path if ever revisited. See webcodecs-engine.ts.)
-  const wcSupported = WebCodecsEngine.isSupported();
+  // Transport ("engine") for the main. WebRTC is the DEFAULT via the vendor race
+  // `mode="webrtc,mse"`: video-rtc.js starts BOTH transports and WebRTC wins if it
+  // establishes (real-time, DROPS late frames → SmartPSS-like smoothness on the
+  // 4MP main), else MSE auto-fills (buffered, plays every frame). Both carry AUDIO.
+  // The engine toggle lets the operator force plain "mse" to A/B compare. The grid
+  // is always MSE.
   const [mainStatus, setMainStatus] = useState<PlayerStatus>("connecting");
-  const [preferWebCodecs, setPreferWebCodecs] = useState(false); // MSE default
-  // Set once WebCodecs fails/times out → stick to MSE for this view.
+  // Engine toggle state: false → WebRTC-preferred ("webrtc,mse"), true → forced
+  // plain MSE. Resets to WebRTC-preferred on every camera switch.
   const [forceMse, setForceMse] = useState(false);
+  const mainMode: "webrtc,mse" | "mse" = forceMse ? "mse" : "webrtc,mse";
 
   const hasSub = cam.has_sub;
   const hasMain = cam.has_main;
@@ -53,33 +51,30 @@ export function FullscreenView({ cam, onClose }: Props) {
   const [mainLive, setMainLive] = useState(false);
   const [subTorn, setSubTorn] = useState(false);
 
-  const canWebCodecs = wcSupported && hasMain;
-  const transport: "webcodecs" | "mse" =
-    preferWebCodecs && canWebCodecs && !audioOn && !forceMse ? "webcodecs" : "mse";
-
   const onMainStatus = useCallback((s: PlayerStatus) => {
     setMainStatus(s);
     if (s === "live") setMainLive(true);
   }, []);
 
-  // Reset the fallback when the source, engine preference, OR camera changes, so
-  // WebCodecs gets a fresh try. #6: forceMse was sticky for the whole session — a
-  // single WebCodecs failure demoted to MSE and never re-tried, even after
-  // switching to a different camera via the sidebar (same FullscreenView instance,
-  // new `cam` prop). Including cam.id clears the latch on a camera switch; closing
-  // the view unmounts the component, so the next open also starts fresh.
+  // Fresh connect state whenever the source or engine changes (the main remounts
+  // on an engine switch via key={mainMode}; a via-NVR toggle re-points the same
+  // player). Just resets the visible status to the spinner.
   useEffect(() => {
-    setForceMse(false);
     setMainStatus("connecting");
-  }, [viaNvr, preferWebCodecs, cam.id]);
+  }, [viaNvr, forceMse, cam.id]);
 
   // Reset the sub→main upgrade whenever the camera changes (sidebar switch reuses
-  // this instance). Both layers tear down and re-open for the new cam — no leaked
-  // sockets (each player's unmount closes its ws + RTSP pull).
+  // this instance) OR the engine is toggled (the main remounts and re-races, so
+  // re-show the sub underneath and re-run the cross-fade when the new engine goes
+  // live). Both layers tear down and re-open — no leaked sockets (each player's
+  // unmount closes its ws + RTSP pull). Camera switch also drops back to WebRTC.
+  useEffect(() => {
+    setForceMse(false);
+  }, [cam.id]);
   useEffect(() => {
     setMainLive(false);
     setSubTorn(false);
-  }, [cam.id]);
+  }, [cam.id, forceMse]);
 
   // Cross-fade → tear the sub down. Once the main is live and has faded in over
   // the sub, free the sub socket (its pull is now wasted). Only when there's a
@@ -102,18 +97,6 @@ export function FullscreenView({ cam, onClose }: Props) {
       setMainLive(false);
     }
   }, [mainStatus, subTorn, hasSub]);
-
-  // Fallback: if WebCodecs hasn't gone live within 6s (or errored), drop to MSE.
-  useEffect(() => {
-    if (transport !== "webcodecs") return;
-    if (mainStatus === "live") return;
-    if (mainStatus === "error") {
-      setForceMse(true);
-      return;
-    }
-    const t = window.setTimeout(() => setForceMse(true), 6000);
-    return () => window.clearTimeout(t);
-  }, [transport, mainStatus]);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   // Guard against the pointerdown-preconnect race: CameraTile opens fullscreen on
@@ -155,28 +138,23 @@ export function FullscreenView({ cam, onClose }: Props) {
         <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_#2ecc71]" />
         <span className="text-base font-bold text-ink-bright">{cam.display_name}</span>
         <span className="font-mono text-2xs text-ink-faint">ch{cam.channel}</span>
-        {canWebCodecs && (
+        {hasMain && (
           <button
             type="button"
-            onClick={() => {
-              setPreferWebCodecs((v) => !v);
-              setForceMse(false);
-            }}
+            onClick={() => setForceMse((v) => !v)}
             title={
-              transport === "webcodecs"
-                ? "Engine: WebCodecs — hardware decode, drops late frames (low latency, video-only). Click for buffered MSE."
-                : "Engine: MSE — buffered, plays every frame, carries audio (compatible). Click for low-latency WebCodecs."
+              !forceMse
+                ? "Engine: WebRTC — real-time, drops late frames (smooth, SmartPSS-like), auto-falls back to MSE. Click for buffered MSE."
+                : "Engine: MSE — buffered, plays every frame in order. Click for smooth WebRTC."
             }
             className={[
               "rounded px-1.5 py-0.5 text-2xs font-semibold transition",
-              transport === "webcodecs"
+              !forceMse
                 ? "bg-accent/[.12] text-accent-light hover:bg-accent/[.18]"
                 : "bg-white/[.06] text-ink-dim hover:bg-white/[.1]",
             ].join(" ")}
           >
-            {transport === "webcodecs"
-              ? "Engine: WebCodecs (low latency)"
-              : "Engine: MSE (compatible)"}
+            {!forceMse ? "Engine: WebRTC (smooth)" : "Engine: MSE (buffered)"}
           </button>
         )}
 
@@ -196,13 +174,7 @@ export function FullscreenView({ cam, onClose }: Props) {
             <button
               type="button"
               onClick={() => setAudioOn((v) => !v)}
-              title={
-                audioOn
-                  ? "Mute"
-                  : transport === "webcodecs"
-                    ? "Enable sound (switches to buffered MSE — WebCodecs is video-only)"
-                    : "Enable sound"
-              }
+              title={audioOn ? "Mute" : "Enable sound"}
               className={[
                 "flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
                 audioOn
@@ -257,26 +229,19 @@ export function FullscreenView({ cam, onClose }: Props) {
                   className="absolute inset-0 h-full w-full transition-opacity duration-300"
                   style={{ opacity: layers.mainOpaque ? 1 : 0 }}
                 >
-                  {transport === "webcodecs" ? (
-                    // 4MP main: WebCodecs hardware decode + drop-late frames → stays
-                    // live under congestion at full resolution. Falls back to MSE
-                    // (effect above) if it can't go live.
-                    <WebCodecsPlayer
-                      key="webcodecs"
-                      src={streamName(cam, "main", viaNvr)}
-                      onStatus={onMainStatus}
-                      className="absolute inset-0 h-full w-full"
-                    />
-                  ) : (
-                    <MsePlayer
-                      key="mse"
-                      src={streamName(cam, "main", viaNvr)}
-                      muted={!audioOn}
-                      mode="mse"
-                      onStatus={onMainStatus}
-                      className="absolute inset-0 h-full w-full"
-                    />
-                  )}
+                  {/* 4MP main. mode="webrtc,mse" by default: the vendor races
+                      WebRTC (drop-late → smooth) against MSE (buffered fallback) on
+                      the SAME <video>; onStatus goes "live" when currentTime starts
+                      advancing (either transport), which drives the cross-fade.
+                      key={mainMode} remounts on an engine toggle so el.mode reapplies. */}
+                  <MsePlayer
+                    key={mainMode}
+                    src={streamName(cam, "main", viaNvr)}
+                    muted={!audioOn}
+                    mode={mainMode}
+                    onStatus={onMainStatus}
+                    className="absolute inset-0 h-full w-full"
+                  />
                 </div>
               )}
             </>

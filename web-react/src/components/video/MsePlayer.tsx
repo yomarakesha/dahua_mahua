@@ -36,9 +36,13 @@ interface Props {
    * Transport. "mse" (default) buffers and plays every frame in order — great for
    * the grid (subs have huge margin), but on a marginal 4MP main it thrashes and
    * freezes. "webrtc" is real-time and DROPS late frames instead of stalling — the
-   * old-design behavior that kept the 4MP main smooth. Used for fullscreen mains.
+   * old-design behavior that keeps the 4MP main smooth (SmartPSS-like). The comma
+   * list "webrtc,mse" is a RACE: the vendor (video-rtc.js) starts both transports
+   * and WebRTC wins if it establishes, else MSE auto-fills — used for fullscreen
+   * mains so they get WebRTC smoothness with a built-in MSE fallback. The value is
+   * assigned to `el.mode` at mount; change it via a remount (`key={mode}`).
    */
-  mode?: "mse" | "webrtc";
+  mode?: "mse" | "webrtc" | "webrtc,mse";
   /** Notified when the stream status changes (so the parent can reflect it, e.g.
    *  hide a "LIVE" badge when the feed is lost). */
   onStatus?: (status: Status) => void;
