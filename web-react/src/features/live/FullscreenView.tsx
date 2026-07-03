@@ -90,6 +90,19 @@ export function FullscreenView({ cam, onClose }: Props) {
     return () => window.clearTimeout(t);
   }, [mainLive, hasSub, hasMain]);
 
+  // Fallback: if the main DIES after we tore the sub down (post-upgrade error),
+  // bring the sub back so the operator still sees the camera (via the sub) rather
+  // than a bare "signal lost" overlay with nothing behind it. Resetting mainLive
+  // makes the main layer transparent again; the main keeps self-healing beneath,
+  // and when it returns to "live" the cross-fade re-runs. No loop: once subTorn is
+  // false the guard fails, so it fires at most once per death.
+  useEffect(() => {
+    if (mainStatus === "error" && subTorn && hasSub) {
+      setSubTorn(false);
+      setMainLive(false);
+    }
+  }, [mainStatus, subTorn, hasSub]);
+
   // Fallback: if WebCodecs hasn't gone live within 6s (or errored), drop to MSE.
   useEffect(() => {
     if (transport !== "webcodecs") return;
