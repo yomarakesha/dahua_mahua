@@ -1,68 +1,84 @@
-# STABLE v3 — NVR recorded playback (live browser-verified)
+# STABLE v4 — hardening + SmartPSS-parity + Hikvision (browser-verified)
 
-**Tag:** `stable-3`  ·  **Previous:** `stable-2` (UDP 4MP live main, HTTPS, multi-NVR)
-**Branch:** `feat/nvr-playback-stream`  ·  **Status:** ✅ Stable / working, browser-verified on 10.10.1.152 (2026-07-01).
+**Tag:** `stable-4`  ·  **Previous:** `stable-3` (NVR recorded playback)
+**Branch:** `feat/nvr-playback-stream`  ·  **Status:** ✅ Stable / deployed on 10.10.1.152, browser-verified (2026-07-03).
 
-Known-good checkpoint: everything in stable-2 PLUS the full **recorded-playback**
-feature, validated end-to-end in a real browser. Restore with
-`git checkout stable-3` (then rebuild + redeploy — see below).
+Known-good checkpoint covering the 21 commits after `stable-3`: a full project-wide
+hardening pass, the SmartPSS-parity live speedups, and multi-vendor (Dahua +
+Hikvision) support. Restore with `git checkout stable-4` then rebuild + redeploy.
+Backend **328 tests** / frontend **191 tests**, all green. Every change was
+adversarially reviewed (subagent implement → review flow); reviews caught + fixed
+~10 real issues before merge.
 
-## What's new since stable-2
-- **Recorded playback** — a dedicated Playback page: NVR → camera → day → scrub a
-  clip-aware 24h timeline, play/pause/seek, fast-forward 2×/4×/8×, PNG snapshot.
-- **Backend** (`app/services/playback/`, `routers/playback.py`): per-camera-authorized
-  `/index` + `/availability` (Dahua `mediaFileFind`); a WS `/playback/{nvr}/{ch}/stream`
-  that runs one ffmpeg per session (`/cam/playback` → fMP4 over a single serialized
-  WS egress), server-side fast-forward, graceful teardown (sends RTSP TEARDOWN so the
-  NVR's playback pool isn't leaked), Job-Object process cleanup, `NvrBudget` cap,
-  `/thumb`, admin `/sessions`.
-- **Frontend** (`web-react/src/features/playback/`): purpose-built VOD MSE player
-  (own MediaSource + persistent WS, FIFO append queue, tested state machine),
-  clip-aware Timeline, client-side snapshot. Live grid: right-click a tile →
-  "Watch in Playback"; single-click NVR shows cameras / double-click expands.
-- **Smooth / Clear transport toggle** — Smooth = UDP (near-realtime, default);
-  Clear = TCP (clean image, buffers slowly) for careful review on the lossy 4MP NVR.
+## What's new since stable-3
+- **Observability / log collection** — frontend ring buffer ships console + player
+  state + WS close codes to `/api/v1/client-log` on crash (crash ships bypass the
+  throttle, beacon-overflow → fetch). React ErrorBoundary + `window.onerror` +
+  `unhandledrejection` + Query onError. Backend `RotatingFileHandler`
+  (`backend/logs/backend.log`), `X-Request-ID` on 500s, playback `session_id` in
+  init/reinit for frontend↔backend correlation. **(verified e2e: a POST to
+  /client-log lands in backend.log.)**
+- **Live-wall resilience** — stalled-tile self-heal (3 tries, ws-OPEN gated) +
+  Retry overlay; vendor reconnect **jitter** (no go2rtc-restart stampede);
+  staggered connects on page/patrol flips; hidden-tab teardown after 10s grace;
+  WebCodecs bounded retry + non-sticky MSE demotion.
+- **Watchdog works in prod** — `source_watch` now polls **go2rtc** (was MediaMTX-
+  only, i.e. the IP-ban guard never fired under the prod relay). Conservative
+  heuristic + a `source_watch_dial_grace_seconds=20` so a cold re-dial can't
+  auto-disable a healthy NVR.
+- **Backend hygiene** — `user_cameras` Alembic migration 0003 (fresh Postgres was
+  broken), settings `reencode_*` dedupe, reconcile `asyncio.Lock`, `to_thread` for
+  blocking probes, **`/readyz`** (db + relay), exec-mode orphan cleanup on NVR
+  delete, login timing-oracle fix, NVR ip/port validation (input schemas only).
+- **UX** — readable tile labels (12px + `ch{n}` + hover title), WCAG contrast
+  (`ink-faint` #8a97a0, 6.5:1), honest "Showing X/Y" (was a fake online count),
+  Smooth/Clear tooltips, dialog a11y + Esc, reduced-motion, "NVR local time"
+  caption.
+- **SmartPSS-parity (live speed)** —
+  - **Warm stream pool** (`app/services/warm_pool.py`): keeps a bounded, NvrBudget-
+    aware set of **SUBS** warm so open drops from 2.6–5s cold to **~0.5s**.
+    `POST /api/v1/live/warm`, subs only, global cap 24 / per-NVR cap 8 / 10s grace,
+    in-grace pulls counted against the caps (no page-flip overshoot).
+    **Config-gated: `WARM_POOL_ENABLED` (currently ON in the server .env).**
+  - **Instant fullscreen** — shows the SUB immediately, cross-fades to the 4MP MAIN
+    when its first frame lands; pointerdown preconnect; warm-set reporting.
+- **Multi-vendor: Hikvision** — the vendor picker is now in the main Add form (was
+  hidden under Advanced) and editable per-row with auto re-Test; Hikvision channel
+  auto-detect + camera-IP import via **ISAPI** (`/ISAPI/ContentMgmt/InputProxy/
+  channels`). RTSP path was already vendor-correct (`/Streaming/Channels/{ch*100+
+  stream}`). Verified: 192.168.20.28 streams on the Hikvision path.
 
-## Playback hard-won gotchas (do not regress)
-- **`PLAYBACK_TZ_OFFSET_MINUTES=300`** in `backend/.env` — the NVR clock is UTC+5; 0
-  makes all playback time-mapping 5h off (nothing plays).
-- **ffmpeg `-fps_mode vfr`** (NOT `-vsync`, removed in the server's ffmpeg build) —
-  else fast-forward aborts instantly.
-- **`-an` (drop audio)** — the MSE init MIME is video-only
-  (`video/mp4; codecs="avc1.640032"`); an AAC track → Chrome
-  `CHUNK_DEMUXER_ERROR` → black. Playback is muted anyway.
-- **Codec MIME = `avc1.640032`** (H.264 High L5.0 — the real libx264 avcC), not the
-  Baseline `avc1.42E01E`.
-- **RTSP endtime must not be in the future** — cap at now, else Dahua sends only the
-  init segment and no media.
-- **Player MSE**: muted (autoplay), FIFO queue flushed on `sourceopen` (don't drop the
-  init segment), seek `currentTime` into the buffered range, guard every
-  `SourceBuffer.buffered` read (a detached SB throws → crash).
+## Deployment gotchas (still true — do not regress)
+- Playback: `PLAYBACK_TZ_OFFSET_MINUTES=300`, ffmpeg `-fps_mode vfr`, `-an` (drop
+  audio or MSE CHUNK_DEMUXER_ERROR→black), codec `avc1.640032`, cap RTSP endtime
+  at now, guard every `SourceBuffer.buffered` read.
+- Live media server = **go2rtc** (API :1984, RTSP :8553, WebRTC :8556). MediaMTX is
+  legacy/off (`relay="go2rtc"`). The app orchestrates go2rtc for live; the backend
+  is its own mini media server only for **playback** (ffmpeg → fMP4 → WS).
+- Warm pool caps protect testik's (.39) concurrent-pull limit — verified in review
+  under page-flip churn. Watch NVR load if raising the caps.
 
-## Known limitations
-- **Old 4MP NVR (.15) playback** is network-limited (~25% UDP loss on the NVR→server
-  path → artifacts on Smooth; TCP/Clear is clean but ~0.15× realtime). Same physical
-  cause as the live 4MP main — real fix is rack-side. The 1080p testik NVR plays clean.
-- **Playback has no audio** (dropped for MSE compat). Follow-up: emit `mp4a.40.2` in
-  `init.codec` + an unmute control.
-- Very-recent seeks (the actively-recording last minute) may not play on some cameras.
+## Open / next (not in this tag)
+- **Main 4MP smoothness = switch the fullscreen main to WebRTC** (drop-late frames,
+  like SmartPSS). Research (2026-07-03) concluded: stay on go2rtc, don't migrate
+  servers, don't pursue the native SDK — it's a transport change. **Risk to spike
+  first:** Chrome WebRTC mandates H.264 Constrained Baseline but our mains are High
+  (`avc1.640032`) — go2rtc may pass through or transcode to Baseline. Config:
+  `webrtc: candidates: ["10.10.1.152:8556"]`, `ice_servers: []`, open TCP+UDP 8556.
+  Plan B: hardened WebCodecs (normalize SPS/PPS avcC server-side).
+- WS-engine extraction refactor (#8, maintainability). Playback audio. "Session
+  expired" toast on a 401'd write. PR #2 → merge to `main`.
 
-## Restore / redeploy this version
+## Restore / redeploy
 ```powershell
-# on the server (C:\deploy\dahua_mahua), as admin
-git fetch --all --tags
-git checkout stable-3
+git fetch --all --tags; git checkout stable-4
 cd web-react;  npm install;  npm run build
-cd ..\backend; .\.venv\Scripts\pip install -r requirements.txt   # only if deps changed
-Restart-Service dahua-backend
-Restart-Service dahua-frontend
-Restart-Service dahua-go2rtc   # only if the go2rtc stream set changed
-Restart-Service dahua-caddy
+cd ..\backend; .\.venv\Scripts\python -m alembic upgrade head
+Restart-Service dahua-backend; Restart-Service dahua-frontend
+Restart-Service dahua-go2rtc; Restart-Service dahua-caddy   # only if their config changed
 ```
-Access at `https://10.10.1.152:8443` (accept the self-signed cert once). Playback is
-under the **Playback** tab. The on-network smoke checklist lives in PR #2's description.
+Access `https://10.10.1.152:8443`. `/readyz` → `{"db":"ok","relay":"ok"}` when healthy.
 
-## Stable-2 baseline (unchanged, still true)
-4MP main at full frame rate (UDP + MPEG-TS pipe), MSE default, HTTPS via Caddy `:8443`,
-multi-NVR with go2rtc auto-restart, `MAIN_STREAM_MODE` switchable. See git history for
-`stable-2`.
+## Baselines (unchanged)
+stable-3 = NVR recorded playback. stable-2 = smooth 4MP main (UDP), HTTPS, multi-NVR.
+See git history.
