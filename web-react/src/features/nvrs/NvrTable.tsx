@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDeleteNvr, useTestNvr, useUpdateNvr } from "@/api/hooks";
 import type { Nvr, NvrHealthResult, NvrTestResult, Vendor } from "@/api/types";
@@ -65,8 +65,19 @@ function NvrRow({
   const [confirmDel, setConfirmDel] = useState(false);
   const [testResult, setTestResult] = useState<NvrTestResult | null>(null);
   // Set when the vendor was just changed inline — surfaces the recovery hint
-  // (change vendor → auto re-Test → enable) until the row is toggled/edited away.
+  // (change vendor → auto re-Test → enable) while the NVR is still disabled.
   const [vendorChanged, setVendorChanged] = useState(false);
+  // Optimistic vendor for the select: shows the operator's choice immediately
+  // instead of snapping back to the old value during the PATCH+refetch round-trip.
+  const [pendingVendor, setPendingVendor] = useState<Vendor | null>(null);
+  // Clear the optimistic value once the server state has caught up.
+  useEffect(() => {
+    if (pendingVendor && nvr.vendor === pendingVendor) setPendingVendor(null);
+  }, [nvr.vendor, pendingVendor]);
+  // Once the NVR is enabled the recovery hint has served its purpose — drop it.
+  useEffect(() => {
+    if (nvr.enabled) setVendorChanged(false);
+  }, [nvr.enabled]);
 
   function runTest() {
     test.mutate(nvr.id, {
@@ -80,8 +91,12 @@ function NvrRow({
   // the operator sees whether the new vendor's path works before enabling.
   function changeVendor(vendor: Vendor) {
     if (vendor === nvr.vendor || update.isPending) return;
+    setPendingVendor(vendor);
     setVendorChanged(true);
-    update.mutate({ id: nvr.id, body: { vendor } }, { onSuccess: () => runTest() });
+    update.mutate(
+      { id: nvr.id, body: { vendor } },
+      { onSuccess: () => runTest(), onError: () => setPendingVendor(null) },
+    );
   }
 
   return (
@@ -122,7 +137,7 @@ function NvrRow({
         <select
           aria-label="Vendor"
           title="Change vendor — re-tests the RTSP path so you can re-enable"
-          value={nvr.vendor}
+          value={pendingVendor ?? nvr.vendor}
           disabled={update.isPending}
           onChange={(e) => changeVendor(e.target.value as Vendor)}
           className="w-full min-w-0 truncate rounded-md border border-white/[.07] bg-panel px-2 py-1.5 text-sm font-semibold text-ink-soft hover:border-white/[.14] disabled:opacity-50"
@@ -172,8 +187,9 @@ function NvrRow({
         </div>
       </div>
 
-      {/* vendor-change recovery hint */}
-      {vendorChanged && (
+      {/* vendor-change recovery hint — only while still disabled (the goal is to
+          get it enabled; once enabled the effect above clears vendorChanged). */}
+      {vendorChanged && !nvr.enabled && (
         <div className="px-3.5 pb-2 text-2xs text-ink-dim">
           {update.isPending
             ? "Saving vendor…"
