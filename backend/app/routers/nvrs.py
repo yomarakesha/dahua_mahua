@@ -28,7 +28,7 @@ from app.schemas import (
     SetChannelsRequest,
 )
 from app.services import camera_import, lockouts, nvr_events, relay_sync
-from app.services.discovery import detect_dahua_channels
+from app.services.discovery import detect_dahua_channels, detect_hikvision_channels
 from app.services.rtsp_probe import probe_rtsp, tcp_reachable
 
 log = logging.getLogger("dss.nvrs")
@@ -111,6 +111,19 @@ def _derive_nvr_id(ip: str) -> str:
 
 
 _DEFAULT_FALLBACK_CHANNELS = 1
+
+
+async def _detect_channels(
+    vendor: Vendor, ip: str, username: str, password: str
+) -> int | None:
+    """Dispatch channel autodetect by vendor. Returns None for unknown vendors
+    or when the vendor-specific probe can't determine a count (caller falls
+    back to `_DEFAULT_FALLBACK_CHANNELS`)."""
+    if vendor == Vendor.dahua:
+        return await detect_dahua_channels(ip, username, password)
+    if vendor == Vendor.hikvision:
+        return await detect_hikvision_channels(ip, username, password)
+    return None
 
 
 async def _validate_region(session, region_id) -> None:
@@ -199,10 +212,10 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
     # ── Channel auto-detect — only when caller didn't pin a value.
     channels = body.channels
     if channels is None:
-        if body.vendor == Vendor.dahua and not body.skip_probe:
+        if not body.skip_probe:
             try:
-                detected = await detect_dahua_channels(
-                    body.ip, body.rtsp_username, body.rtsp_password,
+                detected = await _detect_channels(
+                    body.vendor, body.ip, body.rtsp_username, body.rtsp_password,
                 )
             except Exception as e:  # noqa: BLE001
                 log.warning("Channel autodetect for %s errored: %s", nvr_id, e)
@@ -249,7 +262,7 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
     # cameras from day one (the NVR relay drops packets on main — audit §9).
     # Failure is non-fatal: the operator can run it later via
     # POST /nvrs/{id}/import-camera-ips.
-    if body.vendor == Vendor.dahua and not body.skip_probe:
+    if body.vendor in (Vendor.dahua, Vendor.hikvision) and not body.skip_probe:
         try:
             _, imported = await camera_import.apply_camera_ips(session, nvr)
             if imported:
@@ -449,10 +462,10 @@ async def import_camera_ips(
     ).scalar_one_or_none()
     if nvr is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
-    if nvr.vendor != Vendor.dahua:
+    if nvr.vendor not in (Vendor.dahua, Vendor.hikvision):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Camera IP import is only implemented for Dahua NVRs.",
+            f"Camera IP import is not implemented for {nvr.vendor} NVRs.",
         )
 
     try:

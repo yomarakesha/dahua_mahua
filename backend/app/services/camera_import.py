@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import xml.etree.ElementTree as ET
 
 import httpx
 from sqlalchemy import select
@@ -89,6 +90,72 @@ async def fetch_camera_ips(
         r = await client.get(url, auth=httpx.DigestAuth(username, password))
         r.raise_for_status()
     return parse_remote_devices(r.text)
+
+
+# ── Hikvision (ISAPI InputProxy) ─────────────────────────────────────────────
+
+
+def _localname(tag: str) -> str:
+    """Strip the `{namespace}` prefix ElementTree prepends. Hikvision ISAPI
+    XML declares a default namespace whose URI varies across firmware, so we
+    match elements by local name."""
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def parse_input_proxy_channels(text: str) -> dict[int, str]:
+    """Parse a Hikvision `/ISAPI/ContentMgmt/InputProxy/channels` dump into
+    {nvr_channel: camera_ip}.
+
+    Each `<InputProxyChannel>` carries a 1-based `<id>` (the proxied-camera
+    channel) and a nested `<sourceInputPortDescriptor><ipAddress>`. Namespaces
+    vary, so we match by local name. Unparseable / unexpected XML → {} (import
+    nothing rather than crash).
+    """
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return {}
+
+    out: dict[int, str] = {}
+    for el in root.iter():
+        if _localname(el.tag) != "InputProxyChannel":
+            continue
+        # <id> is a direct child of the channel element; the ipAddress lives
+        # deeper under sourceInputPortDescriptor.
+        chan_id: int | None = None
+        for child in list(el):
+            if _localname(child.tag) == "id" and child.text and child.text.strip().isdigit():
+                chan_id = int(child.text.strip())
+                break
+        ip: str | None = None
+        for node in el.iter():
+            if _localname(node.tag) == "ipAddress" and node.text and node.text.strip():
+                ip = node.text.strip()
+                break
+        if chan_id is not None and ip and ip not in _PLACEHOLDER_IPS:
+            out[chan_id] = ip
+    return out
+
+
+async def fetch_camera_ips_hikvision(
+    ip: str,
+    username: str,
+    password: str,
+    *,
+    http_port: int = 80,
+    timeout: float = 8.0,
+) -> dict[int, str]:
+    """Query a Hikvision NVR's ISAPI InputProxy list and return {channel: ip}.
+
+    Raises httpx.HTTPError / httpx.HTTPStatusError on network or auth failures
+    (same contract as the Dahua `fetch_camera_ips`); an unexpected XML shape
+    parses to {} instead of raising.
+    """
+    url = f"http://{ip}:{http_port}/ISAPI/ContentMgmt/InputProxy/channels"
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        r = await client.get(url, auth=httpx.DigestAuth(username, password))
+        r.raise_for_status()
+    return parse_input_proxy_channels(r.text)
 
 
 async def _probe_rtsp(
@@ -162,7 +229,10 @@ async def apply_camera_ips(session: AsyncSession, nvr: Nvr) -> tuple[int, int]:
     those too. Channels the NVR does NOT list are left untouched.
     """
     password = decrypt_password(nvr.rtsp_password_encrypted)
-    chan_ips = await fetch_camera_ips(nvr.ip, nvr.rtsp_username, password)
+    if nvr.vendor == Vendor.hikvision:
+        chan_ips = await fetch_camera_ips_hikvision(nvr.ip, nvr.rtsp_username, password)
+    else:
+        chan_ips = await fetch_camera_ips(nvr.ip, nvr.rtsp_username, password)
     if not chan_ips:
         log.info("NVR %s: RemoteDevice list is empty — nothing to import", nvr.id)
         return 0, 0
