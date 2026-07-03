@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useDeleteNvr, useTestNvr, useUpdateNvr } from "@/api/hooks";
-import type { Nvr, NvrHealthResult, NvrTestResult } from "@/api/types";
+import type { Nvr, NvrHealthResult, NvrTestResult, Vendor } from "@/api/types";
+import { VENDORS } from "@/api/types";
 import { CameraIcon, CheckIcon, PencilIcon, PlayIcon, TrashIcon, XIcon } from "@/components/icons";
 
 const GRID = "grid-cols-[40px_1.3fr_1.2fr_1.3fr_.6fr_1fr_1fr_1.6fr]";
@@ -63,12 +64,24 @@ function NvrRow({
   const [editing, setEditing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [testResult, setTestResult] = useState<NvrTestResult | null>(null);
+  // Set when the vendor was just changed inline — surfaces the recovery hint
+  // (change vendor → auto re-Test → enable) until the row is toggled/edited away.
+  const [vendorChanged, setVendorChanged] = useState(false);
 
   function runTest() {
     test.mutate(nvr.id, {
       onSuccess: (r) => setTestResult(r),
       onError: (e) => setTestResult({ ok: false, message: (e as Error).message, banned_until: null, remaining: null }),
     });
+  }
+
+  // Changing vendor rewrites the RTSP path template (Dahua vs Hikvision), so we
+  // immediately re-validate: PATCH the vendor, then auto-run Test on success so
+  // the operator sees whether the new vendor's path works before enabling.
+  function changeVendor(vendor: Vendor) {
+    if (vendor === nvr.vendor || update.isPending) return;
+    setVendorChanged(true);
+    update.mutate({ id: nvr.id, body: { vendor } }, { onSuccess: () => runTest() });
   }
 
   return (
@@ -106,9 +119,20 @@ function NvrRow({
         <span className="truncate font-mono text-sm text-ink-soft">{nvr.ip}</span>
         <span className="font-mono text-sm text-ink-mute">{nvr.port}</span>
         <span className="truncate text-sm text-ink-mute">{nvr.rtsp_username}</span>
-        <span className="truncate rounded-md border border-white/[.07] bg-panel px-2.5 py-1.5 text-sm font-semibold text-ink-soft">
-          {nvr.vendor}
-        </span>
+        <select
+          aria-label="Vendor"
+          title="Change vendor — re-tests the RTSP path so you can re-enable"
+          value={nvr.vendor}
+          disabled={update.isPending}
+          onChange={(e) => changeVendor(e.target.value as Vendor)}
+          className="w-full min-w-0 truncate rounded-md border border-white/[.07] bg-panel px-2 py-1.5 text-sm font-semibold text-ink-soft hover:border-white/[.14] disabled:opacity-50"
+        >
+          {VENDORS.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
         <div className="flex items-center gap-1.5">
           <span className="flex h-7 items-center rounded-md border border-accent/20 bg-accent/[.10] px-2 text-xs font-semibold text-accent-light">
             {nvr.camera_count} ch
@@ -147,6 +171,19 @@ function NvrRow({
           </button>
         </div>
       </div>
+
+      {/* vendor-change recovery hint */}
+      {vendorChanged && (
+        <div className="px-3.5 pb-2 text-2xs text-ink-dim">
+          {update.isPending
+            ? "Saving vendor…"
+            : update.isError
+              ? `Vendor update failed: ${(update.error as Error).message}`
+              : test.isPending
+                ? "Vendor changed — re-testing the RTSP path…"
+                : "Vendor changed. If the test above passes, enable this NVR (toggle in the OK/ON column)."}
+        </div>
+      )}
 
       {/* inline test result badge */}
       {testResult && (

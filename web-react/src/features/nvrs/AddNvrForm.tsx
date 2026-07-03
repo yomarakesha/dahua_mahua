@@ -1,10 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { useCreateNvr } from "@/api/hooks";
 import type { NvrCreate, Vendor } from "@/api/types";
+import { VENDORS } from "@/api/types";
 import { PlusIcon, ChevronDown, ChevronRight } from "@/components/icons";
 import { PasswordInput } from "@/components/PasswordInput";
-
-const VENDORS: Vendor[] = ["dahua", "hikvision"];
 
 /** Inline "ADD NVR" form panel. Calls useCreateNvr on submit, clears on success. */
 export function AddNvrForm() {
@@ -86,6 +85,20 @@ export function AddNvrForm() {
             onChange={(e) => setChannels(e.target.value.replace(/[^\d]/g, ""))}
           />
         </Field>
+        <Field className="min-w-[120px] flex-[1.3]" label="Vendor">
+          <select
+            aria-label="Vendor"
+            className="dss-input h-[42px]"
+            value={vendor}
+            onChange={(e) => setVendor(e.target.value as Vendor)}
+          >
+            {VENDORS.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Field>
         <button
           type="submit"
           disabled={!canSubmit || create.isPending}
@@ -123,19 +136,6 @@ export function AddNvrForm() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
-          </Field>
-          <Field className="min-w-[120px] flex-1" label="Vendor">
-            <select
-              className="dss-input h-[42px]"
-              value={vendor}
-              onChange={(e) => setVendor(e.target.value as Vendor)}
-            >
-              {VENDORS.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
           </Field>
           <Field className="min-w-[120px] flex-1" label="Group">
             <input

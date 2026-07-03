@@ -1,7 +1,9 @@
 /** Types mirroring backend/app/schemas.py (kept in sync by hand). */
 
 export type Role = "admin" | "operator";
-export type Vendor = "dahua" | "hikvision";
+/** Supported NVR vendors. Single source of truth — UI selectors map over VENDORS. */
+export const VENDORS = ["dahua", "hikvision"] as const;
+export type Vendor = (typeof VENDORS)[number];
 export type StreamQuality = "sub" | "main";
 
 export interface Me {
