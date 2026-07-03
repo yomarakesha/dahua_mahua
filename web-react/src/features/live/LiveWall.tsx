@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { useCameras, useNvrs } from "@/api/hooks";
+import { useCameras, useNvrs, useWarmCameras } from "@/api/hooks";
 import { CONFIG } from "@/lib/config";
+import { recordEvent } from "@/lib/diagnostics";
 import { ChevronRight } from "@/components/icons";
 import type { Camera } from "@/api/types";
 import { LiveTopbar } from "./LiveTopbar";
 import { LiveSidebar } from "./LiveSidebar";
 import { CameraTile } from "./CameraTile";
 import { FullscreenView } from "./FullscreenView";
+import { computeWarmIds } from "./warm";
 import { useClock } from "./useClock";
 
 const PATROL = CONFIG.patrolIntervals;
@@ -87,6 +89,28 @@ export default function LiveWall() {
     );
     return () => window.clearInterval(id);
   }, [patrol, totalPages, effectivePatrolInterval]);
+
+  // Warm-set reporting: tell the backend which cameras to keep warm (current page
+  // + next page) so paging/patrol/first-open hit an already-warm producer (~0.5s
+  // vs a 2.6–5s cold dial). The endpoint SETS the desired set (backend diffs) and
+  // no-ops when the feature is disabled, so we post unconditionally and ignore
+  // errors — warming must never block the UI. Debounced ~300ms so a fast patrol
+  // dwell or rapid page flips coalesce into one report per settled view.
+  const warm = useWarmCameras();
+  const warmIds = useMemo(
+    () => computeWarmIds(filtered, page, cellCount, totalPages),
+    [filtered, page, cellCount, totalPages],
+  );
+  const warmKey = warmIds.join(",");
+  useEffect(() => {
+    if (warmIds.length === 0) return;
+    const t = window.setTimeout(() => {
+      warm.mutate(warmIds, { onError: () => {} });
+      recordEvent("warm", `${warmIds.length} cams (pg ${page + 1}/${totalPages})`);
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warmKey]);
 
   // Counts for sidebar (enabled cameras per nvr) + a load proxy.
   const countByNvr = useMemo(() => {

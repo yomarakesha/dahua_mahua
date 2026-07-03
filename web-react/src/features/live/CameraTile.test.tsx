@@ -4,7 +4,7 @@
  * navigates to /playback with the camera's NVR + channel as query params.
  */
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, createEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import { CameraTile } from "./CameraTile";
 import type { Camera } from "@/api/types";
@@ -61,6 +61,26 @@ describe("CameraTile — right-click context menu", () => {
     const { onOpen } = renderTile();
     fireEvent.click(screen.getByRole("button"));
     expect(onOpen).toHaveBeenCalledWith(CAM);
+  });
+
+  // jsdom drops the `button` init on synthetic pointer events, so set it on the
+  // native event explicitly (React reads e.button from the native event).
+  function pointerDown(el: Element, button: number) {
+    const ev = createEvent.pointerDown(el);
+    Object.defineProperty(ev, "button", { value: button });
+    fireEvent(el, ev);
+  }
+
+  it("primary-button pointerdown preconnects (opens fullscreen ~150ms early)", () => {
+    const { onOpen } = renderTile();
+    pointerDown(screen.getByRole("button"), 0);
+    expect(onOpen).toHaveBeenCalledWith(CAM);
+  });
+
+  it("non-primary pointerdown (right-click) does NOT open fullscreen", () => {
+    const { onOpen } = renderTile();
+    pointerDown(screen.getByRole("button"), 2);
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("clicking 'Watch in Playback' navigates with nvr + ch query params", () => {

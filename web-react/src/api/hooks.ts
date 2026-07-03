@@ -141,6 +141,24 @@ export function useReconcile() {
   });
 }
 
+// ── Live (warm pool) ─────────────────────────────────────────────────────────
+
+/**
+ * Report the desired "warm" camera set to the backend so it holds server-side
+ * SUB producers open (go2rtc instant-starts a warm producer in ~0.5s). The
+ * endpoint SETS the desired set (backend diffs → start/stop warmers) and no-ops
+ * server-side when the feature is disabled, so callers post unconditionally and
+ * ignore errors — warming is best-effort and must never block the UI.
+ *
+ * Body shape confirmed against the SmartPSS-parity plan: { camera_ids: [...] }
+ * where ids are Camera.id.
+ */
+export function useWarmCameras() {
+  return useMutation<unknown, Error, string[]>({
+    mutationFn: (cameraIds) => http.post<unknown>("/live/warm", { camera_ids: cameraIds }),
+  });
+}
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 export function useChangePassword() {

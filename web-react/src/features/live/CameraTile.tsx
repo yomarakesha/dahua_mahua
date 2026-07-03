@@ -56,6 +56,20 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
       <button
         type="button"
         onClick={() => onOpen(cam)}
+        // Preconnect: pointerdown fires ~150ms before the click resolves. Open
+        // fullscreen on the PRIMARY-button pointerdown so FullscreenView mounts
+        // (and starts dialing the sub) a beat earlier — the head start makes a
+        // warm sub feel instant. Non-primary buttons (right-click → context menu,
+        // middle-click) are ignored so they don't trip the fullscreen. Keyboard
+        // activation has no pointerdown and still opens via onClick. The overlay's
+        // own open-guard swallows the trailing click so it can't self-close.
+        onPointerDown={(e) => {
+          // Only the primary button (0). Skip middle/right (1/2) so the context
+          // menu and middle-click aren't hijacked. (button is always set on a real
+          // PointerEvent; `> 0` also tolerates jsdom's button-less synthetic event.)
+          if (e.button > 0) return;
+          onOpen(cam);
+        }}
         title={cam.display_name}
         aria-label={`Open ${cam.display_name} (ch${cam.channel}) fullscreen`}
         // Capture phase: the inner <video>/dss-mse element swallows the bubbling
