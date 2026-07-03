@@ -146,10 +146,14 @@ class WarmPool:
                 keys.append(key)
 
         async with self._lock:
-            accepted, dropped = self._apply_caps(keys)
+            # Post-shutdown safety: a stray call (after close_all, or before
+            # start) must NOT resurrect the pool or open any pull.
+            if not self._started:
+                return {"warming": 0, "capped": 0}
+
+            accepted, dropped, keep_grace, cancel_grace = self._plan(keys)
             self._desired = accepted
             self._last_dropped = dropped
-            accepted_set = set(accepted)
 
             if dropped:
                 # Never silently truncate — name every dropped stream + why.
@@ -162,8 +166,33 @@ class WarmPool:
                     ),
                 )
 
-            # Start workers for newly-accepted keys; cancel any pending grace
-            # timer for a key that just got re-selected (page flip back).
+            # 1) Reclaim over-cap de-selected pulls FIRST (cancel-before-start).
+            #    These keys are already off-screen (in-grace or de-selected this
+            #    pass), so tearing them down costs no UX — and doing it BEFORE we
+            #    start any new worker guarantees the live pull count never exceeds
+            #    a cap, even transiently. This is the fix for the flip-churn
+            #    overshoot (ch1–8 → ch9–16 must not stack to 16 pulls on one NVR).
+            if cancel_grace:
+                reclaimed: list[asyncio.Task] = []
+                for key in cancel_grace:
+                    g = self._grace.pop(key, None)
+                    if g is not None:
+                        g.cancel()
+                        reclaimed.append(g)
+                    t = self._tasks.pop(key, None)
+                    if t is not None:
+                        t.cancel()
+                        reclaimed.append(t)
+                if reclaimed:
+                    await asyncio.gather(*reclaimed, return_exceptions=True)
+                log.info(
+                    "warm_pool: reclaimed %d de-selected pull(s) to honour caps: %s",
+                    len(cancel_grace),
+                    ", ".join(sub_stream_name(*k) for k in cancel_grace),
+                )
+
+            # 2) Start workers for newly-accepted keys; cancel any pending grace
+            #    timer for a key that just got re-selected (page flip back).
             for key in accepted:
                 g = self._grace.pop(key, None)
                 if g is not None:
@@ -173,10 +202,12 @@ class WarmPool:
                         self._worker(key), name=f"warm-{sub_stream_name(*key)}"
                     )
 
-            # De-selected keys still running: schedule a grace-delayed cancel so
-            # a quick reopen keeps the producer warm instead of re-dialling.
-            for key in list(self._tasks):
-                if key not in accepted_set and key not in self._grace:
+            # 3) De-selected keys we can afford to KEEP warm: schedule a
+            #    grace-delayed cancel so a quick reopen keeps the producer warm
+            #    instead of re-dialling. (Keys already counting down keep their
+            #    original timer.)
+            for key in keep_grace:
+                if key not in self._grace:
                     self._grace[key] = asyncio.create_task(
                         self._grace_cancel(key),
                         name=f"warm-grace-{sub_stream_name(*key)}",
@@ -184,29 +215,78 @@ class WarmPool:
 
             return {"warming": len(accepted), "capped": len(dropped)}
 
-    def _apply_caps(
+    def _plan(
         self, keys: list[tuple[str, int]]
-    ) -> tuple[list[tuple[str, int]], list[tuple[tuple[str, int], str]]]:
-        """Split *keys* (priority order) into (accepted, dropped) honouring the
-        global and per-NVR caps. Caps are read from settings on every call so a
-        runtime config change takes effect on the next reconcile."""
+    ) -> tuple[
+        list[tuple[str, int]],
+        list[tuple[tuple[str, int], str]],
+        list[tuple[str, int]],
+        list[tuple[str, int]],
+    ]:
+        """Plan a reconcile against the CURRENTLY-LIVE pull count, not just the
+        desired set. A key whose worker is still running (accepted OR in-grace,
+        i.e. present in ``self._tasks``) is consuming a real NVR pull and MUST
+        count against the caps until its pull is actually torn down.
+
+        Returns ``(accepted, dropped, keep_grace, cancel_grace)``:
+          * *accepted*     — desired keys we warm (priority order); alone they
+            never exceed a cap.
+          * *dropped*      — desired (on-screen) keys refused because even the
+            desired set overflows a cap — ``[(key, reason), ...]`` (logged WARN).
+          * *keep_grace*   — de-selected pulls we can afford to keep warm under
+            the caps (get / keep a grace timer).
+          * *cancel_grace* — de-selected pulls that must be torn down NOW because
+            keeping them would push live pulls over a cap.
+
+        Caps are read from settings on every call so a runtime config change
+        takes effect on the next reconcile.
+        """
         settings = get_settings()
         global_max = settings.warm_pool_max_streams
         per_nvr_max = settings.warm_pool_per_nvr_max
+        desired_set = set(keys)
+
+        # Phase A — admit on-screen (desired) keys. They have absolute priority,
+        # so they are only ever refused when the DESIRED set itself overflows a
+        # cap (a genuinely on-screen camera we cannot serve). Accepted alone
+        # never exceeds a cap.
         accepted: list[tuple[str, int]] = []
         dropped: list[tuple[tuple[str, int], str]] = []
-        per_nvr: dict[str, int] = defaultdict(int)
+        acc_global = 0
+        acc_per_nvr: dict[str, int] = defaultdict(int)
         for key in keys:
             nvr_id, _channel = key
-            if len(accepted) >= global_max:
+            if acc_global >= global_max:
                 dropped.append((key, "global_cap"))
                 continue
-            if per_nvr[nvr_id] >= per_nvr_max:
+            if acc_per_nvr[nvr_id] >= per_nvr_max:
                 dropped.append((key, "per_nvr_cap"))
                 continue
             accepted.append(key)
-            per_nvr[nvr_id] += 1
-        return accepted, dropped
+            acc_global += 1
+            acc_per_nvr[nvr_id] += 1
+
+        # Phase B — of the currently-live but DE-SELECTED pulls, keep as many as
+        # fit UNDER the caps on top of the accepted set; reclaim the overflow.
+        # Prefer keeping freshly de-selected keys (the page-flip candidates the
+        # grace exists for) over keys already sitting in grace.
+        fresh = [
+            k for k in self._tasks if k not in desired_set and k not in self._grace
+        ]
+        stale = [k for k in self._grace if k not in desired_set]
+        keep_grace: list[tuple[str, int]] = []
+        cancel_grace: list[tuple[str, int]] = []
+        g_global = acc_global
+        g_per_nvr = dict(acc_per_nvr)
+        for key in fresh + stale:
+            nvr_id, _channel = key
+            if g_global < global_max and g_per_nvr.get(nvr_id, 0) < per_nvr_max:
+                keep_grace.append(key)
+                g_global += 1
+                g_per_nvr[nvr_id] = g_per_nvr.get(nvr_id, 0) + 1
+            else:
+                cancel_grace.append(key)
+        return accepted, dropped, keep_grace, cancel_grace
 
     async def _grace_cancel(self, key: tuple[str, int]) -> None:
         """After the drop-grace, tear down a de-selected worker — unless it was
