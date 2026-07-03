@@ -132,6 +132,19 @@ def parse_input_proxy_channels(text: str) -> dict[int, str]:
             if _localname(node.tag) == "ipAddress" and node.text and node.text.strip():
                 ip = node.text.strip()
                 break
+        # Guard the id→channel assumption: build_rtsp_url does channel*100+stream
+        # (ch1 → /Streaming/Channels/101), so <id> MUST be the small 1-based
+        # channel number. Standard Hikvision NVR firmware returns 1,2,3…, but a
+        # unit that already reports <id> in the streaming form (101, 201…) would
+        # double-apply the ×100 (→ /Streaming/Channels/10101, a dead stream).
+        # Skip such ids rather than write a mapping that yields a broken URL.
+        if chan_id is not None and chan_id >= 100:
+            log.warning(
+                "Hikvision InputProxy <id>=%d looks like a streaming-channel id, "
+                "not a 1-based channel — skipping (non-standard firmware).",
+                chan_id,
+            )
+            chan_id = None
         if chan_id is not None and ip and ip not in _PLACEHOLDER_IPS:
             out[chan_id] = ip
     return out
