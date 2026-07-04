@@ -137,7 +137,7 @@ class NvrCreate(NvrBase):
 class SetChannelsRequest(BaseModel):
     """Bulk-set how many channels an NVR has. Creates cameras for any missing
     channel in 1..count. With `prune=True`, also deletes channels above
-    `count` (and their MediaMTX paths). Used to populate a multi-channel NVR
+    `count` (and their go2rtc streams). Used to populate a multi-channel NVR
     in one shot instead of adding cameras one at a time."""
     count: int = Field(ge=1, le=512)
     prune: bool = False
@@ -223,17 +223,13 @@ class CameraIpImportResult(BaseModel):
 class StreamUrlResponse(BaseModel):
     """What the client receives to start playback.
 
-    `webrtc_whep_url` is the primary low-latency path; `hls_url` is the fallback.
-    Neither contains NVR credentials — both point at MediaMTX, which fans
-    out a single RTSP pull to N viewers.
+    `path` is the go2rtc stream name the player connects to. It contains no NVR
+    credentials — go2rtc fans out a single RTSP pull to N viewers.
     """
 
     camera_id: uuid.UUID
     quality: StreamQuality
     path: str
-    webrtc_whep_url: str
-    hls_url: str
-    rtsp_url: str | None = None  # exposed only to admin / on demand
 
 
 # ── Health / events ─────────────────────────────────────────────────────────

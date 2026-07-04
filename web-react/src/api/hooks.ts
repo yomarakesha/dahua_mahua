@@ -130,13 +130,13 @@ export function useDeleteCamera() {
   });
 }
 
-// ── Relay (go2rtc/MediaMTX) ──────────────────────────────────────────────────
+// ── Relay (go2rtc) ───────────────────────────────────────────────────────────
 
 export function useReconcile() {
   const invalidate = useInvalidate();
   return useMutation<unknown, Error, boolean>({
     mutationFn: (deleteOrphans) =>
-      http.post<unknown>(`/mediamtx/reconcile?delete_orphans=${deleteOrphans}`),
+      http.post<unknown>(`/nvrs/reconcile?delete_orphans=${deleteOrphans}`),
     onSuccess: invalidate,
   });
 }

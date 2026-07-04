@@ -4,10 +4,9 @@ Why go2rtc: cameras on a jittery LAN deliver frames in bursts; WebRTC's tiny
 real-time jitter buffer freezes on that even at 0% packet loss. go2rtc serves a
 buffered MSE pipeline to the browser that absorbs the bursts (proven: 6-cam grid
 went from dozens of WebRTC freezes to ~zero MSE stalls). It keeps the same
-fan-out model as MediaMTX — one on-demand RTSP pull per camera, N viewers.
+fan-out model of one on-demand RTSP pull per camera, N viewers.
 
-This client mirrors the surface of mediamtx_api.MediaMTXClient so path-sync-style
-reconcile is a drop-in. go2rtc's stream API:
+go2rtc's stream API:
     GET    /api/streams                 -> {name: {producers:[{url}], consumers}}
     PUT    /api/streams?name=N&src=URL  -> add/replace a stream
     DELETE /api/streams?src=N           -> remove (note: `src` carries the NAME)
@@ -55,7 +54,7 @@ class Go2rtcClient:
     async def list_stream_states(self) -> dict[str, dict]:
         """Per-stream runtime health from GET /api/streams, normalised to the
         SAME ``{ready, readers, source}`` shape the source watchdog already
-        consumes for MediaMTX, so the disable-decision logic is shared verbatim.
+        consumes, so the disable-decision logic stays simple.
 
         Heuristic (see source_watch for the full rationale):
           * ``readers``  = the stream's consumers (active viewers).

@@ -2,9 +2,7 @@
 
 Reuses path_sync._desired_paths (the single source of truth for which streams
 exist and their RTSP sources — sub `{nvr}_ch{N}`, direct main `{nvr}_ch{N}_main`,
-via-NVR `{nvr}_ch{N}_main_nvr`) and pushes them into go2rtc instead of MediaMTX.
-go2rtc stream names == MediaMTX path names, so the frontend's path logic is
-unchanged; only the delivery transport differs (buffered MSE vs WebRTC).
+via-NVR `{nvr}_ch{N}_main_nvr`) and pushes them into go2rtc.
 """
 
 from __future__ import annotations

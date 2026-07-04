@@ -2,10 +2,9 @@
 
 Lifespan responsibilities (in order):
   1. Ensure a bootstrap admin exists (only if the user table is empty).
-  2. Reconcile relay streams from the DB — go2rtc by default (settings.relay),
-     idempotent and tolerant of an unreachable relay (we log and move on; admins
-     can retry from POST /mediamtx/reconcile, which is relay-aware).
-  3. (Legacy) if `mediamtx_managed=True`, spawn MediaMTX as a child process.
+  2. Reconcile go2rtc streams from the DB — idempotent and tolerant of an
+     unreachable relay (we log and move on; admins can retry from
+     POST /nvrs/reconcile).
 
 Routers live under `settings.api_prefix` (default `/api/v1`).
 """
@@ -31,7 +30,6 @@ from app.routers import (
     discovery,
     events,
     live as live_router,
-    mediamtx as mediamtx_router,
     nvrs,
     playback as playback_router,
     regions,
@@ -39,8 +37,7 @@ from app.routers import (
     users,
 )
 from app.security import hash_password
-from app.services import path_sync, source_watch
-from app.services.mediamtx_api import get_client, shutdown_client
+from app.services import source_watch
 from app.settings import get_settings
 
 log = logging.getLogger("dss.main")
@@ -89,27 +86,17 @@ async def _ensure_bootstrap_admin() -> None:
 
 
 async def _initial_reconcile() -> None:
-    """Best-effort stream sync on startup against the active relay. If the relay
-    isn't reachable yet, log and continue — the admin can retry once it's up."""
-    settings = get_settings()
-    if settings.relay == "go2rtc":
-        from app.services import go2rtc_api, go2rtc_sync
-        try:
-            await go2rtc_api.get_client().ping()
-        except Exception:  # noqa: BLE001
-            log.warning("go2rtc not reachable at startup — skipping initial reconcile")
-            return
-        async with SessionLocal() as session:
-            report = await go2rtc_sync.reconcile(session, delete_orphans=False)
-        log.info("Startup reconcile (go2rtc): %s", report)
-        return
-    client = get_client()
-    if not await client.ping():
-        log.warning("MediaMTX not reachable at startup — skipping initial reconcile")
+    """Best-effort go2rtc stream sync on startup. If go2rtc isn't reachable yet,
+    log and continue — the admin can retry once it's up."""
+    from app.services import go2rtc_api, go2rtc_sync
+    try:
+        await go2rtc_api.get_client().ping()
+    except Exception:  # noqa: BLE001
+        log.warning("go2rtc not reachable at startup — skipping initial reconcile")
         return
     async with SessionLocal() as session:
-        report = await path_sync.reconcile(session, delete_orphans=False)
-    log.info("Startup reconcile: %s", report.summary())
+        report = await go2rtc_sync.reconcile(session, delete_orphans=False)
+    log.info("Startup reconcile (go2rtc): %s", report)
 
 
 def _configure_logging(settings) -> None:
@@ -156,7 +143,7 @@ def _configure_logging(settings) -> None:
 async def lifespan(app: FastAPI):
     settings = get_settings()
     _configure_logging(settings)
-    # httpx logs every request at INFO — the source watchdog polls MediaMTX
+    # httpx logs every request at INFO — the source watchdog polls go2rtc
     # every few seconds, so that would flood the console. Keep it to warnings.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -168,14 +155,10 @@ async def lifespan(app: FastAPI):
     await _ensure_schema()
     await _ensure_bootstrap_admin()
 
-    if settings.mediamtx_managed:
-        from app.services import mediamtx_proc
-        mediamtx_proc.start()
-
     # Recover NVRs the watchdog disabled in a previous session BEFORE the
-    # startup reconcile — so the reconcile recreates their MediaMTX paths.
-    # (Re-enabling after reconcile would leave them enabled but unstreamable:
-    # the paths were removed on auto-disable and nothing would re-add them.)
+    # startup reconcile — so the reconcile recreates their go2rtc streams.
+    # (Re-enabling after reconcile would leave them enabled but unstreamable
+    # until the next reconcile.)
     await source_watch.reenable_auto_disabled()
     await _initial_reconcile()
     source_watch.start()
@@ -223,13 +206,9 @@ async def lifespan(app: FastAPI):
         # No orphan ffmpeg: close every active playback session (Contract #11).
         await _pb_session.close_all()
         await source_watch.stop()
-        await shutdown_client()
         # go2rtc client owns an httpx pool created lazily during reconcile; close it.
         from app.services import go2rtc_api
         await go2rtc_api.close_client()
-        if settings.mediamtx_managed:
-            from app.services import mediamtx_proc
-            mediamtx_proc.stop()
 
 
 def create_app() -> FastAPI:
@@ -258,7 +237,7 @@ def create_app() -> FastAPI:
     )
 
     prefix = settings.api_prefix
-    for r in (auth, regions, users, nvrs, cameras, streams, events, mediamtx_router, discovery, client_log, playback_router, live_router):
+    for r in (auth, regions, users, nvrs, cameras, streams, events, discovery, client_log, playback_router, live_router):
         app.include_router(r.router, prefix=prefix)
 
     @app.get("/healthz", tags=["meta"])
@@ -269,9 +248,9 @@ def create_app() -> FastAPI:
     async def readyz(response: Response) -> dict:
         """Readiness probe: verifies the backend can actually serve traffic, not
         just that the process is up (that's /healthz). Checks the DB (a trivial
-        SELECT 1) and, when go2rtc is the active relay, that the relay API answers.
-        Returns 200 only if every check is "ok", else 503. Never raises and never
-        leaks internal error detail — the body is a fixed per-check status map."""
+        SELECT 1) and that the go2rtc relay API answers. Returns 200 only if every
+        check is "ok", else 503. Never raises and never leaks internal error
+        detail — the body is a fixed per-check status map."""
         checks: dict[str, str] = {}
 
         try:
@@ -282,12 +261,8 @@ def create_app() -> FastAPI:
             checks["db"] = "fail"
 
         try:
-            if settings.relay == "go2rtc":
-                from app.services import go2rtc_api
-                await go2rtc_api.get_client().ping()
-            else:
-                if not await get_client().ping():
-                    raise RuntimeError("relay ping failed")
+            from app.services import go2rtc_api
+            await go2rtc_api.get_client().ping()
             checks["relay"] = "ok"
         except Exception:  # noqa: BLE001
             checks["relay"] = "fail"

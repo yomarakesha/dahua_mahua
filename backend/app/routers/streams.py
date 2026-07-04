@@ -1,12 +1,11 @@
-"""Stream URL handout — what the player actually fetches.
+"""Stream handout — resolves a camera to its relay stream name + audit row.
 
-This endpoint is the *only* way for an operator to learn how to play a camera.
-It performs:
+This endpoint performs:
   1. RBAC check (admin everywhere; operator only inside their regions).
   2. Logs a `StreamSession` row for audit / concurrency telemetry.
-  3. Returns MediaMTX-side URLs (WebRTC + HLS). Crucially the response NEVER
-     contains the NVR IP, RTSP user, or password. The operator only ever
-     talks to MediaMTX; MediaMTX talks to the NVR (once, fanned out).
+  3. Returns the go2rtc stream `path`. The response NEVER contains the NVR IP,
+     RTSP user, or password — the operator's player connects to go2rtc by
+     stream name; go2rtc talks to the NVR (once, fanned out).
 """
 
 from __future__ import annotations
@@ -18,29 +17,13 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import select
 
 from app.deps import CurrentUser, SessionDep, authorize_camera
-from app.models import Camera, Nvr, Role, StreamQuality, StreamSession
+from app.models import Camera, Nvr, StreamQuality, StreamSession
 from app.schemas import StreamUrlResponse
 from app.services import path_sync
-from app.settings import get_settings
 
 log = logging.getLogger("dss.streams")
 
 router = APIRouter(prefix="/streams", tags=["streams"])
-
-
-def _webrtc_whep_url(base: str, path: str) -> str:
-    """MediaMTX exposes WHEP at `<webrtc_base>/<path>/whep`."""
-    return f"{base.rstrip('/')}/{path}/whep"
-
-
-def _hls_url(base: str, path: str) -> str:
-    """MediaMTX low-latency HLS playlist at `<hls_base>/<path>/index.m3u8`."""
-    return f"{base.rstrip('/')}/{path}/index.m3u8"
-
-
-def _proxied_rtsp_url(base: str, path: str) -> str:
-    """Pull from MediaMTX (no NVR creds), e.g. for admin debug / VLC."""
-    return f"{base.rstrip('/')}/{path}"
 
 
 @router.get("/{camera_id}", response_model=StreamUrlResponse)
@@ -64,7 +47,6 @@ async def get_stream_urls(
     if quality == StreamQuality.main and not camera.has_main:
         raise HTTPException(status.HTTP_409_CONFLICT, "Camera has no main-stream")
 
-    settings = get_settings()
     path = path_sync.path_name(camera.nvr_id, camera.channel, quality)
 
     session.add(
@@ -82,15 +64,6 @@ async def get_stream_urls(
         camera_id=camera.id,
         quality=quality,
         path=path,
-        webrtc_whep_url=_webrtc_whep_url(settings.mediamtx_webrtc_url, path),
-        hls_url=_hls_url(settings.mediamtx_hls_url, path),
-        # Only admins get the (still creds-free) RTSP URL — operators don't
-        # need it and shouldn't be able to share it from the browser.
-        rtsp_url=(
-            _proxied_rtsp_url(settings.mediamtx_rtsp_url, path)
-            if user.role == Role.admin
-            else None
-        ),
     )
 
 

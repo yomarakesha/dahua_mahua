@@ -4,7 +4,7 @@ Schema overview:
   • User           — operators and admins, login credentials
   • Region         — geographic/organisational unit (RBAC boundary)
   • Nvr            — physical NVR device, fan-out source
-  • Camera         — single channel on an NVR, mapped to two MediaMTX paths (sub + main)
+  • Camera         — single channel on an NVR, mapped to two go2rtc streams (sub + main)
   • UserRegion     — M2M access grant for operators (admin role bypasses this)
   • NvrEvent       — audit log: auth ok/fail, IP banned, auto-disabled, etc.
   • StreamSession  — who watched what, when (audit + concurrency telemetry)
@@ -130,7 +130,7 @@ class Nvr(Base):
     __tablename__ = "nvrs"
 
     # String PK matches existing nvr_inventory.json ids ("nvr01" etc.) so the
-    # MediaMTX path names stay stable across the migration.
+    # go2rtc stream names stay stable across the migration.
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     label: Mapped[str] = mapped_column(String(128), nullable=False)
     ip: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -169,7 +169,7 @@ class Camera(Base):
     )
     channel: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    # Camera's own LAN IP. When set, the main-stream MediaMTX path pulls
+    # Camera's own LAN IP. When set, the main-stream go2rtc source pulls
     # straight from the camera (the NVR's RTSP relay drops packets on main —
     # see docs/audit-plan.md §9); NULL keeps the legacy via-NVR source.
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -184,11 +184,6 @@ class Camera(Base):
     @property
     def display_name(self) -> str:
         return self.name or f"{self.nvr_id} ch{self.channel}"
-
-    def mediamtx_path(self, quality: StreamQuality) -> str:
-        """MediaMTX path name — must match what path_sync generates."""
-        suffix = "_main" if quality == StreamQuality.main else ""
-        return f"{self.nvr_id}_ch{self.channel}{suffix}"
 
 
 # ── Audit / runtime state ───────────────────────────────────────────────────

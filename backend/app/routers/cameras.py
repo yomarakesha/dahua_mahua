@@ -25,11 +25,11 @@ router = APIRouter(prefix="/cameras", tags=["cameras"])
 
 
 async def _try_reconcile(session, delete_orphans: bool, ctx: str) -> None:
-    """Run reconcile but never let a MediaMTX outage fail the DB write."""
+    """Run reconcile but never let a go2rtc outage fail the DB write."""
     try:
         await relay_sync.reconcile(session, delete_orphans=delete_orphans)
     except Exception as e:
-        log.warning("MediaMTX reconcile failed after %s: %s", ctx, e)
+        log.warning("go2rtc reconcile failed after %s: %s", ctx, e)
 
 
 def _to_read(cam: Camera, nvr: Nvr) -> CameraRead:
@@ -121,8 +121,8 @@ async def update_camera(
         setattr(cam, field, value)
     await session.commit()
     nvr = (await session.execute(select(Nvr).where(Nvr.id == cam.nvr_id))).scalar_one()
-    # Stream toggles change the set of MediaMTX paths we want; an IP change
-    # flips the _main path's source between camera-direct and via-NVR.
+    # Stream toggles change the set of go2rtc streams we want; an IP change
+    # flips the _main stream's source between camera-direct and via-NVR.
     if {"enabled", "has_sub", "has_main", "ip"} & data.keys():
         await _try_reconcile(session, delete_orphans=True, ctx=f"camera {camera_id} update")
     return _to_read(cam, nvr)

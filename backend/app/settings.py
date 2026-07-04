@@ -52,23 +52,10 @@ class Settings(BaseSettings):
     # url-safe base64 string. Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
     nvr_secret_key: str = _DEFAULT_NVR_SECRET_KEY
 
-    # ── MediaMTX ─────────────────────────────────────────────────────────────
-    mediamtx_api_url: str = "http://localhost:9997"
-    mediamtx_webrtc_url: str = "http://localhost:8889"
-    mediamtx_hls_url: str = "http://localhost:8888"
-    mediamtx_rtsp_url: str = "rtsp://localhost:8554"
-    # When true, backend manages MediaMTX as a child process.
-    # When false (e.g. inside docker-compose), MediaMTX runs separately.
-    mediamtx_managed: bool = False
-    mediamtx_bin: str = "mediamtx"
-    mediamtx_config_path: str = "mediamtx.yml"
-
     # ── go2rtc (buffered MSE relay) ──────────────────────────────────────────
-    # relay = "go2rtc" (MSE, default) or "mediamtx" (legacy WebRTC). go2rtc's
-    # buffered MSE pipeline absorbs bursty/jittery camera frame delivery that
-    # freezes WebRTC at 0% packet loss — see docs/perf-tuning.md. The React
-    # frontend speaks go2rtc/MSE only, so this is the default it expects.
-    relay: str = "go2rtc"
+    # go2rtc is the sole relay: its buffered MSE pipeline absorbs bursty/jittery
+    # camera frame delivery that freezes plain WebRTC at 0% packet loss (see
+    # docs/perf-tuning.md), and it also serves WebRTC for the fullscreen main.
     go2rtc_api_url: str = "http://localhost:1984"
     # Browser-facing base the frontend uses for the MSE/WebRTC WebSocket.
     go2rtc_ws_url: str = "ws://localhost:1984"
@@ -77,8 +64,8 @@ class Settings(BaseSettings):
     # Cameras ship a ~2s GOP (keyframe interval); on any jitter the picture
     # freezes up to 2s waiting for the next keyframe. Re-encoding to a short
     # forced keyframe interval cuts recovery to a blink. This is THE thing that
-    # made 4MP stable pre-redesign (was MediaMTX runOnDemand; here it's a go2rtc
-    # `exec:ffmpeg` source). NOT the transport. On-demand → only streams being
+    # made 4MP stable pre-redesign (a go2rtc `exec:ffmpeg` on-demand source).
+    # NOT the transport. On-demand → only streams being
     # viewed are encoded, so concurrency is bounded by viewers, not 34 channels.
     # On the server set REENCODE_ENABLED=true + REENCODE_VCODEC=h264_qsv (Intel
     # QuickSync iGPU). vcodec=libx264 is the portable CPU fallback (heavier).
@@ -169,7 +156,7 @@ class Settings(BaseSettings):
     main_close_after: str = "60s"
 
     # ── Source watchdog ──────────────────────────────────────────────────────
-    # Polls MediaMTX's runtime API and auto-disables an NVR whose source keeps
+    # Polls go2rtc's runtime API and auto-disables an NVR whose source keeps
     # failing while a viewer is pulling it — before the camera firmware bans
     # our account for repeated failed RTSP auths. Disable only fires when the
     # NVR has NO working channel (so one offline camera won't kill the NVR).
@@ -198,7 +185,7 @@ class Settings(BaseSettings):
     # are counted only after the NVR has been failing continuously this long.
     source_watch_dial_grace_seconds: float = 20.0
     # Startup grace period. On a cold start the grid immediately pulls streams
-    # while MediaMTX is still spinning up the on-demand RTSP sources, so for the
+    # while go2rtc is still spinning up the on-demand RTSP sources, so for the
     # first few seconds every path is "active but not ready" — which looks
     # exactly like an auth failure to the watchdog and made it disable healthy
     # NVRs on every boot. During this window we poll but never disable, giving

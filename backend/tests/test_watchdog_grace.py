@@ -14,23 +14,18 @@ from app.services import go2rtc_api, source_watch
 
 
 class _FakeClient:
+    """Returns a pre-normalised {name: {ready, readers, source}} map — the shape
+    go2rtc_api.Go2rtcClient.list_stream_states yields after parsing /api/streams."""
+
     paths: dict = {}
 
-    async def list_active_paths(self):
+    async def list_stream_states(self):
         return _FakeClient.paths
 
 
-def _set_relay(monkeypatch, relay: str) -> None:
-    """Pin the relay for a test without mutating the cached settings singleton."""
-    monkeypatch.setattr(
-        source_watch, "get_settings", lambda: type("S", (), {"relay": relay})()
-    )
-
-
-def _patch(monkeypatch, relay: str = "mediamtx"):
+def _patch(monkeypatch):
     disabled_nvrs: list[str] = []
-    _set_relay(monkeypatch, relay)
-    monkeypatch.setattr(source_watch, "get_client", lambda: _FakeClient())
+    monkeypatch.setattr(go2rtc_api, "get_client", lambda: _FakeClient())
 
     async def _dn(nvr_id, reason):
         disabled_nvrs.append(nvr_id)
@@ -141,7 +136,6 @@ class _FakeGo2rtcClient:
 
 def _patch_go2rtc(monkeypatch):
     disabled_nvrs: list[str] = []
-    _set_relay(monkeypatch, "go2rtc")
     _FakeGo2rtcClient.raise_exc = None
     _FakeGo2rtcClient.states = {}
     monkeypatch.setattr(go2rtc_api, "get_client", lambda: _FakeGo2rtcClient())

@@ -3,7 +3,7 @@
 Cameras ship a ~2s GOP; on any jitter the picture freezes up to 2s waiting for
 the next keyframe. Re-encoding each stream to a short forced keyframe interval
 (default 0.5s) cuts recovery to a blink — the single change that made 4MP stable
-pre-redesign (then MediaMTX `runOnDemand`; here a go2rtc `exec:ffmpeg` source).
+pre-redesign (a go2rtc `exec:ffmpeg` on-demand source).
 
 This wraps a raw RTSP source URL into a go2rtc `exec:` ffmpeg command that pulls
 the camera and republishes a short-GOP H.264 stream into go2rtc's `{output}`
@@ -103,7 +103,7 @@ def reencode_enabled_for(settings: Any, quality: StreamQuality) -> bool:
 
 def _encoder_flags(settings: Any) -> str:
     """Encoder-specific output flags for low-latency, faithful to the pre-redesign
-    `path_sync._reencode_cmd` (commit 3712cc6). vcodec is resolved (auto → probed)."""
+    re-encode command (commit 3712cc6). vcodec is resolved (auto → probed)."""
     vcodec = resolve_vcodec(settings)
     preset = settings.reencode_preset or "veryfast"
     if vcodec == "libx264":
