@@ -64,6 +64,7 @@ vi.mock("@/api/hooks", () => ({
   useCameras: () => ({ data: MOCK_CAMERAS, isLoading: false }),
   useRecordingAvailability: () => ({ data: null, isLoading: false }),
   useRecordingIndex: () => ({ data: mockState.index, isLoading: false }),
+  useRecordingDays: () => ({ data: null, isLoading: false }),
 }));
 
 afterEach(() => {
@@ -98,10 +99,13 @@ describe("PlaybackPage", () => {
     expect(camSelect.disabled).toBe(true);
   });
 
-  it("renders date input", () => {
+  it("renders date picker trigger showing today's date", () => {
     renderPage();
-    const dateInput = screen.getByLabelText(/date/i);
-    expect(dateInput).toBeTruthy();
+    // The plain <input type=date> was replaced by the RecordingsCalendar popover;
+    // its trigger is a button labelled "Date" showing the selected date string.
+    const dateBtn = screen.getByRole("button", { name: /date/i });
+    expect(dateBtn).toBeTruthy();
+    expect(dateBtn.textContent).toContain(new Date().toISOString().slice(0, 10));
   });
 
   it("renders all four speed buttons", () => {
@@ -214,8 +218,8 @@ describe("PlaybackPage — deep link (?nvr=&ch=)", () => {
     const camSelect = screen.getByRole("combobox", { name: /camera/i }) as HTMLSelectElement;
     expect(camSelect.value).toBe("cam2");
 
-    const dateInput = screen.getByLabelText(/date/i) as HTMLInputElement;
-    expect(dateInput.value).toBe(new Date().toISOString().slice(0, 10));
+    const dateBtn = screen.getByRole("button", { name: /date/i });
+    expect(dateBtn.textContent).toContain(new Date().toISOString().slice(0, 10));
   });
 
   it("ignores an unknown deep-link camera and behaves like no params", () => {

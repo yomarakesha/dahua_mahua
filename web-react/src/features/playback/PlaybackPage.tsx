@@ -12,6 +12,7 @@ import Timeline from "./Timeline";
 import PlaybackPlayer from "./PlaybackPlayer";
 import type { PlaybackControls } from "./PlaybackPlayer";
 import TransportBar from "./TransportBar";
+import RecordingsCalendar from "./RecordingsCalendar";
 import { useSnapshot } from "./useSnapshot";
 import type { FootageAnchor, PlayerState } from "./types";
 
@@ -179,8 +180,8 @@ export default function PlaybackPage() {
     setPlayhead(null);
   }
 
-  function handleDateChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = e.target.value; // "YYYY-MM-DD"
+  function handleDateSelect(val: string) {
+    // "YYYY-MM-DD" from the RecordingsCalendar popover.
     setSelectedDate(val);
     // Keep viewMonth in sync so availability refetches for the visible month
     if (val.length >= 7) setViewMonth(val.slice(0, 7));
@@ -274,24 +275,16 @@ export default function PlaybackPage() {
           </select>
         </div>
 
-        {/* Date picker */}
-        <div className="relative flex flex-col gap-0.5">
-          <label
-            htmlFor="pb-date"
-            className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim"
-          >
-            {t("playback.date")}
-          </label>
-          <input
-            id="pb-date"
-            type="date"
-            aria-label={t("playback.date")}
-            value={selectedDate}
-            min={oldestDate ?? undefined}
-            max={maxDate}
+        {/* Date picker — calendar popover highlighting days with recordings */}
+        <div className="relative">
+          <RecordingsCalendar
+            nvrId={selectedNvrId}
+            channel={channel}
+            selectedDate={selectedDate}
+            onSelect={handleDateSelect}
+            minDate={oldestDate}
+            maxDate={maxDate}
             disabled={!selectedCamId}
-            onChange={handleDateChange}
-            className="h-8 rounded-md border border-white/[.08] bg-[#161b22] px-2 text-sm text-ink-soft focus:outline-none focus:ring-1 focus:ring-accent/50 disabled:opacity-40"
           />
           {oldestDate && (
             // Absolutely positioned so it never contributes to this column's
