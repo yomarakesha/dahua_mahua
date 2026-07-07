@@ -2,7 +2,7 @@
  * FullscreenView engine-selection tests — the 4MP MAIN now streams via go2rtc
  * WebRTC (drop-late → SmartPSS-like smoothness) with automatic MSE fallback.
  *
- * The MAIN must mount with mode="webrtc,mse" by default (the vendor races WebRTC
+ * The MAIN must mount with mode="webrtc" by default (WebRTC only; app-level MSE fallback on failure
  * against MSE on the same <video>), and mode="mse" when the operator forces the
  * MSE engine via the toggle. The SUB layer stays plain MSE.
  */
@@ -47,9 +47,9 @@ function subLayer() {
 }
 
 describe("FullscreenView — WebRTC main with MSE fallback", () => {
-  it("mounts the MAIN with mode='webrtc,mse' by default (WebRTC preferred)", () => {
+  it("mounts the MAIN with mode='webrtc' by default (WebRTC preferred)", () => {
     render(<FullscreenView cam={CAM} onClose={vi.fn()} />);
-    expect(mainLayer().getAttribute("data-mode")).toBe("webrtc,mse");
+    expect(mainLayer().getAttribute("data-mode")).toBe("webrtc");
   });
 
   it("keeps the SUB layer on plain MSE", () => {
@@ -69,11 +69,11 @@ describe("FullscreenView — WebRTC main with MSE fallback", () => {
     expect(mainLayer().getAttribute("data-mode")).toBe("mse");
   });
 
-  it("toggling back returns the MAIN to mode='webrtc,mse'", () => {
+  it("toggling back returns the MAIN to mode='webrtc'", () => {
     render(<FullscreenView cam={CAM} onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /engine: webrtc/i }));
     fireEvent.click(screen.getByRole("button", { name: /engine: mse/i }));
-    expect(mainLayer().getAttribute("data-mode")).toBe("webrtc,mse");
+    expect(mainLayer().getAttribute("data-mode")).toBe("webrtc");
   });
 
   it("Escape closes the view (a11y preserved)", () => {
