@@ -16,6 +16,7 @@ import RecordingsCalendar from "./RecordingsCalendar";
 import ClipExportButton from "./ClipExportButton";
 import { useSnapshot } from "./useSnapshot";
 import { useVideoZoom } from "./useVideoZoom";
+import { useSkipSeekFF } from "./useSkipSeekFF";
 import type { FootageAnchor, PlayerState } from "./types";
 
 type Speed = 1 | 2 | 4 | 8;
@@ -167,6 +168,18 @@ export default function PlaybackPage() {
     hasSelection && !!selectedDate,
   );
 
+  // ── Fast-forward via client skip-seek (backend is always 1x) ─────────────────
+  // At speed>1 the timeline playhead is stepped forward at Nx over the working
+  // 1x stream; when it catches the live/day edge we drop back to 1x.
+  const dropToNormalSpeed = useCallback(() => setSpeed(1), []);
+  useSkipSeekFF({
+    speed,
+    playheadEpoch: playhead,
+    dayEndEpoch: indexData?.day_end_epoch ?? 0,
+    onSeek: commitSeek,
+    onReachedEnd: dropToNormalSpeed,
+  });
+
   // ── Snapshot (Task 15) ──────────────────────────────────────────────────────
   // tzOffsetMinutes comes from the loaded RecordingIndex; default 0 before it loads.
   const tzOffsetMinutes = indexData?.tz_offset_minutes ?? 0;
@@ -317,12 +330,14 @@ export default function PlaybackPage() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Speed selector — server-side decimation; <video>.playbackRate stays 1.0 (Contract #13) */}
+        {/* Speed selector — client skip-seek FF (backend plays 1x; this NVR only
+            streams at realtime, so 2/4/8x jump-scan the recording). */}
         <div className="flex items-center gap-1" aria-label={t("playback.speedControlLabel")}>
           {([1, 2, 4, 8] as const).map((s) => (
             <button
               key={s}
               aria-label={t("playback.speedButton", { speed: s })}
+              title={s > 1 ? t("playback.ffSampled") : undefined}
               aria-pressed={speed === s}
               onClick={() => setSpeed(s)}
               className={[
@@ -404,7 +419,10 @@ export default function PlaybackPage() {
             nvrId={selectedNvrId}
             channel={channel}
             seekTarget={effectiveSeek}
-            speed={speed}
+            // The backend ALWAYS plays 1x (this NVR only streams at realtime;
+            // server-side FF is impossible). Fast-forward is client skip-seeking
+            // via useSkipSeekFF below, which advances `seekTarget` at Nx.
+            speed={1}
             transport={transport}
             videoRef={videoRef}
             controlsRef={controlsRef}
