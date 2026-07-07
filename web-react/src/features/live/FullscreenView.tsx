@@ -31,17 +31,19 @@ export function FullscreenView({ cam, onClose }: Props) {
   // as a per-camera fallback when a camera isn't directly reachable.
   const [viaNvr, setViaNvr] = useState(false);
 
-  // Transport ("engine") for the main. WebRTC is the DEFAULT via the vendor race
-  // `mode="webrtc,mse"`: video-rtc.js starts BOTH transports and WebRTC wins if it
-  // establishes (real-time, DROPS late frames → SmartPSS-like smoothness on the
-  // 4MP main), else MSE auto-fills (buffered, plays every frame). Both carry AUDIO.
-  // The engine toggle lets the operator force plain "mse" to A/B compare. The grid
-  // is always MSE.
+  // Transport ("engine") for the main. WebRTC is the DEFAULT (real-time, DROPS late
+  // frames → SmartPSS-like smoothness on the 4MP main; carries AUDIO). We use
+  // `mode="webrtc"` ALONE — NOT the vendor's `"webrtc,mse"` race — because that race
+  // runs the MSE side concurrently: WebRTC wins and drives the <video> via srcObject,
+  // but the losing MSE transport keeps receiving the 4MP WS bytes and appending into
+  // video-rtc.js's fixed MSE buffer that the <video> never consumes → `Uint8Array.set
+  // offset out of bounds` spamming 1000s/sec. Instead: WebRTC only, and if it can't
+  // go live we fall back to a SINGLE MSE transport via `forceMse` (effect below).
   const [mainStatus, setMainStatus] = useState<PlayerStatus>("connecting");
-  // Engine toggle state: false → WebRTC-preferred ("webrtc,mse"), true → forced
-  // plain MSE. Resets to WebRTC-preferred on every camera switch.
+  // Engine toggle / fallback state: false → WebRTC, true → plain MSE. Resets to
+  // WebRTC on every camera switch; the effect below auto-falls-back on WebRTC failure.
   const [forceMse, setForceMse] = useState(false);
-  const mainMode: "webrtc,mse" | "mse" = forceMse ? "mse" : "webrtc,mse";
+  const mainMode: "webrtc" | "mse" = forceMse ? "mse" : "webrtc";
 
   const hasSub = cam.has_sub;
   const hasMain = cam.has_main;
@@ -75,6 +77,23 @@ export function FullscreenView({ cam, onClose }: Props) {
     setMainLive(false);
     setSubTorn(false);
   }, [cam.id, forceMse]);
+
+  // WebRTC → MSE auto-fallback (replaces the vendor `webrtc,mse` race we can't use).
+  // WebRTC gets ~6s to reach "live"; if it errors or times out, force a SINGLE MSE
+  // transport instead. On the default (WebRTC-preferred) path only; once forced to
+  // MSE we stay there for this view. Reset per camera by the cam.id effect above, so
+  // each camera gets a fresh WebRTC attempt. The sub keeps showing underneath while
+  // this resolves, so the operator never sees a gap.
+  useEffect(() => {
+    if (forceMse) return; // already on MSE
+    if (mainStatus === "live") return; // WebRTC succeeded
+    if (mainStatus === "error") {
+      setForceMse(true); // WebRTC failed → buffered MSE
+      return;
+    }
+    const t = window.setTimeout(() => setForceMse(true), 6000); // WebRTC too slow → MSE
+    return () => window.clearTimeout(t);
+  }, [forceMse, mainStatus]);
 
   // Cross-fade → tear the sub down. Once the main is live and has faded in over
   // the sub, free the sub socket (its pull is now wasted). Only when there's a
