@@ -37,16 +37,13 @@ def test_footage_epoch_1x():
     assert footage_epoch_at(1000, 0.0, 1, 5.0) == 1005
 
 
-def test_footage_epoch_2x():
-    assert footage_epoch_at(1000, 0.0, 2, 5.0) == 1010
-
-
-def test_footage_epoch_4x():
-    assert footage_epoch_at(1000, 0.0, 4, 5.0) == 1020
-
-
-def test_footage_epoch_8x():
-    assert footage_epoch_at(1000, 0.0, 8, 5.0) == 1040
+def test_footage_epoch_ignores_speed():
+    # ffmpeg always plays 1x (no server-side FF on this realtime-only NVR); the
+    # `speed` arg is retained for signature back-compat but IGNORED. Footage
+    # advances at wall-clock 1x regardless of speed; FF is client skip-seeking.
+    assert footage_epoch_at(1000, 0.0, 2, 5.0) == 1005
+    assert footage_epoch_at(1000, 0.0, 4, 5.0) == 1005
+    assert footage_epoch_at(1000, 0.0, 8, 5.0) == 1005
 
 
 def test_footage_epoch_zero_elapsed_zero_t0():
@@ -59,9 +56,9 @@ def test_footage_epoch_truncates_fractional_elapsed():
 
 
 @pytest.mark.parametrize("speed", [1, 2, 4, 8])
-def test_footage_epoch_parametrized_speeds(speed):
-    t0, wall_start, now = 5000, 10.0, 17.0  # 7s elapsed
-    assert footage_epoch_at(t0, wall_start, speed, now) == t0 + 7 * speed
+def test_footage_epoch_1x_regardless_of_speed(speed):
+    t0, wall_start, now = 5000, 10.0, 17.0  # 7s elapsed, always 1x
+    assert footage_epoch_at(t0, wall_start, speed, now) == t0 + 7
 
 
 @pytest.mark.parametrize("speed", [1, 2, 4, 8])
@@ -93,15 +90,15 @@ def test_argv_speed1_has_no_vf_or_fps_mode():
     assert "-fps_mode" not in argv
 
 
-def test_argv_speed_gt1_has_select_filter_and_fps_mode_vfr():
-    # -fps_mode vfr (NOT the removed -vsync): verified on the server's ffmpeg
-    # build 2026-07-01 — `-vsync` is unrecognized there and aborts FF entirely.
-    argv = _argv(speed=2)
-    assert "-vf" in argv
-    vf = argv[argv.index("-vf") + 1]
-    assert vf.startswith("select=not(mod(n")
-    assert "-fps_mode" in argv
-    assert argv[argv.index("-fps_mode") + 1] == "vfr"
+def test_argv_never_has_speed_filter_at_any_speed():
+    # Server-side FF was removed: the old `-vf select=not(mod(n,speed))`
+    # decimation produced a black screen (too few frames to close an fMP4
+    # fragment on this low-fps NVR) AND can't beat realtime RTSP delivery.
+    # ffmpeg always plays 1x now; FF is client-side skip-seeking. No -vf ever.
+    for speed in (2, 4, 8):
+        argv = _argv(speed=speed)
+        assert "-vf" not in argv
+        assert "-fps_mode" not in argv
 
 
 def test_argv_pipe1_is_last():
@@ -376,13 +373,15 @@ async def test_set_speed_clears_ring_of_stale_fragments():
         await sess.close()
 
 
-def test_footage_now_uses_t0_and_speed():
+def test_footage_now_advances_1x_regardless_of_speed():
+    # ffmpeg always plays 1x now; footage advances at wall-clock 1x even if a
+    # legacy speed>1 is set on the session (FF is client-side skip-seeking).
     sess = _session()
     sess.t0 = 1000
     sess._wall_start = 100.0
     sess.speed = 2
     with patch("app.services.playback.session.time.monotonic", return_value=105.0):
-        assert sess.footage_now() == 1010
+        assert sess.footage_now() == 1005
 
 
 def test_footage_now_frozen_while_paused():

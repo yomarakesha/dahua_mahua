@@ -86,7 +86,11 @@ def footage_epoch_at(t0: int, wall_start: float, speed: int, now_wall: float) ->
     Args:
         t0:         Footage epoch (UTC) at the keyframe where ffmpeg started.
         wall_start: Monotonic time when ffmpeg started (``time.monotonic()``).
-        speed:      Playback speed multiplier (1, 2, 4, 8).
+        speed:      Retained for signature/back-compat; IGNORED. ffmpeg always
+                    plays the recording at 1x (no server-side FF — the NVR only
+                    streams at realtime), so footage advances at 1x wall-clock.
+                    Fast-forward is client-side skip-seeking (each jump respawns
+                    at a new ``t0``), which this tracks correctly at 1x.
         now_wall:   Current monotonic time.
 
     Returns:
@@ -94,7 +98,7 @@ def footage_epoch_at(t0: int, wall_start: float, speed: int, now_wall: float) ->
 
     The WS heartbeat uses this to emit ``{type:"clock"}`` (Contract #3).
     """
-    return t0 + int((now_wall - wall_start) * speed)
+    return t0 + int(now_wall - wall_start)
 
 
 def _build_ffmpeg_argv(
@@ -140,14 +144,16 @@ def _build_ffmpeg_argv(
     ]
     if maxrate_kbps > 0:
         argv += ["-maxrate", f"{maxrate_kbps}k", "-bufsize", f"{maxrate_kbps}k"]
-    # Speed filter (server-side frame decimation; Contract #13).
-    if speed > 1:
-        # INTEGRATION NOTE: validate this filter on the real NVR stream.
-        # Selects every (speed)th frame and remaps timestamps so the client
-        # sees continuous realtime media time while each second covers `speed`
-        # seconds of footage time.
-        argv += ["-vf", f"select=not(mod(n\\,{speed})),setpts=N/(FRAME_RATE*TB)"]
-        argv += ["-fps_mode", "vfr"]
+    # NO server-side speed filter. This NVR streams recorded footage over RTSP at
+    # ~realtime (verified: raw copy = the recording's natural bitrate), so you
+    # physically cannot render footage faster than it arrives. The old
+    # `-vf select=not(mod(n,speed))` frame-decimation approach ALSO produced a
+    # black screen: on this low/variable-fps 4MP stream, dropping 3-of-4 frames
+    # left too few frames to ever close an fMP4 fragment, so the client only ever
+    # got the init segment (818 bytes, 0 moof — verified 2026-07-07). Fast-forward
+    # is therefore done CLIENT-SIDE by skip-seeking over this working 1x stream
+    # (the frontend steps `seek` forward at Nx). ffmpeg here always plays 1x.
+    # `speed` is retained in the API/log only; it no longer changes the encode.
     # Drop audio (-an): the init MIME we hand MSE is video-only
     # (video/mp4; codecs="avc1..."), so an AAC track in the fMP4 makes Chrome
     # reject the whole append — CHUNK_DEMUXER_ERROR "audio object type 0x40 does
