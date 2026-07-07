@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import {
   useCameras,
@@ -23,6 +24,7 @@ const GRID = "grid-cols-[40px_44px_minmax(0,1.6fr)_minmax(0,1.2fr)_56px_56px_64p
 
 /** Admin screen: per-NVR channel (camera) configuration. Route /nvrs/:nvrId/channels */
 export default function CameraChannels() {
+  const { t } = useTranslation();
   const { nvrId = "" } = useParams<{ nvrId: string }>();
   const nvrs = useNvrs();
   const cameras = useCameras();
@@ -62,9 +64,9 @@ export default function CameraChannels() {
         <div className="mx-auto flex max-w-[820px] flex-col gap-4 p-5 lg:p-7">
           <BackLink />
           <div className="dss-panel p-8 text-center">
-            <p className="text-base font-semibold text-ink">Recorder not found</p>
+            <p className="text-base font-semibold text-ink">{t("nvrs.recorderNotFound")}</p>
             <p className="mt-1 text-sm text-ink-dim">
-              No NVR with id <span className="font-mono text-ink-soft">{nvrId}</span>.
+              {t("nvrs.noNvrWithId")} <span className="font-mono text-ink-soft">{nvrId}</span>.
             </p>
           </div>
         </div>
@@ -99,13 +101,13 @@ export default function CameraChannels() {
           </div>
           <div>
             <h1 className="flex items-baseline gap-2 text-[17px] font-extrabold text-ink-bright">
-              Cameras —{" "}
+              {t("nvrs.camerasHeading")}{" "}
               <span className="font-mono text-sm font-bold text-ink-soft">
                 {nvr ? nvr.label : nvrId}
               </span>
             </h1>
             <p className="text-sm text-ink-dim">
-              Channel configuration · <span className="font-mono">{nvrId}</span>
+              {t("nvrs.channelConfiguration")} <span className="font-mono">{nvrId}</span>
             </p>
           </div>
         </header>
@@ -114,7 +116,7 @@ export default function CameraChannels() {
         <section className="dss-panel p-4">
           <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
             <div className="flex-1">
-              <div className="dss-label mb-2.5 tracking-[1.2px]">Set total channels</div>
+              <div className="dss-label mb-2.5 tracking-[1.2px]">{t("nvrs.setTotalChannels")}</div>
               <div className="flex flex-wrap items-center gap-3">
                 <input
                   type="number"
@@ -125,7 +127,7 @@ export default function CameraChannels() {
                     setCount(e.target.value);
                   }}
                   className="dss-input h-10 w-24 font-mono text-sm font-bold"
-                  aria-label="Total channels"
+                  aria-label={t("nvrs.totalChannels")}
                 />
                 <label className="flex select-none items-center gap-2 text-sm text-ink-mute">
                   <input
@@ -134,7 +136,7 @@ export default function CameraChannels() {
                     onChange={(e) => setPrune(e.target.checked)}
                     className="h-[17px] w-[17px] rounded accent-accent"
                   />
-                  Prune extra
+                  {t("nvrs.pruneExtra")}
                 </label>
               </div>
             </div>
@@ -145,7 +147,7 @@ export default function CameraChannels() {
                 onClick={applyCount}
                 className="dss-btn-primary h-10 px-8 text-sm"
               >
-                {setChannels.isPending ? "Applying…" : "Apply"}
+                {setChannels.isPending ? t("nvrs.applying") : t("nvrs.apply")}
               </button>
             </div>
           </div>
@@ -154,7 +156,7 @@ export default function CameraChannels() {
           )}
           {setChannels.isSuccess && !setChannels.isPending && (
             <p className="mt-2 flex items-center gap-1 text-xs text-accent-light">
-              <CheckIcon size={11} /> Channels set to {setChannels.data.camera_count}.
+              <CheckIcon size={11} /> {t("nvrs.channelsSetTo", { count: setChannels.data.camera_count })}
             </p>
           )}
         </section>
@@ -163,7 +165,7 @@ export default function CameraChannels() {
         <section className="dss-panel p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <span className="dss-label tracking-[1.2px]">
-              Channels ({cameras.isLoading ? "…" : channels.length})
+              {t("nvrs.channels")} ({cameras.isLoading ? "…" : channels.length})
             </span>
             <div className="flex flex-wrap gap-2">
               <button
@@ -175,7 +177,7 @@ export default function CameraChannels() {
                 className="flex h-[30px] items-center gap-1.5 rounded-md border border-white/[.12] bg-panel px-3 text-sm font-semibold text-ink hover:text-ink-bright disabled:opacity-50"
               >
                 <PlusIcon size={13} className="text-accent-light" />
-                {createCamera.isPending ? "Adding…" : "Add channel"}
+                {createCamera.isPending ? t("nvrs.adding") : t("nvrs.addChannel")}
               </button>
               <button
                 type="button"
@@ -184,7 +186,7 @@ export default function CameraChannels() {
                 className="flex h-[30px] items-center gap-1.5 rounded-md border border-white/[.07] bg-panel px-3 text-sm font-semibold text-ink-mute hover:text-ink-soft disabled:opacity-50"
               >
                 <RefreshIcon size={13} className={importIps.isPending ? "animate-spin" : ""} />
-                {importIps.isPending ? "Refreshing…" : "Refresh IPs"}
+                {importIps.isPending ? t("nvrs.refreshing") : t("nvrs.refreshIps")}
               </button>
             </div>
           </div>
@@ -197,8 +199,8 @@ export default function CameraChannels() {
           )}
           {importResult && (
             <p className="mb-2 flex items-center gap-1 text-xs text-accent-light">
-              <CheckIcon size={11} /> {importResult.message} (found {importResult.found}, updated{" "}
-              {importResult.updated})
+              <CheckIcon size={11} /> {importResult.message} (
+              {t("nvrs.foundUpdated", { found: importResult.found, updated: importResult.updated })})
             </p>
           )}
 
@@ -209,12 +211,12 @@ export default function CameraChannels() {
               <div
                 className={`grid ${GRID} gap-2.5 px-3.5 pb-2 text-2xs font-extrabold uppercase tracking-wider text-ink-faint`}
               >
-                <span>On</span>
-                <span>Ch</span>
-                <span>Name</span>
-                <span>Camera IP</span>
-                <span>Sub</span>
-                <span>Main</span>
+                <span>{t("nvrs.colOn")}</span>
+                <span>{t("nvrs.colCh")}</span>
+                <span>{t("common.name")}</span>
+                <span>{t("nvrs.cameraIp")}</span>
+                <span>{t("nvrs.sub")}</span>
+                <span>{t("nvrs.main")}</span>
                 <span />
                 <span />
               </div>
@@ -223,11 +225,11 @@ export default function CameraChannels() {
                 <ListSkeleton />
               ) : cameras.isError ? (
                 <p className="px-2 py-6 text-sm text-danger">
-                  Failed to load cameras: {(cameras.error as Error).message}
+                  {t("nvrs.camerasLoadFailed", { message: (cameras.error as Error).message })}
                 </p>
               ) : channels.length === 0 ? (
                 <div className="rounded-xl border border-white/[.06] bg-deep/60 px-4 py-10 text-center text-sm text-ink-dim">
-                  No channels yet — set a total above or add one.
+                  {t("nvrs.noChannels")}
                 </div>
               ) : (
                 <div className="space-y-1.5">
@@ -245,18 +247,20 @@ export default function CameraChannels() {
 }
 
 function BackLink() {
+  const { t } = useTranslation();
   return (
     <Link
       to="/nvrs"
       className="flex w-fit items-center gap-1 text-sm font-semibold text-ink-mute hover:text-ink-soft"
     >
       <ChevronRight size={14} className="rotate-180" />
-      Back to recorders
+      {t("nvrs.backToRecorders")}
     </Link>
   );
 }
 
 function ChannelRow({ cam }: { cam: Camera }) {
+  const { t } = useTranslation();
   const update = useUpdateCamera();
   const del = useDeleteCamera();
 
@@ -293,7 +297,7 @@ function ChannelRow({ cam }: { cam: Camera }) {
         <Toggle
           on={cam.enabled}
           disabled={update.isPending}
-          title={cam.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+          title={cam.enabled ? t("nvrs.enabledClickDisable") : t("nvrs.disabledClickEnable")}
           onClick={() => toggle("enabled")}
         />
 
@@ -317,7 +321,7 @@ function ChannelRow({ cam }: { cam: Camera }) {
           {!cam.ip && (
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-light shadow-glow"
-              title="No direct IP — streamed via NVR"
+              title={t("nvrs.noDirectIp")}
             />
           )}
           <input
@@ -327,7 +331,7 @@ function ChannelRow({ cam }: { cam: Camera }) {
             onKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
             }}
-            placeholder="via NVR"
+            placeholder={t("nvrs.viaNvr")}
             className="h-8 w-full rounded-lg border border-white/[.06] bg-panel px-2.5 font-mono text-xs text-ink-soft outline-none placeholder:text-ink-faint focus:border-accent/40"
           />
         </div>
@@ -336,14 +340,14 @@ function ChannelRow({ cam }: { cam: Camera }) {
         <Toggle
           on={cam.has_sub}
           disabled={update.isPending}
-          title="Sub stream"
+          title={t("nvrs.subStream")}
           onClick={() => toggle("has_sub")}
         />
         {/* main */}
         <Toggle
           on={cam.has_main}
           disabled={update.isPending}
-          title="Main stream"
+          title={t("nvrs.mainStream")}
           onClick={() => toggle("has_main")}
         />
 
@@ -356,7 +360,7 @@ function ChannelRow({ cam }: { cam: Camera }) {
               onClick={commit}
               className="flex h-6 items-center rounded-md border border-accent/20 bg-accent/[.10] px-2.5 text-xs font-semibold text-accent-light hover:bg-accent/20 disabled:opacity-50"
             >
-              {update.isPending ? "…" : "Save"}
+              {update.isPending ? "…" : t("common.save")}
             </button>
           )}
         </div>
@@ -366,7 +370,7 @@ function ChannelRow({ cam }: { cam: Camera }) {
           <button
             type="button"
             onClick={() => setConfirmDel(true)}
-            title="Delete channel"
+            title={t("nvrs.deleteChannel")}
             className="flex h-6 w-6 items-center justify-center rounded-md border border-danger/20 bg-danger/[.10] text-danger hover:bg-danger/20"
           >
             <TrashIcon size={12} />
@@ -378,14 +382,14 @@ function ChannelRow({ cam }: { cam: Camera }) {
 
       {confirmDel && (
         <div className="flex items-center gap-2 border-t border-white/[.06] px-3.5 py-2.5">
-          <span className="text-xs text-ink-soft">Delete channel {cam.channel}?</span>
+          <span className="text-xs text-ink-soft">{t("nvrs.deleteChannelConfirm", { channel: cam.channel })}</span>
           <div className="ml-auto flex gap-2">
             <button
               type="button"
               onClick={() => setConfirmDel(false)}
               className="dss-btn-ghost h-7 px-3 text-xs"
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               type="button"
@@ -393,7 +397,7 @@ function ChannelRow({ cam }: { cam: Camera }) {
               onClick={() => del.mutate(cam.id, { onSuccess: () => setConfirmDel(false) })}
               className="dss-btn-danger h-7 px-3 text-xs"
             >
-              {del.isPending ? "Deleting…" : "Delete"}
+              {del.isPending ? t("nvrs.deleting") : t("common.delete")}
             </button>
           </div>
         </div>

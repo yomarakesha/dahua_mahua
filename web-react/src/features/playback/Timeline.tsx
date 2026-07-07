@@ -18,6 +18,7 @@
  */
 
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { RecordingClip } from "@/api/types";
 import type { PlayerState } from "./types";
 import { epochToNvrTimeStr, snapToNearest } from "./playback-utils";
@@ -109,6 +110,7 @@ export default function Timeline({
   onPrevClip,
   onNextClip,
 }: TimelineProps) {
+  const { t } = useTranslation();
   const barRef = useRef<HTMLDivElement>(null);
   const [dragState, setDragState] = useState<DragState>({ dragging: false });
 
@@ -257,8 +259,8 @@ export default function Timeline({
     <div className="relative flex flex-col select-none px-6">
       {/* Prev clip button — left edge (≥32px hit target) */}
       <button
-        aria-label="Previous clip"
-        title="Previous clip"
+        aria-label={t("playback.previousClip")}
+        title={t("playback.previousClip")}
         disabled={isDisabled || playheadEpoch === null || clips.length === 0}
         onClick={seekToPrevClip}
         className="absolute -left-2 top-0 z-10 flex h-14 w-8 items-center justify-center text-ink-dim transition hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-30"
@@ -268,8 +270,8 @@ export default function Timeline({
 
       {/* Next clip button — right edge (≥32px hit target) */}
       <button
-        aria-label="Next clip"
-        title="Next clip"
+        aria-label={t("playback.nextClip")}
+        title={t("playback.nextClip")}
         disabled={isDisabled || playheadEpoch === null || clips.length === 0}
         onClick={seekToNextClip}
         className="absolute -right-2 top-0 z-10 flex h-14 w-8 items-center justify-center text-ink-dim transition hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-30"
@@ -287,7 +289,7 @@ export default function Timeline({
         aria-valuetext={
           playheadEpoch !== null
             ? epochToNvrTimeStr(playheadEpoch, tzOffsetMinutes)
-            : "no position"
+            : t("playback.noPosition")
         }
         aria-disabled={isDisabled}
         tabIndex={0}
@@ -386,7 +388,7 @@ export default function Timeline({
 
       {/* Clock caption — operators must know which clock the axis is in. */}
       <div className="mt-0.5 text-right text-[10px] font-medium uppercase tracking-wide text-ink-faint select-none">
-        NVR local time
+        {t("playback.nvrLocalTime")}
       </div>
     </div>
   );

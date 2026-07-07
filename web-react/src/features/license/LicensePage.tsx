@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { KeyIcon, CheckIcon, XIcon, RefreshIcon } from "@/components/icons";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/api/client";
@@ -15,11 +16,11 @@ function classify(s: LicenseStatus | null): StateKind {
   return "invalid";
 }
 
-const BADGE: Record<StateKind, { label: string; cls: string }> = {
-  valid: { label: "Licensed", cls: "border-accent/25 bg-accent/[.12] text-accent-light" },
-  expired: { label: "Expired", cls: "border-warn/25 bg-warn/[.10] text-warn" },
-  invalid: { label: "Invalid", cls: "border-danger/25 bg-danger/[.10] text-danger" },
-  none: { label: "Unlicensed", cls: "border-white/[.08] bg-white/[.04] text-ink-mute" },
+const BADGE: Record<StateKind, { labelKey: string; cls: string }> = {
+  valid: { labelKey: "license.badgeValid", cls: "border-accent/25 bg-accent/[.12] text-accent-light" },
+  expired: { labelKey: "license.badgeExpired", cls: "border-warn/25 bg-warn/[.10] text-warn" },
+  invalid: { labelKey: "license.badgeInvalid", cls: "border-danger/25 bg-danger/[.10] text-danger" },
+  none: { labelKey: "license.badgeUnlicensed", cls: "border-white/[.08] bg-white/[.04] text-ink-mute" },
 };
 
 /** Labelled read-only value column. */
@@ -33,6 +34,7 @@ function Info({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function FingerprintPanel({ fingerprint }: { fingerprint: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const copy = useCallback(() => {
     if (!fingerprint) return;
@@ -47,9 +49,9 @@ function FingerprintPanel({ fingerprint }: { fingerprint: string }) {
 
   return (
     <section className="dss-panel p-5">
-      <div className="dss-label mb-3 tracking-[1.4px]">Machine fingerprint</div>
+      <div className="dss-label mb-3 tracking-[1.4px]">{t("license.machineFingerprint")}</div>
       <p className="mb-3 text-sm text-ink-dim">
-        Send this code to your vendor to obtain or renew a license. It is unique to this machine.
+        {t("license.fingerprintHelp")}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <code className="flex-1 break-all rounded-md border border-white/[.08] bg-black/30 px-3 py-2 font-mono text-sm text-ink-soft">
@@ -62,7 +64,7 @@ function FingerprintPanel({ fingerprint }: { fingerprint: string }) {
           disabled={!fingerprint}
         >
           {copied ? <CheckIcon size={14} /> : null}
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("license.copied") : t("license.copy")}
         </button>
       </div>
     </section>
@@ -70,19 +72,20 @@ function FingerprintPanel({ fingerprint }: { fingerprint: string }) {
 }
 
 function StatusPanel({ status }: { status: LicenseStatus | null }) {
+  const { t } = useTranslation();
   const kind = classify(status);
   const badge = BADGE[kind];
   return (
     <section className="dss-panel p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <span className="dss-label tracking-[1.4px]">License status</span>
+        <span className="dss-label tracking-[1.4px]">{t("license.statusTitle")}</span>
         <span
           className={[
             "inline-flex items-center rounded-md border px-2.5 py-0.5 text-2xs font-bold uppercase tracking-wider",
             badge.cls,
           ].join(" ")}
         >
-          {badge.label}
+          {t(badge.labelKey)}
         </span>
       </div>
 
@@ -103,12 +106,12 @@ function StatusPanel({ status }: { status: LicenseStatus | null }) {
 
       {status && (status.customer || status.valid || kind === "expired") ? (
         <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-          <Info label="Customer" value={status.customer || "—"} />
-          <Info label="Site" value={status.site_id || "—"} />
-          <Info label="Issued" value={status.issued || "—"} />
-          <Info label="Expires" value={status.expires || "Perpetual"} />
+          <Info label={t("license.customer")} value={status.customer || "—"} />
+          <Info label={t("license.site")} value={status.site_id || "—"} />
+          <Info label={t("license.issued")} value={status.issued || "—"} />
+          <Info label={t("license.expires")} value={status.expires || t("license.perpetual")} />
           <Info
-            label="Days left"
+            label={t("license.daysLeft")}
             value={
               status.days_left === null || status.days_left === undefined
                 ? status.expires
@@ -118,11 +121,14 @@ function StatusPanel({ status }: { status: LicenseStatus | null }) {
             }
           />
           <Info
-            label="Limits"
-            value={`${status.limits?.max_cameras ?? "—"} cams · ${status.limits?.max_nvrs ?? "—"} NVRs`}
+            label={t("license.limits")}
+            value={t("license.limitsValue", {
+              cams: status.limits?.max_cameras ?? "—",
+              nvrs: status.limits?.max_nvrs ?? "—",
+            })}
           />
           <div className="col-span-2 flex flex-col gap-1 sm:col-span-3">
-            <span className="dss-label">Features</span>
+            <span className="dss-label">{t("license.features")}</span>
             <div className="flex flex-wrap gap-1.5">
               {status.features && status.features.length > 0 ? (
                 status.features.map((f) => (
@@ -140,13 +146,14 @@ function StatusPanel({ status }: { status: LicenseStatus | null }) {
           </div>
         </div>
       ) : (
-        <p className="text-sm text-ink-dim">No license is installed on this machine.</p>
+        <p className="text-sm text-ink-dim">{t("license.noLicenseInstalled")}</p>
       )}
     </section>
   );
 }
 
 function ActivatePanel({ onActivated }: { onActivated: (s: LicenseStatus) => void }) {
+  const { t } = useTranslation();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -159,7 +166,7 @@ function ActivatePanel({ onActivated }: { onActivated: (s: LicenseStatus) => voi
       const content = await file.text();
       setText(content);
     } catch {
-      setError("Could not read the selected file.");
+      setError(t("license.errReadFile"));
     }
   }
 
@@ -172,13 +179,13 @@ function ActivatePanel({ onActivated }: { onActivated: (s: LicenseStatus) => voi
       const status = await uploadLicense(text);
       onActivated(status);
       if (status.valid) {
-        setOk("License activated.");
+        setOk(t("license.licenseActivated"));
         setText("");
       } else {
-        setError(status.reason || "License is not valid.");
+        setError(status.reason || t("license.licenseNotValid"));
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to upload license.");
+      setError(e instanceof ApiError ? e.message : t("license.errUploadFailed"));
     } finally {
       setBusy(false);
     }
@@ -188,11 +195,12 @@ function ActivatePanel({ onActivated }: { onActivated: (s: LicenseStatus) => voi
     <section className="dss-panel p-5">
       <div className="mb-4 flex items-center gap-2">
         <KeyIcon size={15} className="text-accent-light" />
-        <span className="dss-label tracking-[1.4px]">Activate license</span>
+        <span className="dss-label tracking-[1.4px]">{t("license.activateTitle")}</span>
       </div>
       <p className="mb-3 text-sm text-ink-dim">
-        Paste the contents of your <code className="font-mono text-ink-soft">.lic</code> file, or
-        upload it below.
+        {t("license.pastePrefix")}{" "}
+        <code className="font-mono text-ink-soft">{t("license.licExtension")}</code>{" "}
+        {t("license.pasteSuffix")}
       </p>
       <textarea
         className="dss-input min-h-[140px] w-full resize-y font-mono text-xs"
@@ -202,7 +210,7 @@ function ActivatePanel({ onActivated }: { onActivated: (s: LicenseStatus) => voi
       />
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <label className="dss-btn-ghost h-[38px] cursor-pointer px-4">
-          Choose .lic file
+          {t("license.chooseLicFile")}
           <input
             type="file"
             accept=".lic,.json,application/json,text/plain"
@@ -220,7 +228,7 @@ function ActivatePanel({ onActivated }: { onActivated: (s: LicenseStatus) => voi
           onClick={() => void activate()}
           disabled={busy || text.trim() === ""}
         >
-          {busy ? "Activating…" : "Activate"}
+          {busy ? t("license.activating") : t("license.activate")}
         </button>
         {error && (
           <span className="flex items-center gap-1.5 text-sm text-danger">
@@ -238,6 +246,7 @@ function ActivatePanel({ onActivated }: { onActivated: (s: LicenseStatus) => voi
 }
 
 export default function LicensePage() {
+  const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -268,8 +277,8 @@ export default function LicensePage() {
               <KeyIcon size={17} />
             </div>
             <div>
-              <h1 className="text-[17px] font-extrabold text-ink-bright">License</h1>
-              <p className="text-sm text-ink-dim">Activation, entitlements and machine binding</p>
+              <h1 className="text-[17px] font-extrabold text-ink-bright">{t("license.title")}</h1>
+              <p className="text-sm text-ink-dim">{t("license.subtitle")}</p>
             </div>
           </div>
           <button
@@ -279,7 +288,7 @@ export default function LicensePage() {
             disabled={loading}
           >
             <RefreshIcon size={14} />
-            Refresh
+            {t("common.refresh")}
           </button>
         </header>
 
@@ -289,7 +298,7 @@ export default function LicensePage() {
           <ActivatePanel onActivated={setStatus} />
         ) : (
           <p className="text-sm text-ink-dim">
-            Only an administrator can install or update the license file.
+            {t("license.adminOnlyNotice")}
           </p>
         )}
       </div>

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { login } from "@/api/client";
 import { useAuth } from "@/lib/auth";
 import { LogoMark } from "@/components/Logo";
@@ -7,6 +8,7 @@ import { useBranding, splitBrandName } from "@/lib/branding";
 
 /** 01 · Sign in — centered dark glass card over a radial-glow backdrop. */
 export default function LoginPage() {
+  const { t } = useTranslation();
   const { me, setMe } = useAuth();
   const brand = useBranding();
   const { head, tail } = splitBrandName(brand.name);
@@ -31,7 +33,7 @@ export default function LoginPage() {
       // Always land on the live wall — no forced password change after login.
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setError(err instanceof Error ? err.message : t("login.signInFailed"));
       setPending(false);
     }
   }
@@ -96,7 +98,7 @@ export default function LoginPage() {
               <span className="text-accent">{tail}</span>
             </div>
             <div className="text-sm font-medium tracking-wide text-ink-dim">
-              Video surveillance console
+              {t("login.subtitle")}
             </div>
           </div>
         </div>
@@ -105,7 +107,7 @@ export default function LoginPage() {
 
         {/* username */}
         <label htmlFor="login-username" className="dss-label mb-2 block">
-          Username
+          {t("login.username")}
         </label>
         <div className="mb-[18px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)_/_.10)]">
           <svg
@@ -127,14 +129,14 @@ export default function LoginPage() {
             autoFocus
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="admin"
+            placeholder={t("login.usernamePlaceholder")}
             className="w-full bg-transparent text-sm font-medium text-ink outline-none placeholder:text-ink-faint"
           />
         </div>
 
         {/* password */}
         <label htmlFor="login-password" className="dss-label mb-2 block">
-          Password
+          {t("login.password")}
         </label>
         <div className="mb-[26px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)_/_.10)]">
           <svg
@@ -161,7 +163,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={() => setShowPassword((v) => !v)}
-            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-label={showPassword ? t("common.hidePassword") : t("common.showPassword")}
             className="ml-auto shrink-0 text-ink-faint transition hover:text-ink-mute"
           >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -190,7 +192,7 @@ export default function LoginPage() {
               "linear-gradient(180deg,rgb(var(--brand-primary-bright)),rgb(var(--brand-primary-dark)))",
           }}
         >
-          {pending ? "Signing in…" : "Sign in"}
+          {pending ? t("login.signingIn") : t("login.signIn")}
           {!pending && (
             <svg
               width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
@@ -202,8 +204,8 @@ export default function LoginPage() {
         </button>
 
         <div className="mt-[18px] text-center text-sm text-ink-dim">
-          Forgot credentials?{" "}
-          <span className="font-semibold text-accent">Contact admin</span>
+          {t("login.forgotCredentials")}{" "}
+          <span className="font-semibold text-accent">{t("login.contactAdmin")}</span>
         </div>
       </form>
     </div>

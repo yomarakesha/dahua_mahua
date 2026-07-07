@@ -4,6 +4,7 @@ import { streamName } from "@/api/types";
 import { XIcon, VolumeOn, VolumeOff, ServerIcon, CameraIcon } from "@/components/icons";
 import type { Camera } from "@/api/types";
 import { fullscreenLayers, FADE_MS, TEAR_GRACE_MS } from "./fullscreen-upgrade";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   cam: Camera;
@@ -20,6 +21,7 @@ interface Props {
  * muted). All the main-layer controls (engine, via-NVR, sound) act on the main.
  */
 export function FullscreenView({ cam, onClose }: Props) {
+  const { t } = useTranslation();
   // Audio is OFF by default; the user enables it with the speaker button (a
   // user gesture, which browsers require to start audio). Only here in the
   // main/fullscreen view — grid tiles stay muted. Audio rides the MAIN layer.
@@ -145,7 +147,7 @@ export function FullscreenView({ cam, onClose }: Props) {
       ref={dialogRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`${cam.display_name} — fullscreen live view`}
+      aria-label={t("live.fullscreenLiveView", { name: cam.display_name })}
       tabIndex={-1}
       className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-sm focus:outline-none"
       onClick={() => {
@@ -156,15 +158,15 @@ export function FullscreenView({ cam, onClose }: Props) {
       <div className="flex flex-none items-center gap-3 px-6 py-4" onClick={(e) => e.stopPropagation()}>
         <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgb(var(--brand-primary))]" />
         <span className="text-base font-bold text-ink-bright">{cam.display_name}</span>
-        <span className="font-mono text-2xs text-ink-faint">ch{cam.channel}</span>
+        <span className="font-mono text-2xs text-ink-faint">{t("live.channelShort")}{cam.channel}</span>
         {hasMain && (
           <button
             type="button"
             onClick={() => setForceMse((v) => !v)}
             title={
               !forceMse
-                ? "Engine: WebRTC — real-time, drops late frames (smooth, SmartPSS-like), auto-falls back to MSE. Click for buffered MSE."
-                : "Engine: MSE — buffered, plays every frame in order. Click for smooth WebRTC."
+                ? t("live.engineWebrtcTooltip")
+                : t("live.engineMseTooltip")
             }
             className={[
               "rounded px-1.5 py-0.5 text-2xs font-semibold transition",
@@ -173,7 +175,7 @@ export function FullscreenView({ cam, onClose }: Props) {
                 : "bg-white/[.06] text-ink-dim hover:bg-white/[.1]",
             ].join(" ")}
           >
-            {!forceMse ? "Engine: WebRTC (smooth)" : "Engine: MSE (buffered)"}
+            {!forceMse ? t("live.engineWebrtc") : t("live.engineMse")}
           </button>
         )}
 
@@ -182,18 +184,18 @@ export function FullscreenView({ cam, onClose }: Props) {
             <button
               type="button"
               onClick={() => setViaNvr((v) => !v)}
-              title={viaNvr ? "Source: via NVR — switch to direct camera" : "Source: direct camera — switch to via NVR"}
+              title={viaNvr ? t("live.sourceViaNvrTooltip") : t("live.sourceDirectTooltip")}
               className="flex h-9 items-center gap-2 rounded-lg border border-white/[.08] bg-white/[.04] px-3 text-sm font-semibold text-ink-mute transition hover:bg-white/[.08] hover:text-ink"
             >
               {viaNvr ? <ServerIcon size={15} /> : <CameraIcon size={15} />}
-              {viaNvr ? "Via NVR" : "Direct"}
+              {viaNvr ? t("live.viaNvr") : t("live.direct")}
             </button>
           )}
           {hasMain && (
             <button
               type="button"
               onClick={() => setAudioOn((v) => !v)}
-              title={audioOn ? "Mute" : "Enable sound"}
+              title={audioOn ? t("live.mute") : t("live.enableSound")}
               className={[
                 "flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
                 audioOn
@@ -202,13 +204,13 @@ export function FullscreenView({ cam, onClose }: Props) {
               ].join(" ")}
             >
               {audioOn ? <VolumeOn size={16} /> : <VolumeOff size={16} />}
-              {audioOn ? "Sound on" : "Sound off"}
+              {audioOn ? t("live.soundOn") : t("live.soundOff")}
             </button>
           )}
           <button
             type="button"
             onClick={onClose}
-            title="Close (Esc)"
+            title={t("live.closeEsc")}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[.08] bg-white/[.04] text-ink-mute transition hover:bg-white/[.08] hover:text-ink"
           >
             <XIcon size={18} />
@@ -224,7 +226,7 @@ export function FullscreenView({ cam, onClose }: Props) {
           {noStream ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="font-mono text-xs uppercase tracking-wider text-ink-faint">
-                no stream available
+                {t("live.noStreamAvailable")}
               </span>
             </div>
           ) : (

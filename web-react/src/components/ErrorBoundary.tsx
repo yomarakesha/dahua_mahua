@@ -6,6 +6,7 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { recordEvent, shipLogs } from "@/lib/diagnostics";
+import i18n from "@/i18n";
 
 interface Props {
   children: ReactNode;
@@ -29,23 +30,23 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (!this.state.hasError) return this.props.children;
+    // Class component (may render even if React context is broken), so read the
+    // i18n singleton directly rather than the useTranslation() hook.
+    const t = i18n.t.bind(i18n);
     return (
       <div className="flex h-full min-h-screen w-full flex-col items-center justify-center gap-4 bg-deep text-center">
         <div className="flex items-center gap-1.5 rounded border border-danger/40 bg-danger/[.14] px-2 py-1 font-mono text-3xs font-bold uppercase tracking-wider text-danger">
           <span className="h-1.5 w-1.5 rounded-full bg-danger" />
-          error
+          {t("errorBoundary.badge")}
         </div>
-        <div className="text-base font-semibold text-ink-mute">Something went wrong</div>
-        <div className="max-w-sm text-2xs text-ink-faint">
-          The interface hit an unexpected error. A diagnostic report was sent. Reloading usually
-          recovers.
-        </div>
+        <div className="text-base font-semibold text-ink-mute">{t("errorBoundary.title")}</div>
+        <div className="max-w-sm text-2xs text-ink-faint">{t("errorBoundary.detail")}</div>
         <button
           type="button"
           onClick={() => location.reload()}
           className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1.5 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
         >
-          Reload
+          {t("errorBoundary.reload")}
         </button>
       </div>
     );

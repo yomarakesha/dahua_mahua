@@ -11,6 +11,7 @@ import App from "./App";
 import { BrandingProvider } from "./lib/branding";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { installConsoleCapture, recordEvent, shipLogs } from "./lib/diagnostics";
+import "./i18n";
 import "./index.css";
 
 // ── Observability: capture console.warn/error into the diagnostics ring ────────

@@ -4,6 +4,7 @@ import {
   PlayIcon,
   PauseIcon,
 } from "@/components/icons";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   /** Grid columns × rows (independent — build any N×M layout). */
@@ -26,10 +27,14 @@ function Stepper({
   label,
   value,
   onChange,
+  fewerTitle,
+  moreTitle,
 }: {
   label: string;
   value: number;
   onChange: (n: number) => void;
+  fewerTitle: string;
+  moreTitle: string;
 }) {
   return (
     <div className="flex h-[34px] items-center gap-1 rounded-lg border border-white/[.07] bg-panel pl-2 pr-1">
@@ -37,7 +42,7 @@ function Stepper({
       <button
         type="button"
         onClick={() => onChange(value - 1)}
-        title={`Fewer ${label.toLowerCase()}`}
+        title={fewerTitle}
         className="flex h-6 w-6 items-center justify-center rounded text-ink-mute transition hover:bg-white/[.06] hover:text-ink-soft"
       >
         −
@@ -46,7 +51,7 @@ function Stepper({
       <button
         type="button"
         onClick={() => onChange(value + 1)}
-        title={`More ${label.toLowerCase()}`}
+        title={moreTitle}
         className="flex h-6 w-6 items-center justify-center rounded text-ink-mute transition hover:bg-white/[.06] hover:text-ink-soft"
       >
         +
@@ -69,17 +74,30 @@ export function LiveTopbar({
   showing,
   total,
 }: Props) {
+  const { t } = useTranslation();
   return (
     <div className="flex h-[54px] flex-none items-center gap-3.5 border-b border-white/[.06] bg-gradient-to-b from-[#0e1216] to-[#0b0e12] px-4">
       {/* layout controls: independent columns × rows */}
       <div className="flex items-center gap-1.5">
         <div className="flex h-[34px] items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/[.12] px-3 text-base font-bold text-accent-light">
           <GridIcon size={14} />
-          Live Grid
+          {t("live.liveGrid")}
         </div>
-        <Stepper label="Cols" value={cols} onChange={onCols} />
+        <Stepper
+          label={t("live.cols")}
+          value={cols}
+          onChange={onCols}
+          fewerTitle={t("live.fewerCols")}
+          moreTitle={t("live.moreCols")}
+        />
         <span className="text-sm font-semibold text-ink-faint">×</span>
-        <Stepper label="Rows" value={rows} onChange={onRows} />
+        <Stepper
+          label={t("live.rows")}
+          value={rows}
+          onChange={onRows}
+          fewerTitle={t("live.fewerRows")}
+          moreTitle={t("live.moreRows")}
+        />
       </div>
 
       <div className="h-6 w-px bg-white/[.08]" />
@@ -96,15 +114,15 @@ export function LiveTopbar({
         ].join(" ")}
       >
         {patrol ? <PauseIcon size={12} /> : <PlayIcon size={12} />}
-        Patrol
+        {t("live.patrol")}
       </button>
       <button
         type="button"
         onClick={onCyclePatrolInterval}
-        title="Patrol interval"
+        title={t("live.patrolInterval")}
         className="flex h-[34px] items-center rounded-lg border border-white/[.07] bg-panel px-3 font-mono text-base font-semibold text-ink-mute transition hover:text-ink-soft"
       >
-        {patrolInterval}s
+        {t("live.secondsShort", { count: patrolInterval })}
       </button>
 
       {/* search */}
@@ -112,10 +130,10 @@ export function LiveTopbar({
         <SearchIcon size={14} className="flex-none text-ink-faint" />
         <input
           type="search"
-          aria-label="Search cameras"
+          aria-label={t("live.searchCameras")}
           value={search}
           onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search cameras…"
+          placeholder={t("live.searchPlaceholder")}
           className="w-full bg-transparent text-base text-ink-soft placeholder:text-ink-faint focus:outline-none"
         />
       </label>
@@ -125,10 +143,10 @@ export function LiveTopbar({
           the app doesn't track per-stream connection state. */}
       <div
         className="flex h-[34px] items-center gap-2 rounded-lg border border-white/[.07] bg-panel px-3"
-        title="Cameras matching the current filter — not a health metric"
+        title={t("live.filterMatchTooltip")}
       >
         <span className="text-2xs font-semibold uppercase tracking-wide text-ink-mute">
-          Showing
+          {t("live.showing")}
         </span>
         <span className="font-mono text-base font-bold text-ink-soft">
           {showing}

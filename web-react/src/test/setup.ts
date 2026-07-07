@@ -1,4 +1,7 @@
 import "@testing-library/jest-dom/vitest";
+// Initialize i18n once for the whole test suite so components using
+// useTranslation() render their English strings (default language).
+import "../i18n";
 
 // jsdom's localStorage is unavailable under this runner's node flags; provide a
 // minimal in-memory implementation so storage-backed code (auth) works in tests.

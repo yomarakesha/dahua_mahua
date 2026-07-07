@@ -8,6 +8,17 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { LiveSidebar } from "./LiveSidebar";
 import type { Camera, Nvr } from "@/api/types";
+import i18n from "@/i18n";
+
+// The `live` namespace is merged into en.json separately; register the keys this
+// test asserts so it stays green whether or not that merge has happened yet.
+i18n.addResourceBundle(
+  "en",
+  "translation",
+  { live: { expand: "Expand", collapse: "Collapse" } },
+  true,
+  true,
+);
 
 const NVR: Nvr = {
   id: "nvr1",

@@ -19,6 +19,7 @@
  * checklist in the task report, not unit tests.
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { footageEpoch, mapCloseCode } from "./playback-utils";
 import { playerReducer, INITIAL_PLAYER_STATE } from "./player-machine";
 import { usePlaybackSession } from "./usePlaybackSession";
@@ -84,6 +85,7 @@ export default function PlaybackPlayer({
   onAnchorChange,
   onReady,
 }: PlaybackPlayerProps) {
+  const { t } = useTranslation();
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = externalVideoRef ?? internalVideoRef;
 
@@ -534,14 +536,14 @@ export default function PlaybackPlayer({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
           <span className="flex items-center gap-2 font-mono text-3xs uppercase tracking-wider text-ink-faint">
             <span className="h-3 w-3 animate-spin rounded-full border border-ink-faint/50 border-t-transparent" />
-            {state === "seeking" ? "seeking" : "loading"}
+            {state === "seeking" ? t("playback.seeking") : t("playback.loading")}
           </span>
         </div>
       )}
 
       {state === "paused" && (
         <button
-          aria-label="Resume playback"
+          aria-label={t("playback.resumePlayback")}
           onClick={handlePlay}
           className="absolute inset-0 flex items-center justify-center bg-black/30"
         >
@@ -556,7 +558,7 @@ export default function PlaybackPlayer({
       {state === "end" && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40">
           <span className="rounded border border-white/15 bg-white/[.06] px-3 py-1.5 font-mono text-3xs uppercase tracking-wider text-ink-soft">
-            End of recording
+            {t("playback.endOfRecording")}
           </span>
         </div>
       )}
@@ -565,7 +567,7 @@ export default function PlaybackPlayer({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/50">
           <span className="flex items-center gap-1.5 rounded border border-danger/40 bg-danger/[.14] px-2 py-1 font-mono text-3xs font-bold uppercase tracking-wider text-danger">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" />
-            playback error
+            {t("playback.playbackError")}
           </span>
           {errorText && (
             <span className="max-w-[80%] text-center font-mono text-3xs text-ink-mute">
@@ -586,7 +588,7 @@ export default function PlaybackPlayer({
               }}
               className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
             >
-              Retry
+              {t("common.retry")}
             </button>
           )}
         </div>
@@ -595,7 +597,7 @@ export default function PlaybackPlayer({
       {/* Pause control (visible while playing) */}
       {state === "playing" && (
         <button
-          aria-label="Pause playback"
+          aria-label={t("playback.pausePlayback")}
           onClick={handlePause}
           className="absolute bottom-3 left-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-ink-soft ring-1 ring-white/10 transition hover:bg-black/60"
         >

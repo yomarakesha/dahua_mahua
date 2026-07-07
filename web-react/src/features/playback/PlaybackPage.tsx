@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import {
   useNvrs,
@@ -27,6 +28,7 @@ function todayIso(): string {
  * eventual props are documented in comments below so the swap is mechanical.
  */
 export default function PlaybackPage() {
+  const { t } = useTranslation();
   const [selectedNvrId, setSelectedNvrId] = useState<string | null>(null);
   const [selectedCamId, setSelectedCamId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
@@ -225,16 +227,16 @@ export default function PlaybackPage() {
             htmlFor="pb-nvr"
             className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim"
           >
-            NVR
+            {t("playback.nvr")}
           </label>
           <select
             id="pb-nvr"
-            aria-label="NVR"
+            aria-label={t("playback.nvr")}
             value={selectedNvrId ?? ""}
             onChange={(e) => handleNvrChange(e.target.value)}
             className="h-8 rounded-md border border-white/[.08] bg-[#161b22] px-2 text-sm text-ink-soft focus:outline-none focus:ring-1 focus:ring-accent/50"
           >
-            <option value="">— select NVR —</option>
+            <option value="">{t("playback.selectNvrPlaceholder")}</option>
             {nvrs.map((nvr) => (
               <option key={nvr.id} value={nvr.id}>
                 {nvr.label}
@@ -249,20 +251,20 @@ export default function PlaybackPage() {
             htmlFor="pb-cam"
             className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim"
           >
-            Camera
+            {t("playback.camera")}
           </label>
           <select
             id="pb-cam"
-            aria-label="Camera"
+            aria-label={t("playback.camera")}
             value={selectedCamId ?? ""}
             onChange={(e) => handleCamChange(e.target.value)}
             disabled={!selectedNvrId || cameras.length === 0}
             className="h-8 rounded-md border border-white/[.08] bg-[#161b22] px-2 text-sm text-ink-soft focus:outline-none focus:ring-1 focus:ring-accent/50 disabled:opacity-40"
           >
-            <option value="">— select camera —</option>
+            <option value="">{t("playback.selectCameraPlaceholder")}</option>
             {cameras.map((cam) => (
               <option key={cam.id} value={cam.id}>
-                {cam.display_name} ch{cam.channel}
+                {cam.display_name} {t("playback.channelShort", { channel: cam.channel })}
               </option>
             ))}
           </select>
@@ -274,12 +276,12 @@ export default function PlaybackPage() {
             htmlFor="pb-date"
             className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim"
           >
-            Date
+            {t("playback.date")}
           </label>
           <input
             id="pb-date"
             type="date"
-            aria-label="Date"
+            aria-label={t("playback.date")}
             value={selectedDate}
             min={oldestDate ?? undefined}
             max={maxDate}
@@ -292,7 +294,7 @@ export default function PlaybackPage() {
             // flex height — keeps the DATE control on the same baseline as
             // NVR/CAMERA regardless of whether this hint is shown.
             <span className="pointer-events-none absolute left-0 top-full mt-0.5 whitespace-nowrap text-[10px] text-ink-dim">
-              Oldest recording: {oldestDate}
+              {t("playback.oldestRecording", { date: oldestDate })}
             </span>
           )}
         </div>
@@ -301,11 +303,11 @@ export default function PlaybackPage() {
         <div className="flex-1" />
 
         {/* Speed selector — server-side decimation; <video>.playbackRate stays 1.0 (Contract #13) */}
-        <div className="flex items-center gap-1" aria-label="Playback speed">
+        <div className="flex items-center gap-1" aria-label={t("playback.speedControlLabel")}>
           {([1, 2, 4, 8] as const).map((s) => (
             <button
               key={s}
-              aria-label={`${s}× speed`}
+              aria-label={t("playback.speedButton", { speed: s })}
               aria-pressed={speed === s}
               onClick={() => setSpeed(s)}
               className={[
@@ -315,7 +317,7 @@ export default function PlaybackPage() {
                   : "text-ink-dim hover:bg-white/[.05] hover:text-ink-soft",
               ].join(" ")}
             >
-              {s}×
+              {t("playback.speedLabel", { speed: s })}
             </button>
           ))}
         </div>
@@ -323,10 +325,10 @@ export default function PlaybackPage() {
         {/* Transport toggle — Smooth (udp, default) vs Clear (tcp): per-playback
             RTSP transport (Contract #10). Reopens the WS on change. */}
         <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1" aria-label="Playback transport">
+          <div className="flex items-center gap-1" aria-label={t("playback.transportControlLabel")}>
             <button
-              aria-label="Smooth transport (UDP)"
-              title="Smooth — real-time, may show artifacts on weak links"
+              aria-label={t("playback.smoothAriaLabel")}
+              title={t("playback.smoothTitle")}
               aria-pressed={transport === "udp"}
               onClick={() => setTransport("udp")}
               className={[
@@ -336,11 +338,11 @@ export default function PlaybackPage() {
                   : "text-ink-dim hover:bg-white/[.05] hover:text-ink-soft",
               ].join(" ")}
             >
-              Smooth
+              {t("playback.smooth")}
             </button>
             <button
-              aria-label="Clear transport (TCP)"
-              title="Clear — clean image, buffers slower"
+              aria-label={t("playback.clearAriaLabel")}
+              title={t("playback.clearTitle")}
               aria-pressed={transport === "tcp"}
               onClick={() => setTransport("tcp")}
               className={[
@@ -350,24 +352,24 @@ export default function PlaybackPage() {
                   : "text-ink-dim hover:bg-white/[.05] hover:text-ink-soft",
               ].join(" ")}
             >
-              Clear
+              {t("playback.clear")}
             </button>
           </div>
           {transport === "tcp" && (
-            <span className="text-[10px] text-ink-dim">Clear = sharp but loads slowly</span>
+            <span className="text-[10px] text-ink-dim">{t("playback.clearCaption")}</span>
           )}
         </div>
 
         {/* Snapshot — enabled when snapshotAvailable (video ready + anchor set) */}
         <button
-          aria-label="Snapshot"
+          aria-label={t("playback.snapshot")}
           disabled={!snapshotAvailable}
-          title={snapshotAvailable ? "Take snapshot" : "Start playback first"}
+          title={snapshotAvailable ? t("playback.takeSnapshot") : t("playback.startPlaybackFirst")}
           onClick={() => void takeSnapshot()}
           className="flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-semibold text-ink-dim transition hover:bg-white/[.05] hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
         >
           <CameraIcon size={15} />
-          Snapshot
+          {t("playback.snapshot")}
         </button>
       </div>
 
@@ -396,14 +398,14 @@ export default function PlaybackPage() {
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-ink-dim/50">
             {!selectedNvrId
-              ? "Select an NVR to start"
+              ? t("playback.selectNvrToStart")
               : !selectedCamId
-              ? "Select a camera"
+              ? t("playback.selectCameraPrompt")
               : !selectedDate
-              ? "Select a date"
+              ? t("playback.selectDatePrompt")
               : noCoverage
-              ? "No coverage for this day"
-              : "Loading recording index…"}
+              ? t("playback.noCoverage")
+              : t("playback.loadingIndex")}
           </div>
         )}
       </div>
@@ -430,7 +432,7 @@ export default function PlaybackPage() {
             className="flex h-16 items-center justify-center text-xs text-ink-dim/40"
             data-testid="timeline-placeholder"
           >
-            {hasSelection ? "Loading recording index…" : "timeline here"}
+            {hasSelection ? t("playback.loadingIndex") : t("playback.timelinePlaceholder")}
           </div>
         )}
       </div>

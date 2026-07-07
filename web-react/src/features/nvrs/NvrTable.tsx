@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useDeleteNvr, useTestNvr, useUpdateNvr } from "@/api/hooks";
 import type { Nvr, NvrHealthResult, NvrTestResult, Vendor } from "@/api/types";
@@ -15,10 +16,11 @@ interface Props {
 
 /** NVR list table. Per-row: health dot, channel count, Test, Cams, edit, delete. */
 export function NvrTable({ nvrs, showHealth, health }: Props) {
+  const { t } = useTranslation();
   if (nvrs.length === 0) {
     return (
       <div className="rounded-xl border border-white/[.06] bg-deep/60 px-4 py-10 text-center text-sm text-ink-dim">
-        No recorders yet — add one above.
+        {t("nvrs.noRecorders")}
       </div>
     );
   }
@@ -30,14 +32,14 @@ export function NvrTable({ nvrs, showHealth, health }: Props) {
         <div
           className={`grid ${GRID} gap-2.5 px-3.5 pb-2.5 text-2xs font-extrabold uppercase tracking-wider text-ink-faint`}
         >
-          <span>{showHealth ? "OK" : "ON"}</span>
-          <span>ID</span>
-          <span>Label</span>
-          <span>IP</span>
-          <span>Port</span>
-          <span>User</span>
-          <span>Vendor</span>
-          <span>Actions</span>
+          <span>{showHealth ? t("nvrs.ok") : t("nvrs.on")}</span>
+          <span>{t("nvrs.id")}</span>
+          <span>{t("nvrs.label")}</span>
+          <span>{t("nvrs.ip")}</span>
+          <span>{t("nvrs.port")}</span>
+          <span>{t("nvrs.user")}</span>
+          <span>{t("nvrs.vendor")}</span>
+          <span>{t("common.actions")}</span>
         </div>
         <div className="space-y-2">
           {nvrs.map((n) => (
@@ -58,6 +60,7 @@ function NvrRow({
   showHealth: boolean;
   health?: NvrHealthResult;
 }) {
+  const { t } = useTranslation();
   const test = useTestNvr();
   const update = useUpdateNvr();
   const del = useDeleteNvr();
@@ -110,8 +113,8 @@ function NvrRow({
             type="button"
             role="switch"
             aria-checked={nvr.enabled}
-            aria-label={nvr.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
-            title={nvr.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+            aria-label={nvr.enabled ? t("nvrs.enabledClickDisable") : t("nvrs.disabledClickEnable")}
+            title={nvr.enabled ? t("nvrs.enabledClickDisable") : t("nvrs.disabledClickEnable")}
             disabled={update.isPending}
             onClick={() => update.mutate({ id: nvr.id, body: { enabled: !nvr.enabled } })}
             className={[
@@ -135,8 +138,8 @@ function NvrRow({
         <span className="font-mono text-sm text-ink-mute">{nvr.port}</span>
         <span className="truncate text-sm text-ink-mute">{nvr.rtsp_username}</span>
         <select
-          aria-label="Vendor"
-          title="Change vendor — re-tests the RTSP path so you can re-enable"
+          aria-label={t("nvrs.vendor")}
+          title={t("nvrs.changeVendorTitle")}
           value={pendingVendor ?? nvr.vendor}
           disabled={update.isPending}
           onChange={(e) => changeVendor(e.target.value as Vendor)}
@@ -150,7 +153,7 @@ function NvrRow({
         </select>
         <div className="flex items-center gap-1.5">
           <span className="flex h-7 items-center rounded-md border border-accent/20 bg-accent/[.10] px-2 text-xs font-semibold text-accent-light">
-            {nvr.camera_count} ch
+            {t("nvrs.channelCount", { count: nvr.camera_count })}
           </span>
           <button
             type="button"
@@ -159,19 +162,19 @@ function NvrRow({
             className="flex h-7 items-center gap-1 rounded-md border border-white/[.08] bg-panel px-2 text-xs font-semibold text-ink-mute hover:text-ink-soft disabled:opacity-50"
           >
             <PlayIcon size={10} />
-            {test.isPending ? "…" : "Test"}
+            {test.isPending ? "…" : t("nvrs.test")}
           </button>
           <Link
             to={`/nvrs/${nvr.id}/channels`}
             className="flex h-7 items-center gap-1 rounded-md border border-white/[.08] bg-panel px-2 text-xs font-semibold text-ink-mute hover:text-ink-soft"
           >
             <CameraIcon size={11} />
-            Cams
+            {t("nvrs.cams")}
           </Link>
           <button
             type="button"
             onClick={() => setEditing((v) => !v)}
-            title="Edit"
+            title={t("common.edit")}
             className="flex h-7 w-7 items-center justify-center rounded-md border border-white/[.08] bg-panel text-ink-mute hover:text-ink-soft"
           >
             <PencilIcon size={12} />
@@ -179,7 +182,7 @@ function NvrRow({
           <button
             type="button"
             onClick={() => setConfirmDel(true)}
-            title="Delete"
+            title={t("common.delete")}
             className="flex h-7 w-7 items-center justify-center rounded-md border border-danger/20 bg-danger/[.10] text-danger hover:bg-danger/20"
           >
             <TrashIcon size={12} />
@@ -192,12 +195,12 @@ function NvrRow({
       {vendorChanged && !nvr.enabled && (
         <div className="px-3.5 pb-2 text-2xs text-ink-dim">
           {update.isPending
-            ? "Saving vendor…"
+            ? t("nvrs.savingVendor")
             : update.isError
-              ? `Vendor update failed: ${(update.error as Error).message}`
+              ? t("nvrs.vendorUpdateFailed", { message: (update.error as Error).message })
               : test.isPending
-                ? "Vendor changed — re-testing the RTSP path…"
-                : "Vendor changed. If the test above passes, enable this NVR (toggle in the OK/ON column)."}
+                ? t("nvrs.vendorChangedRetesting")
+                : t("nvrs.vendorChangedHint")}
         </div>
       )}
 
@@ -241,7 +244,7 @@ function NvrRow({
       {/* delete confirm */}
       {confirmDel && (
         <div className="flex items-center gap-2 border-t border-white/[.06] px-3.5 py-2.5">
-          <span className="text-xs text-ink-soft">Delete {nvr.label}? This removes its cameras.</span>
+          <span className="text-xs text-ink-soft">{t("nvrs.deleteConfirm", { label: nvr.label })}</span>
           {del.isError && <span className="text-xs text-danger">{(del.error as Error).message}</span>}
           <div className="ml-auto flex gap-2">
             <button
@@ -249,7 +252,7 @@ function NvrRow({
               onClick={() => setConfirmDel(false)}
               className="dss-btn-ghost h-7 px-3 text-xs"
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               type="button"
@@ -257,7 +260,7 @@ function NvrRow({
               onClick={() => del.mutate(nvr.id, { onSuccess: () => setConfirmDel(false) })}
               className="dss-btn-danger h-7 px-3 text-xs"
             >
-              {del.isPending ? "Deleting…" : "Delete"}
+              {del.isPending ? t("nvrs.deleting") : t("common.delete")}
             </button>
           </div>
         </div>
@@ -279,17 +282,18 @@ function EditRow({
   onCancel: () => void;
   onSave: (body: { label: string; ip: string; enabled: boolean }) => void;
 }) {
+  const { t } = useTranslation();
   const [label, setLabel] = useState(nvr.label);
   const [ip, setIp] = useState(nvr.ip);
   const [enabled, setEnabled] = useState(nvr.enabled);
   return (
     <div className="flex flex-wrap items-end gap-3 border-t border-white/[.06] px-3.5 py-3">
       <label className="min-w-[160px] flex-1">
-        <span className="mb-1 block text-2xs font-semibold text-ink-dim">Label</span>
+        <span className="mb-1 block text-2xs font-semibold text-ink-dim">{t("nvrs.label")}</span>
         <input className="dss-input h-9" value={label} onChange={(e) => setLabel(e.target.value)} />
       </label>
       <label className="min-w-[140px] flex-1">
-        <span className="mb-1 block text-2xs font-semibold text-ink-dim">IP</span>
+        <span className="mb-1 block text-2xs font-semibold text-ink-dim">{t("nvrs.ip")}</span>
         <input
           className="dss-input h-9 font-mono"
           value={ip}
@@ -303,12 +307,12 @@ function EditRow({
           onChange={(e) => setEnabled(e.target.checked)}
           className="accent-accent"
         />
-        Enabled
+        {t("common.enabled")}
       </label>
       {error && <span className="pb-2 text-xs text-danger">{error}</span>}
       <div className="ml-auto flex gap-2 pb-0.5">
         <button type="button" onClick={onCancel} className="dss-btn-ghost h-9 px-3 text-xs">
-          Cancel
+          {t("common.cancel")}
         </button>
         <button
           type="button"
@@ -316,7 +320,7 @@ function EditRow({
           onClick={() => onSave({ label: label.trim(), ip: ip.trim(), enabled })}
           className="dss-btn-primary h-9 px-4 text-xs"
         >
-          {pending ? "Saving…" : "Save"}
+          {pending ? t("nvrs.saving") : t("common.save")}
         </button>
       </div>
     </div>

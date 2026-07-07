@@ -8,6 +8,17 @@ import { render, screen, fireEvent, createEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import { CameraTile } from "./CameraTile";
 import type { Camera } from "@/api/types";
+import i18n from "@/i18n";
+
+// The `live` namespace is merged into en.json separately; register the key this
+// test asserts so it stays green whether or not that merge has happened yet.
+i18n.addResourceBundle(
+  "en",
+  "translation",
+  { live: { watchInPlayback: "Watch in Playback" } },
+  true,
+  true,
+);
 
 // The <dss-mse> custom element pulls a live WebSocket in real usage — stub the
 // player entirely so these tests only exercise the tile's own UI.

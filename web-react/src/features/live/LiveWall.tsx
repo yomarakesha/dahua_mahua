@@ -10,6 +10,7 @@ import { CameraTile } from "./CameraTile";
 import { FullscreenView } from "./FullscreenView";
 import { computeWarmIds } from "./warm";
 import { useClock } from "./useClock";
+import { useTranslation } from "react-i18next";
 
 const PATROL = CONFIG.patrolIntervals;
 const GRID_MIN = 1;
@@ -17,6 +18,7 @@ const GRID_MAX = 8;
 const clampGrid = (n: number) => Math.max(GRID_MIN, Math.min(GRID_MAX, n));
 
 export default function LiveWall() {
+  const { t } = useTranslation();
   const {
     data: cameras,
     isLoading: camsLoading,
@@ -210,7 +212,7 @@ export default function LiveWall() {
                 type="button"
                 onClick={() => setPage((p) => (p - 1 + totalPages) % totalPages)}
                 className="pointer-events-auto flex h-7 w-7 rotate-180 items-center justify-center rounded-lg border border-white/[.08] bg-panel/90 text-ink-mute transition hover:text-ink-soft"
-                title="Previous page"
+                title={t("live.previousPage")}
               >
                 <ChevronRight size={14} />
               </button>
@@ -219,7 +221,7 @@ export default function LiveWall() {
                 {filtered.length > cellCount && (
                   <span className="text-ink-faint">
                     {" "}
-                    · +{filtered.length - cellCount} more
+                    · {t("live.plusMore", { count: filtered.length - cellCount })}
                   </span>
                 )}
               </span>
@@ -227,7 +229,7 @@ export default function LiveWall() {
                 type="button"
                 onClick={() => setPage((p) => (p + 1) % totalPages)}
                 className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-lg border border-white/[.08] bg-panel/90 text-ink-mute transition hover:text-ink-soft"
-                title="Next page"
+                title={t("live.nextPage")}
               >
                 <ChevronRight size={14} />
               </button>
@@ -237,7 +239,7 @@ export default function LiveWall() {
           {/* #4: patrol dwell clamped to limit reconnect churn — tell the operator. */}
           {churnRisk && (
             <div className="pointer-events-none absolute bottom-12 left-1/2 -translate-x-1/2 rounded-lg border border-white/[.08] bg-panel/90 px-3 py-1 font-mono text-2xs text-ink-faint">
-              patrol dwell held at {effectivePatrolInterval}s to limit reconnect churn
+              {t("live.patrolDwellHeld", { seconds: effectivePatrolInterval })}
             </div>
           )}
         </div>
@@ -246,7 +248,7 @@ export default function LiveWall() {
       <StatusBar
         streams={visibleStreams}
         cameras={total}
-        nvrLabel={selectedNvrName(nvrs ?? [], selectedNvrId)}
+        nvrLabel={selectedNvrName(nvrs ?? [], selectedNvrId, t)}
       />
 
       {fullscreen && (
@@ -259,8 +261,9 @@ export default function LiveWall() {
 function selectedNvrName(
   nvrs: { id: string; label: string }[],
   id: string | null,
+  t: (key: string) => string,
 ): string {
-  if (!id) return "ALL NVRS";
+  if (!id) return t("live.allNvrs");
   return nvrs.find((n) => n.id === id)?.label ?? id;
 }
 
@@ -283,13 +286,14 @@ function StatusBar({
   cameras: number;
   nvrLabel: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex h-8 flex-none items-center gap-5 border-t border-white/[.06] bg-gradient-to-b from-[#0c1014] to-[#090c0f] px-4 font-mono text-xs">
       <span className="flex items-center gap-1.5 text-accent-light">
         <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_7px_rgb(var(--brand-primary))]" />
-        Streams: {streams}
+        {t("live.streamsCount", { count: streams })}
       </span>
-      <span className="text-ink-faint">Cameras: {cameras}</span>
+      <span className="text-ink-faint">{t("live.camerasCount", { count: cameras })}</span>
       <span className="ml-auto truncate text-[#3f4951]">
         {nvrLabel} · <Clock />
       </span>
@@ -317,33 +321,35 @@ function SkeletonGrid({ cols, rows }: { cols: number; rows: number }) {
 }
 
 function CamerasErrorState({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-      <div className="text-base font-semibold text-ink-mute">Couldn&apos;t load cameras</div>
+      <div className="text-base font-semibold text-ink-mute">{t("live.couldntLoadCameras")}</div>
       <div className="max-w-sm text-2xs text-ink-faint">
-        The camera list request failed. Check the connection to the server and try again.
+        {t("live.cameraListRequestFailed")}
       </div>
       <button
         type="button"
         onClick={onRetry}
         className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1.5 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
       >
-        Retry
+        {t("common.retry")}
       </button>
     </div>
   );
 }
 
 function EmptyState({ filtered }: { filtered: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
       <div className="text-base font-semibold text-ink-mute">
-        {filtered ? "No cameras match your filters" : "No cameras available"}
+        {filtered ? t("live.noCamerasMatch") : t("live.noCamerasAvailable")}
       </div>
       <div className="text-2xs text-ink-faint">
         {filtered
-          ? "Try clearing the search or NVR filter."
-          : "Add an NVR and enable channels to populate the wall."}
+          ? t("live.tryClearingFilter")
+          : t("live.addNvrToPopulate")}
       </div>
     </div>
   );

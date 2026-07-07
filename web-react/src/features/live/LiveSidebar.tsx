@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronRight } from "@/components/icons";
 import type { Camera, Nvr } from "@/api/types";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   nvrs: Nvr[];
@@ -33,6 +34,7 @@ export function LiveSidebar({
   visibleStreams,
   load,
 }: Props) {
+  const { t } = useTranslation();
   const pct = Math.round(load * 100);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -46,7 +48,7 @@ export function LiveSidebar({
   return (
     <aside className="flex w-[210px] flex-none flex-col gap-1.5 overflow-hidden border-r border-white/[.06] bg-gradient-to-b from-[#0c1014] to-[#090c0f] px-3 py-3.5">
       <div className="flex items-center justify-between px-1 pb-1">
-        <span className="text-xs font-extrabold tracking-[1.4px] text-ink-faint">NVRS</span>
+        <span className="text-xs font-extrabold tracking-[1.4px] text-ink-faint">{t("live.nvrs")}</span>
         <button
           type="button"
           onClick={() => onSelectNvr(null)}
@@ -57,13 +59,13 @@ export function LiveSidebar({
               : "border-white/[.06] bg-white/[.04] text-ink-dim hover:text-ink-soft",
           ].join(" ")}
         >
-          All
+          {t("common.all")}
         </button>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
         {nvrs.length === 0 ? (
-          <div className="px-1 py-4 text-2xs text-ink-faint">No recorders.</div>
+          <div className="px-1 py-4 text-2xs text-ink-faint">{t("live.noRecorders")}</div>
         ) : (
           nvrs.map((n) => {
             const active = selectedNvrId === n.id;
@@ -84,7 +86,7 @@ export function LiveSidebar({
                 >
                   <button
                     type="button"
-                    aria-label={isOpen ? "Collapse" : "Expand"}
+                    aria-label={isOpen ? t("live.collapse") : t("live.expand")}
                     onClick={() => toggleExpand(n.id)}
                     className="flex h-full w-7 flex-none items-center justify-center text-ink-dim hover:text-ink-soft"
                   >
@@ -101,7 +103,7 @@ export function LiveSidebar({
                       toggleExpand(n.id);
                     }}
                     aria-pressed={active}
-                    title={`Show ${n.label} (double-click to expand)`}
+                    title={t("live.showNvrTooltip", { name: n.label })}
                     className="flex h-full flex-1 items-center gap-2.5 overflow-hidden text-left"
                   >
                     <span
@@ -123,18 +125,18 @@ export function LiveSidebar({
                 {isOpen && (
                   <div className="mt-1 flex flex-col gap-0.5 pl-7">
                     {cams.length === 0 ? (
-                      <div className="px-2 py-1.5 text-3xs text-ink-faint">No cameras.</div>
+                      <div className="px-2 py-1.5 text-3xs text-ink-faint">{t("live.noCameras")}</div>
                     ) : (
                       cams.map((c) => (
                         <button
                           key={c.id}
                           type="button"
                           onClick={() => onPickCamera(c)}
-                          title={`Open ${c.display_name} fullscreen`}
+                          title={t("live.openCameraTooltip", { name: c.display_name })}
                           className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-white/[.05]"
                         >
                           <span className="w-7 flex-none font-mono text-3xs text-ink-faint">
-                            ch{c.channel}
+                            {t("live.channelShort")}{c.channel}
                           </span>
                           <span className="flex-1 truncate text-2xs text-ink-mute">
                             {c.display_name}
@@ -151,7 +153,7 @@ export function LiveSidebar({
       </div>
 
       <div className="rounded-xl border border-accent/[.16] bg-accent/[.06] p-3">
-        <div className="mb-2 text-2xs font-bold tracking-[1px] text-ink-dim">PAGE FILL</div>
+        <div className="mb-2 text-2xs font-bold tracking-[1px] text-ink-dim">{t("live.pageFill")}</div>
         <div className="mb-1.5 flex items-center gap-2">
           <div className="h-[5px] flex-1 overflow-hidden rounded-[3px] bg-white/[.07]">
             <div
@@ -162,7 +164,7 @@ export function LiveSidebar({
           <span className="font-mono text-2xs text-ink-mute">{pct}%</span>
         </div>
         <div className="font-mono text-2xs text-ink-faint">
-          {visibleStreams} {visibleStreams === 1 ? "stream" : "streams"}
+          {visibleStreams} {visibleStreams === 1 ? t("live.stream") : t("live.streams")}
         </div>
       </div>
     </aside>

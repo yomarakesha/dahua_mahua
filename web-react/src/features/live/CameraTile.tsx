@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { MsePlayer, type PlayerStatus } from "@/components/video/MsePlayer";
 import { FilmIcon } from "@/components/icons";
 import { streamName } from "@/api/types";
@@ -24,6 +25,7 @@ interface Props {
  * video, so we don't re-render every tile once per second just for an overlay.
  */
 export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs }: Props) {
+  const { t } = useTranslation();
   const quality = cam.has_sub ? "sub" : cam.has_main ? "main" : null;
   const [status, setStatus] = useState<PlayerStatus>("connecting");
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -71,7 +73,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
           onOpen(cam);
         }}
         title={cam.display_name}
-        aria-label={`Open ${cam.display_name} (ch${cam.channel}) fullscreen`}
+        aria-label={t("live.openCameraFullscreen", { name: cam.display_name, channel: cam.channel })}
         // Capture phase: the inner <video>/dss-mse element swallows the bubbling
         // contextmenu event, so intercept it on the way DOWN at the container.
         onContextMenuCapture={(e) => {
@@ -91,7 +93,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-deep">
             <span className="font-mono text-3xs uppercase tracking-wider text-ink-faint">
-              no stream
+              {t("live.noStream")}
             </span>
           </div>
         )}
@@ -106,7 +108,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
               className="text-2xs font-extrabold tracking-wide text-[#d8efe2]"
               style={{ textShadow: SHADOW }}
             >
-              LIVE
+              {t("live.live")}
             </span>
           </div>
         )}
@@ -120,7 +122,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
           </span>
           {/* channel disambiguates same-named cameras (subtle) */}
           <span className="flex-none font-mono text-3xs font-semibold text-white/55">
-            ch{cam.channel}
+            {t("live.channelShort")}{cam.channel}
           </span>
         </div>
       </button>
@@ -138,7 +140,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
       {menuPos && (
         <div
           role="menu"
-          aria-label={`${cam.display_name} actions`}
+          aria-label={t("live.cameraActions", { name: cam.display_name })}
           className="fixed z-50 min-w-[180px] overflow-hidden rounded-md border border-white/[.08] bg-[#161b22] py-1 text-sm text-ink-soft shadow-lg"
           style={{ top: menuPos.y, left: menuPos.x }}
           onClick={(e) => e.stopPropagation()}
@@ -150,7 +152,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-white/[.06]"
           >
             <FilmIcon size={14} />
-            Watch in Playback
+            {t("live.watchInPlayback")}
           </button>
         </div>
       )}

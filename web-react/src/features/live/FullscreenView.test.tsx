@@ -10,6 +10,22 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { FullscreenView } from "./FullscreenView";
 import { streamName, type Camera } from "@/api/types";
+import i18n from "@/i18n";
+
+// The `live` namespace is merged into en.json separately; register the engine
+// labels this test asserts so it stays green whether or not that merge ran.
+i18n.addResourceBundle(
+  "en",
+  "translation",
+  {
+    live: {
+      engineWebrtc: "Engine: WebRTC (smooth)",
+      engineMse: "Engine: MSE (buffered)",
+    },
+  },
+  true,
+  true,
+);
 
 // Stub the real player (it opens a live WebSocket / RTSP pull). Each stub exposes
 // its `src` + `mode` so we can assert which transport each layer mounted with.

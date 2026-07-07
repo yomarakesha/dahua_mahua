@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CONFIG } from "@/lib/config";
 import { recordEvent } from "@/lib/diagnostics";
 import { CameraOffIcon, RefreshIcon } from "@/components/icons";
@@ -67,6 +68,7 @@ export function MsePlayer({
   onStatus,
   connectDelayMs = 0,
 }: Props) {
+  const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   const elRef = useRef<VideoRTC | null>(null);
   const firstSrcRef = useRef(true);
@@ -366,7 +368,7 @@ export function MsePlayer({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
           <span className="flex items-center gap-2 font-mono text-3xs uppercase tracking-wider text-ink-faint">
             <span className="h-3 w-3 animate-spin rounded-full border border-ink-faint/50 border-t-transparent" />
-            connecting
+            {t("common.connecting")}
           </span>
         </div>
       )}
@@ -378,12 +380,12 @@ export function MsePlayer({
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45">
           <CameraOffIcon size={22} className="text-danger/80" />
           <span className="font-mono text-3xs font-bold uppercase tracking-wider text-danger">
-            signal lost
+            {t("common.signalLost")}
           </span>
           <div
             role="button"
             tabIndex={0}
-            aria-label="Retry stream"
+            aria-label={t("common.retryStream")}
             onClick={(e) => {
               e.stopPropagation();
               handleRetry();
@@ -398,7 +400,7 @@ export function MsePlayer({
             className="pointer-events-auto flex h-8 min-w-[32px] cursor-pointer items-center gap-1.5 rounded-md border border-white/15 bg-white/[.06] px-2.5 font-mono text-3xs font-semibold uppercase tracking-wider text-ink-soft transition hover:bg-white/[.12] focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
           >
             <RefreshIcon size={13} />
-            Retry
+            {t("common.retry")}
           </div>
         </div>
       )}
