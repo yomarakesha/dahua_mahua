@@ -359,5 +359,26 @@
     "title": "Lisenziýa",
     "subtitle": "Işjeňleşdirme, hukuklar we enjama baglanyşyk",
     "adminOnlyNotice": "Diňe administrator lisenziýa faýlyny gurup ýa-da täzeläp biler."
+  },
+  "setup": {
+    "subtitle": "Ilkinji gurnama",
+    "stepOf": "{{total}} ädimden {{current}}-nji",
+    "stepPassword": "Hasaby goramak",
+    "stepNvr": "NVR goşmak",
+    "stepDone": "Taýýar",
+    "passwordTitle": "Deslapky paroly çalşyň",
+    "passwordDesc": "Siz administratoryň deslapky maglumatlary bilen girdiňiz. Ulgamy işe girizmezden ozal goramak üçin täze parol belläň.",
+    "saveAndContinue": "Ýatda saklap dowam et",
+    "nvrTitle": "Ilkinji NVR-ňyzy goşuň",
+    "nvrDesc": "Kameralaryň janly diwarda görünmegi üçin ýazyjyny birikdiriň. Öndürijini saýlaň, salgyny we paroly giriziň — galanlaryny soň goşup bilersiňiz.",
+    "nvrAdded_one": "{{label}} goşuldy — {{count}} kanal tapyldy.",
+    "nvrAdded_other": "{{label}} goşuldy — {{count}} kanal tapyldy.",
+    "nvrSkipHint": "Ýazyjy ýokmy? Muny geçip, islendik wagt NVR bölüminden goşup bilersiňiz.",
+    "skipNvr": "Häzirlikçe geç",
+    "next": "Indiki",
+    "doneTitle": "Hemme zat taýýar",
+    "doneDesc": "Ulgamyňyz taýýar. Kameralary görmek üçin janly diwara geçiň.",
+    "goToLive": "Janly ýaýlyma",
+    "exitToApp": "Gurnamadan çyk"
   }
 }

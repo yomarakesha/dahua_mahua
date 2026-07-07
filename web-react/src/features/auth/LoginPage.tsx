@@ -30,8 +30,14 @@ export default function LoginPage() {
     try {
       const result = await login(username.trim(), password);
       setMe(result.me);
-      // Always land on the live wall — no forced password change after login.
-      navigate("/", { replace: true });
+      // Fresh admin still on the bootstrap password → straight into first-run
+      // setup. Otherwise land on the live wall (the SetupGate on "/" still
+      // catches the zero-NVR case once the list resolves).
+      if (result.me.role === "admin" && result.mustChange) {
+        navigate("/setup", { replace: true });
+      } else {
+        navigate("/", { replace: true });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("login.signInFailed"));
       setPending(false);

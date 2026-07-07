@@ -359,5 +359,26 @@
     "title": "License",
     "subtitle": "Activation, entitlements and machine binding",
     "adminOnlyNotice": "Only an administrator can install or update the license file."
+  },
+  "setup": {
+    "subtitle": "First-run setup",
+    "stepOf": "Step {{current}} of {{total}}",
+    "stepPassword": "Secure account",
+    "stepNvr": "Add NVR",
+    "stepDone": "Done",
+    "passwordTitle": "Change the default password",
+    "passwordDesc": "You're signed in with the default admin credentials. Set a new password to secure the system before going live.",
+    "saveAndContinue": "Save & continue",
+    "nvrTitle": "Add your first NVR",
+    "nvrDesc": "Connect a recorder so its cameras appear on the live wall. Pick the vendor, enter the address and password — you can add more later.",
+    "nvrAdded_one": "{{label}} added — detected {{count}} channel.",
+    "nvrAdded_other": "{{label}} added — detected {{count}} channels.",
+    "nvrSkipHint": "No recorder handy? You can skip this and add one anytime from NVR Management.",
+    "skipNvr": "Skip for now",
+    "next": "Next",
+    "doneTitle": "You're all set",
+    "doneDesc": "Your system is ready. Head to the live wall to see your cameras.",
+    "goToLive": "Go to Live",
+    "exitToApp": "Exit setup"
   }
 }
