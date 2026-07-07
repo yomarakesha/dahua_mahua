@@ -152,7 +152,7 @@ function NvrRow({
           ))}
         </select>
         <div className="flex items-center gap-1.5">
-          <span className="flex h-7 items-center rounded-md border border-accent/20 bg-accent/[.10] px-2 text-xs font-semibold text-accent-light">
+          <span className="flex h-7 shrink-0 items-center whitespace-nowrap rounded-md border border-accent/20 bg-accent/[.10] px-2 text-xs font-semibold text-accent-light">
             {t("nvrs.channelCount", { count: nvr.camera_count })}
           </span>
           <button
