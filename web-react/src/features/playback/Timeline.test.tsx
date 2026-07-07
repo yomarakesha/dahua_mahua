@@ -287,6 +287,58 @@ describe("Timeline prev/next buttons", () => {
   });
 });
 
+// ── Zoom controls ─────────────────────────────────────────────────────────────
+
+describe("Timeline zoom controls", () => {
+  it("renders zoom in / out buttons and the current span", () => {
+    renderTimeline();
+    expect(screen.getByRole("button", { name: /zoom in/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /zoom out/i })).toBeTruthy();
+    // Full-day fit at first render.
+    expect(screen.getByText(/24h/)).toBeTruthy();
+  });
+
+  it("zoom out is disabled at the full-day fit", () => {
+    renderTimeline();
+    expect(
+      (screen.getByRole("button", { name: /zoom out/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("clicking zoom in narrows the visible span", () => {
+    renderTimeline();
+    fireEvent.click(screen.getByRole("button", { name: /zoom in/i }));
+    // First fixed step below full-day is the 12h window.
+    expect(screen.getByText(/12h/)).toBeTruthy();
+    // A "Fit day" reset now appears.
+    expect(screen.getByRole("button", { name: /fit day/i })).toBeTruthy();
+  });
+
+  it("Fit day resets the span back to the full day", () => {
+    renderTimeline();
+    fireEvent.click(screen.getByRole("button", { name: /zoom in/i }));
+    fireEvent.click(screen.getByRole("button", { name: /fit day/i }));
+    expect(screen.getByText(/24h/)).toBeTruthy();
+  });
+});
+
+// ── Range-selection affordance ────────────────────────────────────────────────
+
+describe("Timeline select-range toggle", () => {
+  it("renders a 'Select range' toggle that flips aria-pressed", () => {
+    renderTimeline();
+    const btn = screen.getByRole("button", { name: /select range/i });
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(btn);
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("does not render a selection chip until a range is committed", () => {
+    renderTimeline();
+    expect(screen.queryByRole("button", { name: /clear selection/i })).toBeNull();
+  });
+});
+
 // ── No-clip edge cases ────────────────────────────────────────────────────────
 
 describe("Timeline with no clips", () => {
