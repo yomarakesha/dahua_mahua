@@ -13,6 +13,7 @@ import PlaybackPlayer from "./PlaybackPlayer";
 import type { PlaybackControls } from "./PlaybackPlayer";
 import TransportBar from "./TransportBar";
 import RecordingsCalendar from "./RecordingsCalendar";
+import ClipExportButton from "./ClipExportButton";
 import { useSnapshot } from "./useSnapshot";
 import type { FootageAnchor, PlayerState } from "./types";
 
@@ -52,6 +53,10 @@ export default function PlaybackPage() {
   const [playhead, setPlayhead] = useState<number | null>(null);
   /** Latest FootageAnchor, lifted for Task 15's snapshot footage-time mapping. */
   const [anchor, setAnchor] = useState<FootageAnchor | null>(null);
+  /** Export selection painted on the Timeline (clamped ≤10 min & ≤now); null = none. */
+  const [exportSelection, setExportSelection] = useState<{ start: number; end: number } | null>(
+    null,
+  );
   /** Shared <video> ref so Task 15's snapshot can read pixels from the player. */
   const videoRef = useRef<HTMLVideoElement>(null);
   /** Imperative play/pause handle populated by PlaybackPlayer; driven by TransportBar. */
@@ -427,6 +432,18 @@ export default function PlaybackPage() {
         />
       )}
 
+      {/* ── Clip export bar (only while a Timeline selection exists) ─────────── */}
+      {indexData && exportSelection && selectedNvrId && (
+        <div className="flex flex-none items-center gap-2 border-t border-white/[.06] bg-[#0c1014] px-8 py-1.5">
+          <ClipExportButton
+            nvrId={selectedNvrId}
+            channel={channel}
+            selection={exportSelection}
+            onClear={() => setExportSelection(null)}
+          />
+        </div>
+      )}
+
       {/* ── Timeline ────────────────────────────────────────────────────────── */}
       <div className="flex-none border-t border-white/[.06] bg-[#0c1014] py-2">
         {indexData ? (
@@ -438,6 +455,7 @@ export default function PlaybackPage() {
             playheadEpoch={playhead ?? seekTarget}
             onSeek={commitSeek}
             playerState={playerState}
+            onSelectionChange={setExportSelection}
           />
         ) : (
           /*
