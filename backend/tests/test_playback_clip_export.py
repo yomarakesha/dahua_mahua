@@ -116,6 +116,22 @@ async def test_export_empty_output_raises_no_data(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_export_nonzero_rc_with_partial_output_fails_and_deletes(tmp_path):
+    """A non-zero ffmpeg rc is a HARD failure even with partial bytes: +faststart
+    writes the moov atom only on a clean exit, so the file is unplayable.  It must
+    raise ClipExportError (→ 502) AND delete the corrupt temp file (never 200)."""
+    out = tmp_path / "clip.mp4"
+    out.write_bytes(b"\x00\x00\x00\x18ftyppartialdata")  # truncated, no moov
+    proc = _mock_proc(returncode=1, stderr=b"muxer error near EOF")
+    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)):
+        with pytest.raises(ClipExportError) as ei:
+            await export_clip(**_KW, out_path=str(out), overall_timeout_seconds=100)
+    assert "rc=1" in str(ei.value)
+    # The corrupt partial file must be gone (not served as a 200).
+    assert not out.exists()
+
+
+@pytest.mark.asyncio
 async def test_export_teardown_on_client_disconnect(tmp_path):
     """A disconnecting client tears ffmpeg down GRACEFULLY (stdin 'q' → RTSP
     TEARDOWN) and raises ClipExportError — no orphan ffmpeg, no leaked NVR slot."""

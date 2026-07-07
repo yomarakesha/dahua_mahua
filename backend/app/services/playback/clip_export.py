@@ -260,6 +260,18 @@ async def export_clip(
             f"no recorded video for the requested range (ffmpeg rc={rc}): {err_text}"
         )
     if rc not in (0, None):
-        # We have bytes but ffmpeg reported an error — log it; the partial file
-        # is still likely playable (faststart remux), so we do not fail hard.
+        # ANY non-zero ffmpeg return code is a hard FAILURE, even with partial
+        # output: ``+faststart`` writes the ``moov`` atom only on a clean exit, so
+        # a truncated file is unplayable (no moov / partial mdat).  Serving it as
+        # 200 would hand the browser a corrupt MP4 — delete it and fail (→ 502) so
+        # the caller never mistakes partial bytes for a valid clip.
         log.warning("clip export ch=%d ffmpeg rc=%d stderr: %s", channel, rc, err_text)
+        try:
+            os.unlink(out_path)
+        except FileNotFoundError:
+            pass
+        except Exception:  # noqa: BLE001
+            log.warning("clip export failed-output cleanup failed for %s", out_path)
+        raise ClipExportError(
+            f"ffmpeg failed (rc={rc}) — partial/corrupt output discarded: {err_text}"
+        )

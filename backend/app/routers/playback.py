@@ -1185,6 +1185,55 @@ async def recording_days(
 _MIN_PULL_FACTOR = 0.15
 _PULL_HEADROOM_SECONDS = 120.0
 
+# Reject clip epochs more than this far past "now" (guards datetime.fromtimestamp
+# overflow → 500; real footage epochs are past or at the live edge).  Computed
+# per-request so it tracks wall-clock (and is trivially testable).
+_CLIP_EPOCH_FUTURE_SLACK_SECONDS = 86_400  # 1 day
+
+
+def _MAX_CLIP_EPOCH() -> int:  # noqa: N802 — sentinel-style helper, not a constant
+    return int(time.time()) + _CLIP_EPOCH_FUTURE_SLACK_SECONDS
+
+
+# Dedicated temp subdir + stable prefix so the stale-clip sweep is PRECISE — it
+# only ever touches this module's own export temp files, never unrelated tmp data.
+_CLIP_TEMP_PREFIX = "clip_"
+_CLIP_STALE_AGE_SECONDS = 3600.0  # sweep clip_*.mp4 older than ~1h at export start
+
+
+def _clip_temp_dir() -> str:
+    """Return (creating if needed) the dedicated temp subdir for clip exports."""
+    d = os.path.join(tempfile.gettempdir(), "dss_clip_exports")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _sweep_stale_clips(temp_dir: str) -> None:
+    """Best-effort delete of orphaned ``clip_*.mp4`` older than ~1h in *temp_dir*.
+
+    Self-healing for the one leak the BackgroundTask can't cover: if a Starlette
+    ``send`` raises after the client vanished mid-download, the cleanup task is
+    skipped and the temp file orphans (disk only — ffmpeg already exited, so no
+    NVR slot leaks).  Running this at the START of each export reaps those.
+    NEVER raises: a sweep failure must not block a fresh export.
+    """
+    try:
+        now = time.time()
+        with os.scandir(temp_dir) as it:
+            for entry in it:
+                name = entry.name
+                if not (name.startswith(_CLIP_TEMP_PREFIX) and name.endswith(".mp4")):
+                    continue
+                try:
+                    if now - entry.stat().st_mtime > _CLIP_STALE_AGE_SECONDS:
+                        os.unlink(entry.path)
+                except FileNotFoundError:
+                    pass
+                except Exception:  # noqa: BLE001
+                    log.debug("stale-clip sweep skip %s", entry.path, exc_info=True)
+    except Exception:  # noqa: BLE001
+        log.debug("stale-clip sweep failed for %s", temp_dir, exc_info=True)
+
 
 @router.get("/{nvr_id}/{channel}/clip")
 async def export_recording_clip(
@@ -1226,6 +1275,15 @@ async def export_recording_clip(
             status.HTTP_400_BAD_REQUEST,
             "end must be greater than start",
         )
+    # Upper-bound sanity: a huge in-range epoch (e.g. milliseconds mistaken for
+    # seconds) would make datetime.fromtimestamp() overflow inside export_clip and
+    # surface as a 500.  Reject anything more than a day past "now" as a 400 before
+    # doing any work — real footage epochs are in the past or at the live edge.
+    if start_epoch > _MAX_CLIP_EPOCH() or end_epoch > _MAX_CLIP_EPOCH():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "start/end epoch is unreasonably far in the future",
+        )
     settings = get_settings()
     duration = end_epoch - start_epoch
     if duration > settings.clip_export_max_seconds:
@@ -1248,9 +1306,29 @@ async def export_recording_clip(
     if nvr is None or camera is None or not user_can_access_camera(user, camera):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
 
+    # ── Self-healing: reap orphaned clip temp files from crashed downloads ─────
+    temp_dir = _clip_temp_dir()
+    _sweep_stale_clips(temp_dir)
+
+    # ── NvrBudget slot (Task 6) — mirror the WS /stream path so exports can't ──
+    # starve the NVR's small playback pool.  A clip pull holds an NVR playback
+    # slot for its full ~realtime duration, so it MUST be capped exactly like a
+    # live playback session.  Acquire BEFORE spawning ffmpeg; at capacity → 429.
+    # The slot is released in the teardown ``finally`` on EVERY exit path — ffmpeg
+    # has fully exited by the time export_clip returns, so the slot is freed
+    # before the file is streamed back (the download itself holds no NVR slot).
+    budget = get_budget()
+    try:
+        await budget.try_acquire(nvr_id)
+    except BudgetExhausted as exc:
+        log.info("clip export budget-exhausted nvr=%s ch=%d", nvr_id, channel)
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, "recorder busy, try again"
+        ) from exc
+
     # ── Run ffmpeg into a temp MP4 (faststart needs a seekable output) ────────
     password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
-    fd, out_path = tempfile.mkstemp(suffix=".mp4", prefix="clip_")
+    fd, out_path = tempfile.mkstemp(suffix=".mp4", prefix=_CLIP_TEMP_PREFIX, dir=temp_dir)
     os.close(fd)  # ffmpeg (re)creates it with -y; we just reserved the path
     overall_timeout = duration / _MIN_PULL_FACTOR + _PULL_HEADROOM_SECONDS
     try:
@@ -1280,6 +1358,11 @@ async def export_recording_clip(
         # Cancellation or any other failure: never leak the temp file.
         _cleanup_file(out_path)
         raise
+    finally:
+        # Release the NVR slot on EVERY exit path (success, 502, cancel, error).
+        # ffmpeg has already exited here, so freeing the slot before the download
+        # streams back is correct — the FileResponse reads the temp file off disk.
+        await budget.release(nvr_id)
 
     filename = f"{nvr_id}_ch{channel}_{start_epoch}.mp4"
     # FileResponse sets Content-Disposition: attachment; filename="..." from the

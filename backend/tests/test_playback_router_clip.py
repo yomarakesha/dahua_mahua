@@ -27,8 +27,38 @@ with warnings.catch_warnings():
 from app.crypto import encrypt_password
 from app.db import Base, get_session
 from app.models import Camera, Nvr, Region, Role, User, Vendor
+from app.routers import playback as playback_module
 from app.routers.playback import router as playback_router, resolve_playback_user
 from app.services.playback.clip_export import ClipExportError
+from app.services.playback.nvr_budget import BudgetExhausted
+
+
+class _FakeBudget:
+    """Records acquire/release calls; optionally raises BudgetExhausted on acquire."""
+
+    def __init__(self, *, exhausted: bool = False) -> None:
+        self.exhausted = exhausted
+        self.acquired: list[str] = []
+        self.released: list[str] = []
+
+    async def try_acquire(self, nvr_id: str) -> None:
+        if self.exhausted:
+            raise BudgetExhausted("full")
+        self.acquired.append(nvr_id)
+
+    async def release(self, nvr_id: str) -> None:
+        self.released.append(nvr_id)
+
+
+@pytest.fixture(autouse=True)
+def _open_budget(monkeypatch):
+    """Default: every clip test runs against an open (never-exhausted) budget.
+
+    Tests needing an exhausted budget re-patch ``get_budget`` themselves.
+    """
+    budget = _FakeBudget()
+    monkeypatch.setattr(playback_module, "get_budget", lambda: budget)
+    return budget
 
 _engine = create_async_engine(
     "sqlite+aiosqlite://",
@@ -265,3 +295,95 @@ def test_clip_502_and_temp_cleaned_on_export_error(monkeypatch):
     assert resp.status_code == 502
     # The reserved temp file must be removed even on the failure path.
     assert not os.path.exists(captured["out_path"])
+
+
+# ── NvrBudget integration ───────────────────────────────────────────────────────
+
+def test_clip_acquires_and_releases_budget_on_success(monkeypatch, _open_budget):
+    rec: dict = {}
+    monkeypatch.setattr("app.routers.playback.export_clip", _stub_export(rec))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with TestClient(_make_app()) as c:
+            resp = c.get(
+                f"/api/v1/playback/{NVR_ID}/{_CH}/clip?start={_START}&end={_END}"
+            )
+    assert resp.status_code == 200
+    # Slot acquired before the pull and released after (before the download).
+    assert _open_budget.acquired == [NVR_ID]
+    assert _open_budget.released == [NVR_ID]
+
+
+def test_clip_releases_budget_on_export_error(monkeypatch, _open_budget):
+    async def _boom(**kwargs):
+        raise ClipExportError("boom")
+
+    monkeypatch.setattr("app.routers.playback.export_clip", _boom)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with TestClient(_make_app()) as c:
+            resp = c.get(
+                f"/api/v1/playback/{NVR_ID}/{_CH}/clip?start={_START}&end={_END}"
+            )
+    assert resp.status_code == 502
+    # Slot released even though the export failed (no leak).
+    assert _open_budget.released == [NVR_ID]
+
+
+def test_clip_429_when_nvr_at_capacity(monkeypatch):
+    called = AsyncMock()
+    monkeypatch.setattr("app.routers.playback.export_clip", called)
+    full = _FakeBudget(exhausted=True)
+    monkeypatch.setattr(playback_module, "get_budget", lambda: full)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with TestClient(_make_app()) as c:
+            resp = c.get(
+                f"/api/v1/playback/{NVR_ID}/{_CH}/clip?start={_START}&end={_END}"
+            )
+    assert resp.status_code == 429
+    assert "busy" in resp.json()["detail"].lower()
+    called.assert_not_called()  # ffmpeg never spawned when over budget
+    assert full.released == []   # nothing acquired → nothing to release
+
+
+# ── Huge epoch → 400 (not 500) ──────────────────────────────────────────────────
+
+def test_clip_400_huge_epoch(monkeypatch):
+    called = AsyncMock()
+    monkeypatch.setattr("app.routers.playback.export_clip", called)
+    huge = 100_000_000_000  # ms-as-seconds mistake: far past year 2100
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with TestClient(_make_app()) as c:
+            resp = c.get(
+                f"/api/v1/playback/{NVR_ID}/{_CH}/clip?start={huge}&end={huge + 60}"
+            )
+    assert resp.status_code == 400
+    called.assert_not_called()
+
+
+# ── Stale-temp sweep ────────────────────────────────────────────────────────────
+
+def test_sweep_deletes_stale_but_keeps_fresh_and_unrelated(tmp_path):
+    import time as _t
+
+    stale = tmp_path / "clip_stale.mp4"
+    fresh = tmp_path / "clip_fresh.mp4"
+    unrelated = tmp_path / "keepme.txt"
+    for p in (stale, fresh, unrelated):
+        p.write_bytes(b"x")
+    # Age the stale clip ~2h into the past; leave the others fresh.
+    old = _t.time() - 7200
+    os.utime(stale, (old, old))
+
+    playback_module._sweep_stale_clips(str(tmp_path))
+
+    assert not stale.exists()      # old clip_*.mp4 reaped
+    assert fresh.exists()          # fresh clip_*.mp4 kept
+    assert unrelated.exists()      # non-clip file untouched
+
+
+def test_sweep_never_raises_on_missing_dir():
+    # Must be best-effort: a bad path is swallowed, not raised.
+    playback_module._sweep_stale_clips("/nonexistent/dss_clip_dir_xyz")
