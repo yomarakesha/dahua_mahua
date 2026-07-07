@@ -16,10 +16,8 @@ import RecordingsCalendar from "./RecordingsCalendar";
 import ClipExportButton from "./ClipExportButton";
 import { useSnapshot } from "./useSnapshot";
 import { useVideoZoom } from "./useVideoZoom";
-import { useSkipSeekFF } from "./useSkipSeekFF";
 import type { FootageAnchor, PlayerState } from "./types";
 
-type Speed = 1 | 2 | 4 | 8;
 type Transport = "udp" | "tcp";
 
 /** Today as "YYYY-MM-DD" (UTC). The NVR tz offset is applied to the min/max
@@ -42,7 +40,6 @@ export default function PlaybackPage() {
   const [viewMonth, setViewMonth] = useState<string>(todayIso().slice(0, 7));
   /** Footage epoch (UTC seconds) committed by the Timeline on drag-release. */
   const [seekTarget, setSeekTarget] = useState<number | null>(null);
-  const [speed, setSpeed] = useState<Speed>(1);
   /** Transport toggle: Smooth = udp (default, near-realtime but lossy on this
    *  NVR), Clear = tcp (clean but slow). Per-playback; changing it reopens the WS. */
   const [transport, setTransport] = useState<Transport>("udp");
@@ -168,17 +165,11 @@ export default function PlaybackPage() {
     hasSelection && !!selectedDate,
   );
 
-  // ── Fast-forward via client skip-seek (backend is always 1x) ─────────────────
-  // At speed>1 the timeline playhead is stepped forward at Nx over the working
-  // 1x stream; when it catches the live/day edge we drop back to 1x.
-  const dropToNormalSpeed = useCallback(() => setSpeed(1), []);
-  useSkipSeekFF({
-    speed,
-    playheadEpoch: playhead,
-    dayEndEpoch: indexData?.day_end_epoch ?? 0,
-    onSeek: commitSeek,
-    onReachedEnd: dropToNormalSpeed,
-  });
+  // Fast-forward (2/4/8x) was removed: these recorders only stream footage at
+  // realtime over RTSP, so smooth server-side FF is impossible and client
+  // skip-seek froze (each jump restarts the stream slower than the jump). Fast
+  // navigation is the zoomable timeline — drag/click the playhead to seek. 1x
+  // playback is smooth (mp4-like).
 
   // ── Snapshot (Task 15) ──────────────────────────────────────────────────────
   // tzOffsetMinutes comes from the loaded RecordingIndex; default 0 before it loads.
@@ -240,6 +231,9 @@ export default function PlaybackPage() {
   const firstClipStart = indexData?.clips[0]?.start_epoch ?? null;
   const effectiveSeek = seekTarget ?? firstClipStart;
   const noCoverage = !!indexData && indexData.clips.length === 0;
+  // Non-Dahua recorders (e.g. Hikvision) don't support playback yet — the backend
+  // flags it so we show a clear message instead of an error / "no recordings".
+  const playbackUnsupported = indexData?.playback_supported === false;
   const showPlayer =
     hasSelection && !!selectedNvrId && !!indexData && !noCoverage && effectiveSeek != null;
 
@@ -330,27 +324,8 @@ export default function PlaybackPage() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Speed selector — client skip-seek FF (backend plays 1x; this NVR only
-            streams at realtime, so 2/4/8x jump-scan the recording). */}
-        <div className="flex items-center gap-1" aria-label={t("playback.speedControlLabel")}>
-          {([1, 2, 4, 8] as const).map((s) => (
-            <button
-              key={s}
-              aria-label={t("playback.speedButton", { speed: s })}
-              title={s > 1 ? t("playback.ffSampled") : undefined}
-              aria-pressed={speed === s}
-              onClick={() => setSpeed(s)}
-              className={[
-                "h-8 rounded-md px-3 text-sm font-semibold transition",
-                speed === s
-                  ? "bg-accent/[.18] text-accent-light ring-1 ring-accent/30"
-                  : "text-ink-dim hover:bg-white/[.05] hover:text-ink-soft",
-              ].join(" ")}
-            >
-              {t("playback.speedLabel", { speed: s })}
-            </button>
-          ))}
-        </div>
+        {/* No speed selector: these recorders only stream at realtime, so 2/4/8x
+            fast-forward isn't possible. Fast navigation = drag the timeline. */}
 
         {/* Transport toggle — Smooth (udp, default) vs Clear (tcp): per-playback
             RTSP transport (Contract #10). Reopens the WS on change. */}
@@ -419,9 +394,8 @@ export default function PlaybackPage() {
             nvrId={selectedNvrId}
             channel={channel}
             seekTarget={effectiveSeek}
-            // The backend ALWAYS plays 1x (this NVR only streams at realtime;
-            // server-side FF is impossible). Fast-forward is client skip-seeking
-            // via useSkipSeekFF below, which advances `seekTarget` at Nx.
+            // Always 1x — these recorders only stream at realtime, so there is no
+            // fast-forward (removed). Fast navigation is timeline scrubbing.
             speed={1}
             transport={transport}
             videoRef={videoRef}
@@ -441,6 +415,8 @@ export default function PlaybackPage() {
               ? t("playback.selectCameraPrompt")
               : !selectedDate
               ? t("playback.selectDatePrompt")
+              : playbackUnsupported
+              ? t("playback.notSupportedOnRecorder")
               : noCoverage
               ? t("playback.noCoverage")
               : t("playback.loadingIndex")}
@@ -470,8 +446,6 @@ export default function PlaybackPage() {
           dayEndEpoch={indexData.day_end_epoch}
           clips={indexData.clips}
           tzOffsetMinutes={indexData.tz_offset_minutes}
-          speed={speed}
-          onSpeedChange={setSpeed}
           onSeek={commitSeek}
           playerState={playerState}
           controlsRef={controlsRef}

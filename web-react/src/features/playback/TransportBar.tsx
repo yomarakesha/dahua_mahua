@@ -10,7 +10,6 @@
  *  - Step −10 s / +10 s via stepEpoch() → snapToNearest() → onSeek.
  *  - Jump to the first / last recording of the day.
  *  - A big NVR-local footage-time readout (date + HH:MM:SS) from the playhead.
- *  - A speed indicator that cycles 1 → 2 → 4 → 8 → 1.
  *  - Keyboard: Space = play/pause, ←/→ = ±10 s, Home/End = jump. Ignored while
  *    typing in an input/select/textarea, and deferred to the Timeline slider when
  *    it owns focus (so arrows/Home/End aren't handled twice).
@@ -23,8 +22,6 @@ import type { PlaybackControls } from "./PlaybackPlayer";
 import { stepEpoch, snapToNearest, formatNvrDatetime } from "./playback-utils";
 import { PlayIcon, PauseIcon } from "@/components/icons";
 
-type Speed = 1 | 2 | 4 | 8;
-const SPEEDS: readonly Speed[] = [1, 2, 4, 8] as const;
 const STEP_SECONDS = 10;
 
 export interface TransportBarProps {
@@ -35,8 +32,6 @@ export interface TransportBarProps {
   /** Merged recording spans for the day (for snap + jump-to-start/end). */
   clips: RecordingClip[];
   tzOffsetMinutes: number;
-  speed: Speed;
-  onSpeedChange: (s: Speed) => void;
   /** Page-level committed seek (debounced 250 ms in PlaybackPage). */
   onSeek: (epoch: number) => void;
   playerState: PlayerState;
@@ -66,8 +61,6 @@ export default function TransportBar({
   dayEndEpoch,
   clips,
   tzOffsetMinutes,
-  speed,
-  onSpeedChange,
   onSeek,
   playerState,
   controlsRef,
@@ -114,11 +107,6 @@ export default function TransportBar({
     if (isPlaying) c.pause();
     else c.play();
   }, [controlsRef, isPlaying]);
-
-  const cycleSpeed = useCallback(() => {
-    const idx = SPEEDS.indexOf(speed);
-    onSpeedChange(SPEEDS[(idx + 1) % SPEEDS.length]);
-  }, [speed, onSpeedChange]);
 
   // ── Keyboard shortcuts (window-level; ignored while typing / on the slider) ──
   useEffect(() => {
@@ -238,17 +226,6 @@ export default function TransportBar({
       </div>
 
       <div className="flex-1" />
-
-      {/* Speed cycle indicator/control */}
-      <button
-        type="button"
-        aria-label={t("playback.cyclePlaybackSpeed", { speed })}
-        title={t("playback.cyclePlaybackSpeed", { speed })}
-        onClick={cycleSpeed}
-        className="flex h-9 min-w-[3rem] items-center justify-center gap-1 rounded-md bg-accent/[.14] px-3 text-sm font-semibold text-accent-light ring-1 ring-accent/25 transition hover:bg-accent/[.2]"
-      >
-        {t("playback.speedLabel", { speed })}
-      </button>
     </div>
   );
 }

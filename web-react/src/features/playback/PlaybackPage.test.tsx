@@ -108,22 +108,10 @@ describe("PlaybackPage", () => {
     expect(dateBtn.textContent).toContain(new Date().toISOString().slice(0, 10));
   });
 
-  it("renders all four speed buttons", () => {
+  it("has no speed buttons (FF removed — realtime-only recorders)", () => {
     renderPage();
     for (const s of [1, 2, 4, 8]) {
-      expect(screen.getByRole("button", { name: `${s}× speed` })).toBeTruthy();
-    }
-  });
-
-  it("1× speed is active (aria-pressed=true) by default", () => {
-    renderPage();
-    const btn = screen.getByRole("button", { name: "1× speed" });
-    expect(btn.getAttribute("aria-pressed")).toBe("true");
-    // others should be false
-    for (const s of [2, 4, 8]) {
-      expect(
-        screen.getByRole("button", { name: `${s}× speed` }).getAttribute("aria-pressed"),
-      ).toBe("false");
+      expect(screen.queryByRole("button", { name: `${s}× speed` })).toBeNull();
     }
   });
 
@@ -157,16 +145,6 @@ describe("PlaybackPage", () => {
     // Change NVR — camera should reset
     fireEvent.change(nvrSelect, { target: { value: "" } });
     expect(camSelect.value).toBe("");
-  });
-
-  it("clicking a speed button marks it as active", () => {
-    renderPage();
-    const btn4x = screen.getByRole("button", { name: "4× speed" });
-    fireEvent.click(btn4x);
-    expect(btn4x.getAttribute("aria-pressed")).toBe("true");
-    expect(
-      screen.getByRole("button", { name: "1× speed" }).getAttribute("aria-pressed"),
-    ).toBe("false");
   });
 
   it("renders both transport toggle buttons, Smooth active by default", () => {
