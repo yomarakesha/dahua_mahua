@@ -20,23 +20,43 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import tempfile
 import time
 import uuid as _uuid
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from json import JSONDecodeError
+from typing import Annotated
 
 import jwt
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from app.crypto import decrypt_password
-from app.deps import AdminUser, CurrentUser, SessionDep, user_can_access_camera
+from app.deps import (
+    AdminUser,
+    CurrentUser,
+    SessionDep,
+    _extract_bearer,
+    user_can_access_camera,
+)
 from app.models import Camera, Nvr, User
 from app.security import decode_token
 from app.services.lockouts import get_active_lockout
+from app.services.playback.clip_export import ClipExportError, export_clip
 from app.services.playback.index_parser import Clip
 from app.services.playback.media_find import MediaFindError, find_clips
 from app.services.playback.nvr_budget import BudgetExhausted, get_budget
@@ -129,6 +149,65 @@ def clips_to_day_strings(clips: list[Clip]) -> list[str]:
             days.add(d.strftime("%Y-%m-%d"))
             d += one_day
     return sorted(days)
+
+
+def clips_to_day_numbers(clips: list[Clip], month_str: str) -> list[int]:
+    """Return the sorted distinct 1-based day numbers of *month_str* that *clips*
+    touch, NVR-local.
+
+    Built on :func:`clips_to_day_strings` (which already handles midnight-crossing
+    clips), then FILTERED to the queried month: a clip that spills into an
+    adjacent month contributes only the day(s) inside *month_str* — a bare day
+    number would be ambiguous across months, and a calendar only renders the
+    month it asked for.  *month_str* is ``YYYY-MM``.
+    """
+    prefix = f"{month_str}-"
+    return sorted(
+        int(d[8:10]) for d in clips_to_day_strings(clips) if d.startswith(prefix)
+    )
+
+
+# ── Auth: ?token= OR Authorization header (unit-testable dependency) ──────────
+
+
+async def resolve_playback_user(
+    session: SessionDep,
+    token: str | None = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> User:
+    """Resolve the authenticated user from a ``?token=`` query param OR the
+    ``Authorization: Bearer`` header (same 401 semantics as ``get_current_user``).
+
+    The query param exists because browser navigations that download a file (the
+    ``<a href>`` for ``/clip``) or an ``<img>``/plain calendar fetch cannot always
+    set an Authorization header; when both are present the query token wins.  Used
+    by the ``/days`` and ``/clip`` endpoints; tests override this dependency.
+    """
+    raw = token if token else _extract_bearer(authorization)  # 401 if neither
+    try:
+        payload = decode_token(raw)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token expired") from None
+    except jwt.PyJWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token") from None
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token missing subject")
+    try:
+        user_id = _uuid.UUID(str(sub))
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Token subject is not a UUID"
+        ) from None
+    user = (
+        await session.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+    return user
+
+
+PlaybackTokenUser = Annotated[User, Depends(resolve_playback_user)]
 
 
 def _month_to_local_bounds(month_str: str) -> tuple[datetime, datetime]:
@@ -989,6 +1068,239 @@ async def recording_availability(
 
     _cache_set(cache_key, result)
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Month recording-days endpoint — /playback/{nvr_id}/{channel}/days?month=YYYY-MM
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Calendar helper: which 1-based day numbers of a month have any recording.
+# Same wide single-``find_clips`` call + 120 s cache as /availability, but the
+# response is trimmed to a bare day list so a calendar paging months is cheap.
+# Auth via ?token= OR header (resolve_playback_user); per-camera RBAC (Contract #1).
+
+
+@router.get("/{nvr_id}/{channel}/days")
+async def recording_days(
+    nvr_id: str,
+    channel: int,
+    month: str,
+    session: SessionDep,
+    user: PlaybackTokenUser,
+) -> dict:
+    """Which calendar days in *month* (``YYYY-MM``) have recordings.
+
+    Returns::
+
+        {"month": "2026-07", "days": [1, 3, 4, 7, ...]}
+
+    ``days`` are 1-based, NVR-local, sorted, distinct, and bounded to *month*
+    (a clip spilling into an adjacent month contributes only its in-month days).
+    An empty month returns ``{"month": ..., "days": []}``.  Cached 120 s per
+    ``(nvr_id, channel, "days", month)``.
+    """
+    # ── Input validation (400) ────────────────────────────────────────────────
+    if channel < 1:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "channel must be a positive integer",
+        )
+    if not _MONTH_RE.match(month):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "month must be in YYYY-MM format",
+        )
+    try:
+        year_val, month_val = int(month[:4]), int(month[5:7])
+        if not (1 <= month_val <= 12):
+            raise ValueError("month out of range")
+        datetime(year_val, month_val, 1)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "month is not a valid calendar month",
+        ) from None
+
+    # ── NVR + Camera lookup — no SSRF: hosts always come from the DB rows ────
+    nvr = (
+        await session.execute(select(Nvr).where(Nvr.id == nvr_id))
+    ).scalar_one_or_none()
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
+
+    # ── Cache check ───────────────────────────────────────────────────────────
+    cache_key = (nvr_id, channel, "days", month)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    # ── Compute month boundaries in NVR-local time (one month max) ────────────
+    month_start_local, month_end_local = _month_to_local_bounds(month)
+
+    # ── Fetch from NVR ────────────────────────────────────────────────────────
+    password = decrypt_password(nvr.rtsp_password_encrypted)
+    try:
+        clips = await find_clips(
+            nvr.ip,
+            80,  # HTTP CGI port, not RTSP port
+            nvr.rtsp_username,
+            password,
+            channel=channel,
+            start=month_start_local,
+            end=month_end_local,  # already last-second-of-month (exclusive boundary)
+        )
+    except MediaFindError as exc:
+        log.warning("NVR %s ch%d %s days failed: %s", nvr_id, channel, month, exc)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "NVR recording availability unavailable",
+        ) from exc
+
+    result: dict = {"month": month, "days": clips_to_day_numbers(clips, month)}
+    _cache_set(cache_key, result)
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Clip export endpoint — /playback/{nvr_id}/{channel}/clip?start=&end=  (download)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Runs ffmpeg to pull the NVR's /cam/playback RTSP for [start,end] over TCP and
+# returns a downloadable MP4 (attachment).  Per-camera RBAC (Contract #1); auth
+# via ?token= OR header (resolve_playback_user).  The requested duration is
+# bounded (clip_export_max_seconds) because this NVR delivers playback at
+# ~realtime or SLOWER — a 10-min clip takes 10+ min of wall time (much longer
+# over TCP).  ffmpeg is torn down (no orphan; releases the NVR playback slot) on
+# client disconnect and the temp file is always cleaned up.  Credential hygiene
+# (Contract #12): the credentialed RTSP URL is never logged.
+
+# The pull runs at ~realtime or slower (TCP ~0.2x on this NVR), so allow ample
+# wall-clock time before declaring a hung NVR: duration / _MIN_PULL_FACTOR plus a
+# fixed headroom.  Bounded by clip_export_max_seconds on the input side.
+_MIN_PULL_FACTOR = 0.15
+_PULL_HEADROOM_SECONDS = 120.0
+
+
+@router.get("/{nvr_id}/{channel}/clip")
+async def export_recording_clip(
+    nvr_id: str,
+    channel: int,
+    request: Request,
+    start: int,
+    end: int,
+    session: SessionDep,
+    user: PlaybackTokenUser,
+    transport: str | None = None,  # accepted for contract parity; export forces TCP
+) -> FileResponse:
+    """Export ``[start, end]`` (footage UTC epochs) of one channel as a download.
+
+    Returns an MP4 with ``Content-Disposition: attachment`` and
+    ``Content-Type: video/mp4``.
+
+    Error responses:
+        400 — bad channel/epochs, ``end <= start``, or duration over the cap
+              (``clip_export_max_seconds``).
+        404 — NVR/camera not found or no per-camera access.
+        502 — ffmpeg failed, timed out, client disconnected, or the NVR yielded
+              no data for the range.
+
+    Export always uses **TCP** transport (reliability over speed — a dropped
+    packet must not corrupt the saved file), regardless of the ``transport``
+    query param.  Because the pull is ~realtime, a long clip is a long request;
+    the frontend must message this to the user and bound the selection.
+    """
+    # ── Input validation (400) ────────────────────────────────────────────────
+    try:
+        validate_channel(channel)
+        start_epoch = validate_footage_epoch(start)
+        end_epoch = validate_footage_epoch(end)
+    except PlaybackUrlError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if end_epoch <= start_epoch:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "end must be greater than start",
+        )
+    settings = get_settings()
+    duration = end_epoch - start_epoch
+    if duration > settings.clip_export_max_seconds:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"requested clip duration {duration}s exceeds the maximum "
+            f"{settings.clip_export_max_seconds}s (this NVR exports at ~realtime, "
+            "so pick a shorter range)",
+        )
+
+    # ── Per-camera RBAC (Contract #1) — no SSRF: IP comes from DB row ─────────
+    nvr = (
+        await session.execute(select(Nvr).where(Nvr.id == nvr_id))
+    ).scalar_one_or_none()
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
+
+    # ── Run ffmpeg into a temp MP4 (faststart needs a seekable output) ────────
+    password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
+    fd, out_path = tempfile.mkstemp(suffix=".mp4", prefix="clip_")
+    os.close(fd)  # ffmpeg (re)creates it with -y; we just reserved the path
+    overall_timeout = duration / _MIN_PULL_FACTOR + _PULL_HEADROOM_SECONDS
+    try:
+        await export_clip(
+            ip=nvr.ip,
+            rtsp_port=nvr.port,  # Contract #9: nvr.port is the RTSP port
+            user=nvr.rtsp_username,
+            pw=password,
+            channel=channel,
+            start_epoch=start_epoch,
+            end_epoch=end_epoch,
+            tz_offset_minutes=settings.playback_tz_offset_minutes,
+            ffbin=settings.reencode_ffmpeg_bin,
+            out_path=out_path,
+            overall_timeout_seconds=overall_timeout,
+            is_disconnected=request.is_disconnected,  # tear down if client navigates away
+            transport="tcp",  # Contract #10: reliability over speed for a saved file
+        )
+    except ClipExportError as exc:
+        _cleanup_file(out_path)
+        # Log the (already-redacted) reason only; never the credentialed URL.
+        log.warning("clip export failed nvr=%s ch=%d: %s", nvr_id, channel, exc)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Clip export unavailable"
+        ) from exc
+    except BaseException:
+        # Cancellation or any other failure: never leak the temp file.
+        _cleanup_file(out_path)
+        raise
+
+    filename = f"{nvr_id}_ch{channel}_{start_epoch}.mp4"
+    # FileResponse sets Content-Disposition: attachment; filename="..." from the
+    # filename kwarg.  The BackgroundTask deletes the temp file after the body is
+    # fully sent (or the connection drops).
+    return FileResponse(
+        out_path,
+        media_type="video/mp4",
+        filename=filename,
+        background=BackgroundTask(_cleanup_file, out_path),
+    )
+
+
+def _cleanup_file(path: str) -> None:
+    """Best-effort delete of the temp export file (idempotent, never raises)."""
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except Exception:  # noqa: BLE001
+        log.warning("clip export temp cleanup failed for %s", path, exc_info=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

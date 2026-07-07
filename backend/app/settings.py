@@ -260,6 +260,15 @@ class Settings(BaseSettings):
     # (Task 8); excess attempts are rejected with code 4429.
     playback_rate_limit_per_minute: int = 10
 
+    # Clip export (GET /playback/{nvr}/{ch}/clip): hard ceiling on the requested
+    # [start,end] duration in SECONDS.  This NVR's /cam/playback RTSP delivers at
+    # ~realtime or SLOWER (TCP ~0.2x, UDP ~0.9x), so an export pulls in roughly
+    # real time — a 10-min clip takes 10+ min of wall clock (much longer over
+    # TCP).  Requests longer than this are rejected with 400 so a user can't
+    # accidentally pin an ffmpeg + NVR playback slot for an hour.  Raise per
+    # deploy only if operators accept the proportionally longer pull time.
+    clip_export_max_seconds: int = 600
+
     # ── Warm-stream pool (live-open latency) ─────────────────────────────────
     # Keeps a bounded set of server-side consumers draining go2rtc SUB streams so
     # those cameras open ~instantly (warm producer + cached keyframe → ~0.5s vs
