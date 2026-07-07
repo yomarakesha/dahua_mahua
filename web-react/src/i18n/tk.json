@@ -184,7 +184,8 @@
     "exportFailed": "Ýükleme şowsuz — gaýtadan synanyşyň",
     "resetVideoZoom": "Ulaltmany dikeld",
     "noRecorders": "Heniz ýazyjy ýok — ýazgylary görmek üçin NVR bölüminden goşuň.",
-    "ffSampled": "Çalt geçiş ýazgyny böleklär bilen görkezýär — bu ýazyjy diňe hakyky wagtda akym berýär, şonuň üçin 2×/4×/8× tekiz oýnaman, böküp gözden geçirýär."
+    "ffSampled": "Çalt geçiş ýazgyny böleklär bilen görkezýär — bu ýazyjy diňe hakyky wagtda akym berýär, şonuň üçin 2×/4×/8× tekiz oýnaman, böküp gözden geçirýär.",
+    "notSupportedOnRecorder": "Bu ýazyjy üçin oýnatmak entek elýeterli däl (Hikvision ýazyjylary başga ulgam ulanýar). Janly görnüş kadaly işleýär."
   },
   "nvrs": {
     "title": "NVR Dolandyryşy",

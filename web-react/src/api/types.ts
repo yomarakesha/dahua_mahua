@@ -168,6 +168,9 @@ export interface RecordingIndex {
   day_start_epoch: number;     // epoch of 00:00:00 NVR-local
   day_end_epoch: number;       // epoch of 00:00:00 NVR-local next day
   clips: RecordingClip[];
+  /** False for non-Dahua (e.g. Hikvision) recorders — playback isn't supported
+   *  there yet (Dahua mediaFileFind CGI only). UI shows a clear state, not an error. */
+  playback_supported?: boolean;
 }
 
 /** Response from GET /playback/{nvr_id}/{ch}/availability?month=YYYY-MM */

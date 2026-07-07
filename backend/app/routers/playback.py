@@ -53,7 +53,7 @@ from app.deps import (
     _extract_bearer,
     user_can_access_camera,
 )
-from app.models import Camera, Nvr, User
+from app.models import Camera, Nvr, User, Vendor
 from app.security import decode_token
 from app.services.lockouts import get_active_lockout
 from app.services.playback.clip_export import ClipExportError, export_clip
@@ -291,6 +291,22 @@ async def recording_index(
     day_start_local = datetime.strptime(date, "%Y-%m-%d")
     day_end_local = day_start_local + timedelta(days=1)
 
+    # ── Non-Dahua recorders: playback unsupported (graceful, not a 502) ───────
+    # Playback speaks Dahua's mediaFileFind CGI, which Hikvision (and others)
+    # return 404 for. Return a VALID empty index flagged playback_supported=False
+    # so the UI shows a clear "not supported on this recorder" state instead of a
+    # 502. (Real Hikvision playback via ISAPI is a separate feature.)
+    if nvr.vendor != Vendor.dahua:
+        empty: dict = {
+            "tz_offset_minutes": tz_offset,
+            "day_start_epoch": day_start_epoch,
+            "day_end_epoch": day_end_epoch,
+            "clips": [],
+            "playback_supported": False,
+        }
+        _cache_set(cache_key, empty)
+        return empty
+
     # ── Fetch from NVR ────────────────────────────────────────────────────────
     # nvr.port is the RTSP port (default 554); Dahua HTTP CGI is on port 80,
     # matching the convention in camera_import.py (http_port=80).
@@ -321,6 +337,7 @@ async def recording_index(
         "tz_offset_minutes": tz_offset,
         "day_start_epoch": day_start_epoch,
         "day_end_epoch": day_end_epoch,
+        "playback_supported": True,
         "clips": [
             {
                 "start_epoch": nvr_naive_to_epoch(c.start, tz_offset),
@@ -1032,6 +1049,12 @@ async def recording_availability(
     tz_offset = settings.playback_tz_offset_minutes
     month_start_local, month_end_local = _month_to_local_bounds(month)
 
+    # Non-Dahua recorders: playback unsupported → empty (not a 502). See /index.
+    if nvr.vendor != Vendor.dahua:
+        empty: dict = {"days_with_recordings": [], "oldest_epoch": None, "playback_supported": False}
+        _cache_set(cache_key, empty)
+        return empty
+
     # ── Fetch from NVR ────────────────────────────────────────────────────────
     password = decrypt_password(nvr.rtsp_password_encrypted)
     try:
@@ -1141,6 +1164,12 @@ async def recording_days(
 
     # ── Compute month boundaries in NVR-local time (one month max) ────────────
     month_start_local, month_end_local = _month_to_local_bounds(month)
+
+    # Non-Dahua recorders: playback unsupported → empty (not a 502). See /index.
+    if nvr.vendor != Vendor.dahua:
+        empty: dict = {"month": month, "days": [], "playback_supported": False}
+        _cache_set(cache_key, empty)
+        return empty
 
     # ── Fetch from NVR ────────────────────────────────────────────────────────
     password = decrypt_password(nvr.rtsp_password_encrypted)

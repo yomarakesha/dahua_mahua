@@ -184,7 +184,8 @@
     "exportFailed": "Export failed — try again",
     "resetVideoZoom": "Reset zoom",
     "noRecorders": "No recorders yet — add one in NVR Management to review footage.",
-    "ffSampled": "Fast-forward samples the recording in steps — this recorder only streams at realtime, so 2×/4×/8× jump-scan rather than play smoothly."
+    "ffSampled": "Fast-forward samples the recording in steps — this recorder only streams at realtime, so 2×/4×/8× jump-scan rather than play smoothly.",
+    "notSupportedOnRecorder": "Playback isn't available for this recorder yet (Hikvision recorders use a different system). Live view works normally."
   },
   "nvrs": {
     "title": "NVR Management",
