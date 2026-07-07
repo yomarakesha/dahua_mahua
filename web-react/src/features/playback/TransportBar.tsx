@@ -45,7 +45,7 @@ export interface TransportBarProps {
 }
 
 /** True when a keydown originates from a control that owns the key itself. */
-function shouldIgnoreKey(target: EventTarget | null, key: string): boolean {
+function shouldIgnoreKey(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el) return false;
   const tag = el.tagName;
@@ -123,7 +123,7 @@ export default function TransportBar({
   // ── Keyboard shortcuts (window-level; ignored while typing / on the slider) ──
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (shouldIgnoreKey(e.target, e.key)) return;
+      if (shouldIgnoreKey(e.target)) return;
       switch (e.key) {
         case " ":
         case "Spacebar":
