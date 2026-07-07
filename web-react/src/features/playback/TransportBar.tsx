@@ -53,8 +53,10 @@ function shouldIgnoreKey(target: EventTarget | null, key: string): boolean {
     return true;
   // The Timeline slider handles ←/→/Home/End itself when focused — don't double-seek.
   if (el.getAttribute?.("role") === "slider") return true;
-  // Space activates a focused button natively — let it.
-  if ((key === " " || key === "Spacebar") && tag === "BUTTON") return true;
+  // A focused button (calendar day, toolbar control, popover item) owns Space/Enter
+  // and shouldn't have the arrows/Home/End trigger a seek behind it (e.g. the
+  // recordings-calendar popover is open) — defer all transport keys to it.
+  if (tag === "BUTTON") return true;
   return false;
 }
 

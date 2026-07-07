@@ -62,6 +62,16 @@ export default function PlaybackPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   /** Digital (CSS-transform) zoom on the video — scroll to zoom, drag to pan. */
   const zoom = useVideoZoom();
+
+  // Clear the page-level export selection + reset digital zoom whenever the
+  // NVR / camera / day changes, so a stale range can't export the wrong footage
+  // and a new camera doesn't open pre-zoomed. (Timeline's own state resets via
+  // its key; this covers the state lifted into the page.)
+  const { reset: resetZoom } = zoom;
+  useEffect(() => {
+    setExportSelection(null);
+    resetZoom();
+  }, [selectedNvrId, selectedCamId, selectedDate, resetZoom]);
   /** Imperative play/pause handle populated by PlaybackPlayer; driven by TransportBar. */
   const controlsRef = useRef<PlaybackControls | null>(null);
 
@@ -464,6 +474,10 @@ export default function PlaybackPage() {
       <div className="flex-none border-t border-white/[.06] bg-[#0c1014] py-2">
         {indexData ? (
           <Timeline
+            // Key by nvr/camera/day so the Timeline's internal selection + zoom
+            // reset on any switch — else a range painted on day/camera A survives
+            // and Export would download the WRONG footage.
+            key={`${selectedNvrId}-${channel}-${selectedDate}`}
             dayStartEpoch={indexData.day_start_epoch}
             dayEndEpoch={indexData.day_end_epoch}
             clips={indexData.clips}
