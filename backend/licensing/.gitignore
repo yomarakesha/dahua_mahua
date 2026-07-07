@@ -1,0 +1,11 @@
+# Installed customer license — machine-specific, never commit.
+license.lic
+*.lic
+
+# Private keys must NEVER be committed (vendor keeps them offline).
+private_key.pem
+*private*.pem
+
+# The public key (public_key.pem) is safe to commit once the vendor generates
+# it with `python backend/tools/issue_license.py genkey` and copies it here.
+!public_key.pem

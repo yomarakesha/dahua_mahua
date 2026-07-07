@@ -30,6 +30,7 @@ from app.routers import (
     client_log,
     discovery,
     events,
+    license as license_router,
     live as live_router,
     nvrs,
     playback as playback_router,
@@ -238,7 +239,7 @@ def create_app() -> FastAPI:
     )
 
     prefix = settings.api_prefix
-    for r in (auth, regions, users, nvrs, cameras, streams, events, discovery, client_log, playback_router, live_router, branding):
+    for r in (auth, regions, users, nvrs, cameras, streams, events, discovery, client_log, playback_router, live_router, branding, license_router):
         app.include_router(r.router, prefix=prefix)
 
     @app.get("/healthz", tags=["meta"])

@@ -8,6 +8,7 @@ import CameraChannels from "@/features/nvrs/CameraChannels";
 import UsersPage from "@/features/users/UsersPage";
 import SettingsPage from "@/features/settings/SettingsPage";
 import PlaybackPage from "@/features/playback/PlaybackPage";
+import LicensePage from "@/features/license/LicensePage";
 
 export default function App() {
   return (
@@ -48,6 +49,7 @@ export default function App() {
           />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="playback" element={<PlaybackPage />} />
+          <Route path="license" element={<LicensePage />} />
         </Route>
       </Routes>
     </AuthProvider>
