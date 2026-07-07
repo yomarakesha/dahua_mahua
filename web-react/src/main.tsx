@@ -8,6 +8,7 @@ import {
   MutationCache,
 } from "@tanstack/react-query";
 import App from "./App";
+import { BrandingProvider } from "./lib/branding";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { installConsoleCapture, recordEvent, shipLogs } from "./lib/diagnostics";
 import "./index.css";
@@ -73,9 +74,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <HashRouter>
-          <App />
-        </HashRouter>
+        <BrandingProvider>
+          <HashRouter>
+            <App />
+          </HashRouter>
+        </BrandingProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   </React.StrictMode>,

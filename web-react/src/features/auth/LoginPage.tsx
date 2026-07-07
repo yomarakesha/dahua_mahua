@@ -3,10 +3,13 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { login } from "@/api/client";
 import { useAuth } from "@/lib/auth";
 import { LogoMark } from "@/components/Logo";
+import { useBranding, splitBrandName } from "@/lib/branding";
 
 /** 01 · Sign in — centered dark glass card over a radial-glow backdrop. */
 export default function LoginPage() {
   const { me, setMe } = useAuth();
+  const brand = useBranding();
+  const { head, tail } = splitBrandName(brand.name);
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -47,7 +50,7 @@ export default function LoginPage() {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(50% 40% at 50% 38%,rgba(46,204,113,.10) 0%,transparent 70%)",
+            "radial-gradient(50% 40% at 50% 38%,rgb(var(--brand-primary) / .10) 0%,transparent 70%)",
         }}
       />
       <div
@@ -65,7 +68,8 @@ export default function LoginPage() {
       <div className="absolute left-6 top-7 flex items-center gap-2.5 sm:left-9 sm:top-8">
         <LogoMark size={30} />
         <div className="text-sm font-bold tracking-wider text-ink-mute">
-          KANAGATLY <span className="text-accent">VMS</span>
+          {head ? `${head.toUpperCase()} ` : ""}
+          <span className="text-accent">{tail.toUpperCase()}</span>
         </div>
       </div>
 
@@ -88,7 +92,8 @@ export default function LoginPage() {
           <LogoMark size={40} />
           <div>
             <div className="text-xl font-extrabold tracking-tight text-ink-bright">
-              Kanagatly <span className="text-accent">VMS</span>
+              {head ? `${head} ` : ""}
+              <span className="text-accent">{tail}</span>
             </div>
             <div className="text-sm font-medium tracking-wide text-ink-dim">
               Video surveillance console
@@ -102,7 +107,7 @@ export default function LoginPage() {
         <label htmlFor="login-username" className="dss-label mb-2 block">
           Username
         </label>
-        <div className="mb-[18px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgba(46,204,113,.10)]">
+        <div className="mb-[18px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)_/_.10)]">
           <svg
             width="16"
             height="16"
@@ -131,7 +136,7 @@ export default function LoginPage() {
         <label htmlFor="login-password" className="dss-label mb-2 block">
           Password
         </label>
-        <div className="mb-[26px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgba(46,204,113,.10)]">
+        <div className="mb-[26px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)_/_.10)]">
           <svg
             width="16"
             height="16"
@@ -179,8 +184,11 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={pending}
-          className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold tracking-wide text-deep shadow-[0_10px_28px_rgba(46,204,113,.28),inset_0_1px_0_rgba(255,255,255,.3)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-          style={{ background: "linear-gradient(180deg,#34d97e,#22b864)" }}
+          className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold tracking-wide text-deep shadow-[0_10px_28px_rgb(var(--brand-primary)_/_.28),inset_0_1px_0_rgba(255,255,255,.3)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            background:
+              "linear-gradient(180deg,rgb(var(--brand-primary-bright)),rgb(var(--brand-primary-dark)))",
+          }}
         >
           {pending ? "Signing in…" : "Sign in"}
           {!pending && (

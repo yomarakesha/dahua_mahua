@@ -26,6 +26,27 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
 
+    # ── Branding / white-label ───────────────────────────────────────────────
+    # The product brand is configurable per deployment AT RUNTIME (no rebuild):
+    # the frontend fetches GET /api/v1/branding (unauthenticated) at boot and
+    # themes itself from these values. The DEFAULTS reproduce today's look
+    # exactly ("Kanagatly VMS" / "KM" / the green accent), so an un-set deploy is
+    # visually unchanged. Override per deploy: BRAND_NAME, BRAND_SHORT,
+    # BRAND_PRIMARY, BRAND_ACCENT, BRAND_LOGO_URL.
+    #   brand_name    — full product name (header + login + document title).
+    #   brand_short   — short mark for the logo circle (used when no logo image).
+    #   brand_primary — primary accent as a #rrggbb hex (the green today). Themes
+    #                   the logo, active nav, primary buttons, focus rings, etc.
+    #   brand_accent  — secondary accent hex (the lighter green today); used for
+    #                   active-nav text and other "accent-light" spots.
+    #   brand_logo_url— optional image URL for the logo + favicon. Empty → the
+    #                   built-in short-mark circle is drawn instead.
+    brand_name: str = "Kanagatly VMS"
+    brand_short: str = "KM"
+    brand_primary: str = "#2ecc71"
+    brand_accent: str = "#43e088"
+    brand_logo_url: str = ""
+
     # ── Logging ──────────────────────────────────────────────────────────────
     # On NSSM (Windows service) stderr is not persisted, so add a rotating file
     # handler alongside the stream handler. Empty string disables the file

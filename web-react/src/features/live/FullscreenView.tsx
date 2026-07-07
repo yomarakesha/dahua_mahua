@@ -135,7 +135,7 @@ export function FullscreenView({ cam, onClose }: Props) {
       }}
     >
       <div className="flex flex-none items-center gap-3 px-6 py-4" onClick={(e) => e.stopPropagation()}>
-        <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_#2ecc71]" />
+        <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgb(var(--brand-primary))]" />
         <span className="text-base font-bold text-ink-bright">{cam.display_name}</span>
         <span className="font-mono text-2xs text-ink-faint">ch{cam.channel}</span>
         {hasMain && (

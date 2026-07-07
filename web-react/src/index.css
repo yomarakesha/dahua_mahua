@@ -12,6 +12,15 @@
 @layer base {
   :root {
     color-scheme: dark;
+    /* White-label accent — the Tailwind `accent` token reads these (see
+       tailwind.config.ts). Values are space-separated RGB channels so Tailwind
+       can apply opacity modifiers (bg-accent/20 etc.). Defaults are today's
+       green; BrandingProvider overrides --brand-primary/-light at runtime, and
+       derives -bright/-dark for a custom primary. */
+    --brand-primary: 46 204 113; /* #2ecc71 */
+    --brand-primary-light: 67 224 136; /* #43e088 */
+    --brand-primary-bright: 52 217 126; /* #34d97e */
+    --brand-primary-dark: 34 184 100; /* #22b864 */
   }
   html,
   body,

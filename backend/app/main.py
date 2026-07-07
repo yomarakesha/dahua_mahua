@@ -25,6 +25,7 @@ from app.middleware import RequestIDMiddleware
 from app.models import User, Role  # noqa: F401  (ensure mappers register before create_all)
 from app.routers import (
     auth,
+    branding,
     cameras,
     client_log,
     discovery,
@@ -237,7 +238,7 @@ def create_app() -> FastAPI:
     )
 
     prefix = settings.api_prefix
-    for r in (auth, regions, users, nvrs, cameras, streams, events, discovery, client_log, playback_router, live_router):
+    for r in (auth, regions, users, nvrs, cameras, streams, events, discovery, client_log, playback_router, live_router, branding):
         app.include_router(r.router, prefix=prefix)
 
     @app.get("/healthz", tags=["meta"])

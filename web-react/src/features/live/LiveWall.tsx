@@ -286,7 +286,7 @@ function StatusBar({
   return (
     <div className="flex h-8 flex-none items-center gap-5 border-t border-white/[.06] bg-gradient-to-b from-[#0c1014] to-[#090c0f] px-4 font-mono text-xs">
       <span className="flex items-center gap-1.5 text-accent-light">
-        <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_7px_#2ecc71]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_7px_rgb(var(--brand-primary))]" />
         Streams: {streams}
       </span>
       <span className="text-ink-faint">Cameras: {cameras}</span>

@@ -101,7 +101,7 @@ export const CameraTile = memo(function CameraTile({ cam, onOpen, connectDelayMs
 
         {quality && status === "live" && (
           <div className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_6px_#2ecc71]" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_6px_rgb(var(--brand-primary))]" />
             <span
               className="text-2xs font-extrabold tracking-wide text-[#d8efe2]"
               style={{ textShadow: SHADOW }}

@@ -107,7 +107,7 @@ export function LiveSidebar({
                     <span
                       className={[
                         "h-1.5 w-1.5 flex-none rounded-full",
-                        healthy ? "bg-accent shadow-[0_0_7px_#2ecc71]" : "bg-ink-faint/60",
+                        healthy ? "bg-accent shadow-[0_0_7px_rgb(var(--brand-primary))]" : "bg-ink-faint/60",
                       ].join(" ")}
                     />
                     <span className="flex-1 truncate text-base font-semibold text-ink-soft">
