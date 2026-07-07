@@ -182,7 +182,8 @@
     "exportPreparing": "Bölek taýýarlanýar…",
     "exportBusy": "Ýazgy enjamy meşgul — gaýtadan synanyşyň",
     "exportFailed": "Ýükleme şowsuz — gaýtadan synanyşyň",
-    "resetVideoZoom": "Ulaltmany dikeld"
+    "resetVideoZoom": "Ulaltmany dikeld",
+    "noRecorders": "Heniz ýazyjy ýok — ýazgylary görmek üçin NVR bölüminden goşuň."
   },
   "nvrs": {
     "title": "NVR Dolandyryşy",
@@ -300,7 +301,8 @@
     "errPasswordMin": "Parol iň azyndan 8 nyşandan ybarat bolmaly",
     "cameraAccessCount": "Kamera girişi ({{count}} saýlandy)",
     "selectAll": "Ählisini saýla",
-    "clear": "Arassala"
+    "clear": "Arassala",
+    "loadFailed": "Ulanyjylary ýükläp bolmady: {{message}}"
   },
   "settings": {
     "account": "Hasap",

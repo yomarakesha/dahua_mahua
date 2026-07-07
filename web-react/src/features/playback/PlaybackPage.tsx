@@ -415,7 +415,9 @@ export default function PlaybackPage() {
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-ink-dim/50">
-            {!selectedNvrId
+            {nvrs.length === 0
+              ? t("playback.noRecorders")
+              : !selectedNvrId
               ? t("playback.selectNvrToStart")
               : !selectedCamId
               ? t("playback.selectCameraPrompt")

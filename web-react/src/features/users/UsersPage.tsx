@@ -15,7 +15,7 @@ import { PasswordInput } from "@/components/PasswordInput";
 
 export default function UsersPage() {
   const { t } = useTranslation();
-  const { data: users, isLoading } = useUsers();
+  const { data: users, isLoading, isError, error } = useUsers();
   const { me } = useAuth();
   const [editing, setEditing] = useState<User | "new" | null>(null);
   const del = useDeleteUser();
@@ -53,6 +53,12 @@ export default function UsersPage() {
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-ink-faint">
                     {t("common.loading")}
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-sm text-danger">
+                    {t("users.loadFailed", { message: (error as Error)?.message ?? "" })}
                   </td>
                 </tr>
               ) : (users ?? []).length === 0 ? (

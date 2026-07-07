@@ -182,7 +182,8 @@
     "exportPreparing": "Preparing clip…",
     "exportBusy": "Recorder busy — try again",
     "exportFailed": "Export failed — try again",
-    "resetVideoZoom": "Reset zoom"
+    "resetVideoZoom": "Reset zoom",
+    "noRecorders": "No recorders yet — add one in NVR Management to review footage."
   },
   "nvrs": {
     "title": "NVR Management",
@@ -300,7 +301,8 @@
     "errPasswordMin": "Password must be at least 8 characters",
     "cameraAccessCount": "Camera access ({{count}} selected)",
     "selectAll": "Select all",
-    "clear": "Clear"
+    "clear": "Clear",
+    "loadFailed": "Failed to load users: {{message}}"
   },
   "settings": {
     "account": "Account",
