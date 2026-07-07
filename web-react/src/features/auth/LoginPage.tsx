@@ -16,15 +16,18 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  const canSubmit = username.trim() !== "" && password !== "" && !pending;
 
   // Already authenticated → bounce to the live wall.
   if (me) return <Navigate to="/" replace />;
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (pending) return;
+    if (!canSubmit) return;
     setError(null);
     setPending(true);
     try {
@@ -130,11 +133,20 @@ export default function LoginPage() {
           </svg>
           <input
             id="login-username"
+            name="username"
             type="text"
             autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             autoFocus
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "login-error" : undefined}
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              if (error) setError(null);
+            }}
             placeholder={t("login.usernamePlaceholder")}
             className="w-full bg-transparent text-sm font-medium text-ink outline-none placeholder:text-ink-faint"
           />
@@ -159,10 +171,17 @@ export default function LoginPage() {
           </svg>
           <input
             id="login-password"
+            name="password"
             type={showPassword ? "text" : "password"}
             autoComplete="current-password"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "login-error" : undefined}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (error) setError(null);
+            }}
+            onKeyUp={(e) => setCapsLock(e.getModifierState?.("CapsLock") ?? false)}
             placeholder="••••••••"
             className="w-full bg-transparent text-sm font-medium text-ink outline-none placeholder:text-ink-faint"
           />
@@ -179,9 +198,21 @@ export default function LoginPage() {
           </button>
         </div>
 
+        {capsLock && !error && (
+          <div className="mb-3 flex items-center gap-1.5 text-xs font-medium text-warn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="m12 3 7 7h-4v5H9v-5H5l7-7Z" />
+              <path d="M9 19h6" />
+            </svg>
+            {t("login.capsLock")}
+          </div>
+        )}
+
         {error && (
           <div
-            aria-live="polite"
+            id="login-error"
+            role="alert"
+            aria-live="assertive"
             className="mb-3 rounded-md border border-danger/25 bg-danger/[.10] px-3 py-2 text-sm text-danger"
           >
             {error}
@@ -191,7 +222,8 @@ export default function LoginPage() {
         {/* submit */}
         <button
           type="submit"
-          disabled={pending}
+          disabled={!canSubmit}
+          aria-busy={pending}
           className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold tracking-wide text-deep shadow-[0_10px_28px_rgb(var(--brand-primary)_/_.28),inset_0_1px_0_rgba(255,255,255,.3)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             background:
@@ -199,10 +231,19 @@ export default function LoginPage() {
           }}
         >
           {pending ? t("login.signingIn") : t("login.signIn")}
-          {!pending && (
+          {pending ? (
+            <svg
+              width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
+              className="animate-spin"
+              aria-hidden="true"
+            >
+              <path d="M12 3a9 9 0 1 0 9 9" strokeLinecap="round" />
+            </svg>
+          ) : (
             <svg
               width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
               className="transition-transform group-hover:translate-x-0.5"
+              aria-hidden="true"
             >
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>

@@ -51,7 +51,8 @@
     "signingIn": "Girilýär…",
     "signInFailed": "Girip bolmady",
     "forgotCredentials": "Maglumatlaryňyzy ýatdan çykardyňyzmy?",
-    "contactAdmin": "Administrator bilen habarlaşyň"
+    "contactAdmin": "Administrator bilen habarlaşyň",
+    "capsLock": "Caps Lock açyk"
   },
   "errorBoundary": {
     "badge": "ýalňyşlyk",

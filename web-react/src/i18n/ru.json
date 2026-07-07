@@ -51,7 +51,8 @@
     "signingIn": "Вход…",
     "signInFailed": "Не удалось войти",
     "forgotCredentials": "Забыли данные для входа?",
-    "contactAdmin": "Обратитесь к администратору"
+    "contactAdmin": "Обратитесь к администратору",
+    "capsLock": "Включён Caps Lock"
   },
   "errorBoundary": {
     "badge": "ошибка",

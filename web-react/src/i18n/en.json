@@ -51,7 +51,8 @@
     "signingIn": "Signing in…",
     "signInFailed": "Sign-in failed",
     "forgotCredentials": "Forgot credentials?",
-    "contactAdmin": "Contact admin"
+    "contactAdmin": "Contact admin",
+    "capsLock": "Caps Lock is on"
   },
   "errorBoundary": {
     "badge": "error",
