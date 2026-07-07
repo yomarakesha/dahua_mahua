@@ -29,6 +29,16 @@ import { recordEvent, registerSessionId } from "@/lib/diagnostics";
 
 type Speed = 1 | 2 | 4 | 8;
 
+/**
+ * Imperative pause/play handle. The player owns the WebSocket + reducer, so the
+ * external transport bar drives pause/play through this ref rather than
+ * duplicating the session logic. Populated once the player mounts.
+ */
+export interface PlaybackControls {
+  pause: () => void;
+  play: () => void;
+}
+
 /** Seconds of buffer to keep behind currentTime when trimming on QuotaExceeded. */
 const TRIM_KEEP_SECONDS = 30;
 
@@ -61,6 +71,17 @@ export interface PlaybackPlayerProps {
   transport?: "udp" | "tcp";
   /** Optional external ref to the <video> (for Task 15 snapshot). */
   videoRef?: React.RefObject<HTMLVideoElement>;
+  /**
+   * Optional ref populated with imperative pause/play controls so an external
+   * transport bar can drive the session without re-implementing it. Cleared on
+   * unmount. Does NOT change any player-owned logic (seek/anchor/speed/reducer).
+   */
+  controlsRef?: React.MutableRefObject<PlaybackControls | null>;
+  /**
+   * Optional inline style for the <video> element — used for CSS digital zoom
+   * (transform: scale()/translate()). Purely visual; never touches MSE/decoding.
+   */
+  videoStyle?: React.CSSProperties;
   /** Notifies parent of state-machine changes (snapshot enable, overlays, …). */
   onStateChange?: (state: PlayerState) => void;
   /** Current footage-time playhead (epoch seconds) for the Timeline. */
@@ -80,6 +101,8 @@ export default function PlaybackPlayer({
   speed,
   transport = "udp",
   videoRef: externalVideoRef,
+  controlsRef,
+  videoStyle,
   onStateChange,
   onPlayhead,
   onAnchorChange,
@@ -517,6 +540,17 @@ export default function PlaybackPlayer({
     dispatch({ type: "play" });
   }, [videoRef]);
 
+  // ── Expose imperative pause/play to an external transport bar ────────────────────
+  // The player owns the session; the bottom control bar calls these through the ref
+  // instead of duplicating the WS/reducer logic. Cleared on unmount.
+  useEffect(() => {
+    if (!controlsRef) return;
+    controlsRef.current = { pause: handlePause, play: handlePlay };
+    return () => {
+      if (controlsRef) controlsRef.current = null;
+    };
+  }, [controlsRef, handlePause, handlePlay]);
+
   // ── Render ────────────────────────────────────────────────────────────────────────
   const busy = state === "loading" || state === "seeking";
 
@@ -525,6 +559,7 @@ export default function PlaybackPlayer({
       <video
         ref={videoRef}
         className="h-full w-full object-contain"
+        style={videoStyle}
         playsInline
         muted
         // controls intentionally omitted — controls are WS messages, not native UI
@@ -593,19 +628,8 @@ export default function PlaybackPlayer({
           )}
         </div>
       )}
-
-      {/* Pause control (visible while playing) */}
-      {state === "playing" && (
-        <button
-          aria-label={t("playback.pausePlayback")}
-          onClick={handlePause}
-          className="absolute bottom-3 left-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-ink-soft ring-1 ring-white/10 transition hover:bg-black/60"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
-          </svg>
-        </button>
-      )}
+      {/* The play/pause control now lives in the external TransportBar (driven via
+          controlsRef) — the old floating in-video pause button was removed. */}
     </div>
   );
 }

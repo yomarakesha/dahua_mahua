@@ -47,6 +47,77 @@ export function buildPlaybackWsUrl(
   return `${wsBase}/playback/${nvrId}/${channel}/stream?token=${encodeURIComponent(token)}&t=${initialSeek}&transport=${transport ?? "udp"}`;
 }
 
+// ── Clip export (GET …/clip) ────────────────────────────────────────────────────
+
+/** Server-side cap on an exported clip (Contract): 10 minutes. */
+export const MAX_CLIP_SECONDS = 600;
+
+/**
+ * Build the clip-download URL for GET /playback/{nvr}/{ch}/clip.
+ *
+ * The endpoint accepts the JWT as a `?token=` query param so a plain
+ * `<a download href>` (which cannot set an Authorization header) works. `start`
+ * and `end` are footage epochs (UTC seconds). httpBase is CONFIG.backendBase.
+ */
+export function buildClipUrl(
+  httpBase: string,
+  nvrId: string,
+  channel: number,
+  start: number,
+  end: number,
+  token: string,
+): string {
+  const s = Math.floor(start);
+  const e = Math.floor(end);
+  return `${httpBase}/playback/${nvrId}/${channel}/clip?start=${s}&end=${e}&token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Clamp a requested export range so it is valid, never in the future, and never
+ * longer than the server cap.
+ *
+ *  - Orders start/end (start ≤ end).
+ *  - Clamps both ends to `nowEpoch` (never export the future — the backend would
+ *    build start>end and starve, mirroring the timeline's clamp-to-now).
+ *  - Caps the duration at `maxSeconds` (default 10 min) by pulling `end` in.
+ *
+ * Returns null when the resulting range is empty (end ≤ start) — the caller
+ * should treat that as "nothing selected".
+ */
+export function clampClipRange(
+  start: number,
+  end: number,
+  nowEpoch: number,
+  maxSeconds: number = MAX_CLIP_SECONDS,
+): { start: number; end: number; duration: number } | null {
+  let s = Math.floor(Math.min(start, end));
+  let e = Math.floor(Math.max(start, end));
+  // Never export into the future.
+  s = Math.min(s, nowEpoch);
+  e = Math.min(e, nowEpoch);
+  // Cap the duration by pulling the end in (keep the chosen start).
+  if (e - s > maxSeconds) e = s + maxSeconds;
+  if (e <= s) return null;
+  return { start: s, end: e, duration: e - s };
+}
+
+// ── Transport step / jump math ──────────────────────────────────────────────────
+
+/**
+ * Compute a stepped footage epoch (±N seconds) clamped to the day bounds.
+ * `dayEnd` is exclusive so the max reachable epoch is `dayEnd - 1`.
+ * Snapping to covered clips and clamp-to-now happen at the call site (the
+ * timeline / page own those), mirroring the slider's ArrowLeft/Right handler.
+ */
+export function stepEpoch(
+  head: number,
+  deltaSeconds: number,
+  dayStart: number,
+  dayEnd: number,
+): number {
+  return Math.max(dayStart, Math.min(dayEnd - 1, head + deltaSeconds));
+}
+
 // ── WebSocket close-code → operator text ────────────────────────────────────────
 
 /**

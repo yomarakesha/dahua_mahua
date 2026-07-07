@@ -177,6 +177,16 @@ export interface RecordingAvailability {
 }
 
 /**
+ * Response from GET /playback/{nvr_id}/{ch}/days?month=YYYY-MM
+ * `days` are 1-based NVR-local day-of-month numbers that have recordings; an
+ * empty month returns `days: []`. Drives the recordings-calendar highlighting.
+ */
+export interface RecordingDays {
+  month: string;    // "YYYY-MM"
+  days: number[];   // 1-based days with recordings
+}
+
+/**
  * go2rtc stream name for a camera. sub = `{nvr}_ch{N}`, main = `…_main` (direct
  * from the camera IP). `viaNvr` selects the relay variant `…_main_nvr` (pulled
  * through the NVR) — used by the fullscreen source toggle. Sub has no via-NVR

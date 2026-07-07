@@ -13,6 +13,7 @@ import type {
   NvrTestResult,
   NvrUpdate,
   RecordingAvailability,
+  RecordingDays,
   RecordingIndex,
   User,
   UserCreate,
@@ -29,6 +30,8 @@ export const qk = {
     ["playback", "index", nvrId, channel, date] as const,
   recordingAvail: (nvrId: string, channel: number, month: string) =>
     ["playback", "availability", nvrId, channel, month] as const,
+  recordingDays: (nvrId: string, channel: number, month: string) =>
+    ["playback", "days", nvrId, channel, month] as const,
 };
 
 // ── Queries ──────────────────────────────────────────────────────────────────
@@ -237,6 +240,27 @@ export function useRecordingAvailability(
     queryKey: qk.recordingAvail(nvrId, channel, month),
     queryFn: () =>
       http.get<RecordingAvailability>(`/playback/${nvrId}/${channel}/availability`, { month }),
+    enabled: enabled && !!nvrId && channel > 0 && /^\d{4}-\d{2}$/.test(month),
+    staleTime: 120_000,
+  });
+}
+
+/**
+ * Fetch the 1-based day-of-month numbers that have recordings for a given NVR
+ * channel and calendar month (GET …/days?month=YYYY-MM). Drives the recordings
+ * calendar's highlighted days; re-queries when the visible month changes.
+ * Backed by the 120 s backend cache; staleTime matches.
+ */
+export function useRecordingDays(
+  nvrId: string,
+  channel: number,
+  month: string,       // "YYYY-MM"
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qk.recordingDays(nvrId, channel, month),
+    queryFn: () =>
+      http.get<RecordingDays>(`/playback/${nvrId}/${channel}/days`, { month }),
     enabled: enabled && !!nvrId && channel > 0 && /^\d{4}-\d{2}$/.test(month),
     staleTime: 120_000,
   });
