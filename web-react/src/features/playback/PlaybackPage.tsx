@@ -10,6 +10,8 @@ import {
 import { CameraIcon } from "@/components/icons";
 import Timeline from "./Timeline";
 import PlaybackPlayer from "./PlaybackPlayer";
+import type { PlaybackControls } from "./PlaybackPlayer";
+import TransportBar from "./TransportBar";
 import { useSnapshot } from "./useSnapshot";
 import type { FootageAnchor, PlayerState } from "./types";
 
@@ -51,6 +53,8 @@ export default function PlaybackPage() {
   const [anchor, setAnchor] = useState<FootageAnchor | null>(null);
   /** Shared <video> ref so Task 15's snapshot can read pixels from the player. */
   const videoRef = useRef<HTMLVideoElement>(null);
+  /** Imperative play/pause handle populated by PlaybackPlayer; driven by TransportBar. */
+  const controlsRef = useRef<PlaybackControls | null>(null);
 
   // ── Seek debounce (Contract §7) ───────────────────────────────────────────────
   // Every committed seek respawns backend ffmpeg; the NVR's small playback pool
@@ -391,6 +395,7 @@ export default function PlaybackPage() {
             speed={speed}
             transport={transport}
             videoRef={videoRef}
+            controlsRef={controlsRef}
             onStateChange={setPlayerState}
             onPlayhead={setPlayhead}
             onAnchorChange={setAnchor}
@@ -409,6 +414,25 @@ export default function PlaybackPage() {
           </div>
         )}
       </div>
+
+      {/* ── Transport control bar ───────────────────────────────────────────── */}
+      {/* Mounted whenever we have a recording index for the day — drives play/pause
+          through the player's controlsRef and commits seeks via the debounced
+          commitSeek (same clamp-to-now + 250 ms debounce as the Timeline). */}
+      {indexData && !noCoverage && (
+        <TransportBar
+          playheadEpoch={playhead ?? seekTarget}
+          dayStartEpoch={indexData.day_start_epoch}
+          dayEndEpoch={indexData.day_end_epoch}
+          clips={indexData.clips}
+          tzOffsetMinutes={indexData.tz_offset_minutes}
+          speed={speed}
+          onSpeedChange={setSpeed}
+          onSeek={commitSeek}
+          playerState={playerState}
+          controlsRef={controlsRef}
+        />
+      )}
 
       {/* ── Timeline ────────────────────────────────────────────────────────── */}
       <div className="flex-none border-t border-white/[.06] bg-[#0c1014] py-2">
