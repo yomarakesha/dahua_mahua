@@ -15,6 +15,7 @@ import TransportBar from "./TransportBar";
 import RecordingsCalendar from "./RecordingsCalendar";
 import ClipExportButton from "./ClipExportButton";
 import { useSnapshot } from "./useSnapshot";
+import { useVideoZoom } from "./useVideoZoom";
 import type { FootageAnchor, PlayerState } from "./types";
 
 type Speed = 1 | 2 | 4 | 8;
@@ -59,6 +60,8 @@ export default function PlaybackPage() {
   );
   /** Shared <video> ref so Task 15's snapshot can read pixels from the player. */
   const videoRef = useRef<HTMLVideoElement>(null);
+  /** Digital (CSS-transform) zoom on the video — scroll to zoom, drag to pan. */
+  const zoom = useVideoZoom();
   /** Imperative play/pause handle populated by PlaybackPlayer; driven by TransportBar. */
   const controlsRef = useRef<PlaybackControls | null>(null);
 
@@ -378,9 +381,10 @@ export default function PlaybackPage() {
       {/* ── Player area ─────────────────────────────────────────────────────── */}
       {/* data-seek-target exposes seekTarget for Task 14 swap and test assertions */}
       <div
-        className="relative min-h-0 flex-1 bg-black"
+        className="relative min-h-0 flex-1 overflow-hidden bg-black"
         data-testid="player-placeholder"
         data-seek-target={seekTarget ?? ""}
+        {...zoom.containerProps}
       >
         {showPlayer && selectedNvrId && effectiveSeek != null ? (
           <PlaybackPlayer
@@ -394,6 +398,7 @@ export default function PlaybackPage() {
             transport={transport}
             videoRef={videoRef}
             controlsRef={controlsRef}
+            videoStyle={zoom.videoStyle}
             onStateChange={setPlayerState}
             onPlayhead={setPlayhead}
             onAnchorChange={setAnchor}
@@ -410,6 +415,17 @@ export default function PlaybackPage() {
               ? t("playback.noCoverage")
               : t("playback.loadingIndex")}
           </div>
+        )}
+        {zoom.zoomed && (
+          <button
+            type="button"
+            onClick={zoom.reset}
+            title={t("playback.resetVideoZoom")}
+            aria-label={t("playback.resetVideoZoom")}
+            className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-white/15 bg-black/60 px-2 py-1 font-mono text-xs font-semibold text-ink-soft backdrop-blur transition hover:bg-black/80"
+          >
+            {zoom.scale.toFixed(1)}× · {t("playback.resetVideoZoom")}
+          </button>
         )}
       </div>
 
