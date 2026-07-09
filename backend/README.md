@@ -19,8 +19,8 @@ app/
   crypto.py            Fernet wrapper for NVR password
   rate_limit.py        in-memory login throttler
   deps.py              FastAPI dependencies / RBAC guards
-  routers/             one file per resource (auth, regions, users, nvrs, cameras, streams, events, mediamtx)
-  services/            rtsp_probe, mediamtx_api, path_sync, lockouts, nvr_events, mediamtx_proc
+  routers/             one file per resource (auth, regions, users, nvrs, cameras, streams, events)
+  services/            rtsp_probe, go2rtc_api, go2rtc_sync, path_sync, lockouts, nvr_events
 alembic/               migrations
 seed.py                idempotent importer for legacy nvr_inventory.json
 ```
@@ -61,9 +61,8 @@ POST /api/v1/nvrs                       — admin: register NVR + cameras
 POST /api/v1/nvrs/{id}/test             — admin: RTSP digest probe
 GET  /api/v1/nvrs/health                — TCP reachability for all visible NVRs
 
-GET  /api/v1/streams/{camera_id}        — WHEP + HLS URLs for one camera
+GET  /api/v1/streams/{camera_id}        — go2rtc stream name for one camera
 POST /api/v1/streams/{camera_id}/end    — best-effort session close (telemetry)
 
-POST /api/v1/mediamtx/reconcile         — admin: push DB → MediaMTX path config
-GET  /api/v1/mediamtx/health
+POST /api/v1/nvrs/reconcile             — admin: push DB → go2rtc stream config
 ```

@@ -12,6 +12,9 @@ import type {
   NvrHealthResult,
   NvrTestResult,
   NvrUpdate,
+  RecordingAvailability,
+  RecordingDays,
+  RecordingIndex,
   User,
   UserCreate,
   UserUpdate,
@@ -23,6 +26,12 @@ export const qk = {
   cameras: ["cameras"] as const,
   events: ["events"] as const,
   users: ["users"] as const,
+  recordingIndex: (nvrId: string, channel: number, date: string) =>
+    ["playback", "index", nvrId, channel, date] as const,
+  recordingAvail: (nvrId: string, channel: number, month: string) =>
+    ["playback", "availability", nvrId, channel, month] as const,
+  recordingDays: (nvrId: string, channel: number, month: string) =>
+    ["playback", "days", nvrId, channel, month] as const,
 };
 
 // ── Queries ──────────────────────────────────────────────────────────────────
@@ -124,14 +133,32 @@ export function useDeleteCamera() {
   });
 }
 
-// ── Relay (go2rtc/MediaMTX) ──────────────────────────────────────────────────
+// ── Relay (go2rtc) ───────────────────────────────────────────────────────────
 
 export function useReconcile() {
   const invalidate = useInvalidate();
   return useMutation<unknown, Error, boolean>({
     mutationFn: (deleteOrphans) =>
-      http.post<unknown>(`/mediamtx/reconcile?delete_orphans=${deleteOrphans}`),
+      http.post<unknown>(`/nvrs/reconcile?delete_orphans=${deleteOrphans}`),
     onSuccess: invalidate,
+  });
+}
+
+// ── Live (warm pool) ─────────────────────────────────────────────────────────
+
+/**
+ * Report the desired "warm" camera set to the backend so it holds server-side
+ * SUB producers open (go2rtc instant-starts a warm producer in ~0.5s). The
+ * endpoint SETS the desired set (backend diffs → start/stop warmers) and no-ops
+ * server-side when the feature is disabled, so callers post unconditionally and
+ * ignore errors — warming is best-effort and must never block the UI.
+ *
+ * Body shape confirmed against the SmartPSS-parity plan: { camera_ids: [...] }
+ * where ids are Camera.id.
+ */
+export function useWarmCameras() {
+  return useMutation<unknown, Error, string[]>({
+    mutationFn: (cameraIds) => http.post<unknown>("/live/warm", { camera_ids: cameraIds }),
   });
 }
 
@@ -175,5 +202,66 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (id: string) => http.del<null>(`/users/${id}`),
     onSuccess: invalidate,
+  });
+}
+
+// ── Playback recording ────────────────────────────────────────────────────────
+
+/**
+ * Fetch the merged clip list for a single NVR channel on a given date.
+ * Backed by the 120 s backend cache; staleTime matches to avoid redundant refetches.
+ */
+export function useRecordingIndex(
+  nvrId: string,
+  channel: number,
+  date: string,        // "YYYY-MM-DD"
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qk.recordingIndex(nvrId, channel, date),
+    queryFn: () =>
+      http.get<RecordingIndex>(`/playback/${nvrId}/${channel}/index`, { date }),
+    enabled: enabled && !!nvrId && channel > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date),
+    staleTime: 120_000,    // matches backend 120 s cache
+  });
+}
+
+/**
+ * Fetch the set of days that have recordings for a given NVR channel and calendar month.
+ * Backed by the 120 s backend cache; staleTime matches to avoid redundant refetches.
+ */
+export function useRecordingAvailability(
+  nvrId: string,
+  channel: number,
+  month: string,       // "YYYY-MM"
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qk.recordingAvail(nvrId, channel, month),
+    queryFn: () =>
+      http.get<RecordingAvailability>(`/playback/${nvrId}/${channel}/availability`, { month }),
+    enabled: enabled && !!nvrId && channel > 0 && /^\d{4}-\d{2}$/.test(month),
+    staleTime: 120_000,
+  });
+}
+
+/**
+ * Fetch the 1-based day-of-month numbers that have recordings for a given NVR
+ * channel and calendar month (GET …/days?month=YYYY-MM). Drives the recordings
+ * calendar's highlighted days; re-queries when the visible month changes.
+ * Backed by the 120 s backend cache; staleTime matches.
+ */
+export function useRecordingDays(
+  nvrId: string,
+  channel: number,
+  month: string,       // "YYYY-MM"
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qk.recordingDays(nvrId, channel, month),
+    queryFn: () =>
+      http.get<RecordingDays>(`/playback/${nvrId}/${channel}/days`, { month }),
+    enabled: enabled && !!nvrId && channel > 0 && /^\d{4}-\d{2}$/.test(month),
+    staleTime: 120_000,
   });
 }

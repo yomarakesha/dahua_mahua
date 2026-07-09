@@ -18,19 +18,60 @@ so that the NVR's mediaFileFind CGI isn't hammered by concurrent viewers.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import re
+import tempfile
 import time
+import uuid as _uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
+from json import JSONDecodeError
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+import jwt
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from app.crypto import decrypt_password
-from app.deps import CurrentUser, SessionDep, user_can_access_nvr
-from app.models import Nvr
+from app.deps import (
+    AdminUser,
+    CurrentUser,
+    SessionDep,
+    _extract_bearer,
+    user_can_access_camera,
+)
+from app.models import Camera, Nvr, User, Vendor
+from app.security import decode_token
+from app.services.lockouts import get_active_lockout
+from app.services.playback.clip_export import ClipExportError, export_clip
 from app.services.playback.index_parser import Clip
 from app.services.playback.media_find import MediaFindError, find_clips
+from app.services.playback.nvr_budget import BudgetExhausted, get_budget
+from app.services.playback.snapshot import SnapshotError, grab_frame
+from app.services.playback.session import (
+    PlaybackSession,
+    SessionState,
+    iter_active_sessions,
+)
+from app.services.playback.url_builder import (
+    PlaybackUrlError,
+    validate_channel,
+    validate_footage_epoch,
+    validate_speed,
+)
 from app.settings import get_settings
 
 log = logging.getLogger("dss.playback")
@@ -110,6 +151,65 @@ def clips_to_day_strings(clips: list[Clip]) -> list[str]:
     return sorted(days)
 
 
+def clips_to_day_numbers(clips: list[Clip], month_str: str) -> list[int]:
+    """Return the sorted distinct 1-based day numbers of *month_str* that *clips*
+    touch, NVR-local.
+
+    Built on :func:`clips_to_day_strings` (which already handles midnight-crossing
+    clips), then FILTERED to the queried month: a clip that spills into an
+    adjacent month contributes only the day(s) inside *month_str* — a bare day
+    number would be ambiguous across months, and a calendar only renders the
+    month it asked for.  *month_str* is ``YYYY-MM``.
+    """
+    prefix = f"{month_str}-"
+    return sorted(
+        int(d[8:10]) for d in clips_to_day_strings(clips) if d.startswith(prefix)
+    )
+
+
+# ── Auth: ?token= OR Authorization header (unit-testable dependency) ──────────
+
+
+async def resolve_playback_user(
+    session: SessionDep,
+    token: str | None = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> User:
+    """Resolve the authenticated user from a ``?token=`` query param OR the
+    ``Authorization: Bearer`` header (same 401 semantics as ``get_current_user``).
+
+    The query param exists because browser navigations that download a file (the
+    ``<a href>`` for ``/clip``) or an ``<img>``/plain calendar fetch cannot always
+    set an Authorization header; when both are present the query token wins.  Used
+    by the ``/days`` and ``/clip`` endpoints; tests override this dependency.
+    """
+    raw = token if token else _extract_bearer(authorization)  # 401 if neither
+    try:
+        payload = decode_token(raw)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token expired") from None
+    except jwt.PyJWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token") from None
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token missing subject")
+    try:
+        user_id = _uuid.UUID(str(sub))
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Token subject is not a UUID"
+        ) from None
+    user = (
+        await session.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+    return user
+
+
+PlaybackTokenUser = Annotated[User, Depends(resolve_playback_user)]
+
+
 def _month_to_local_bounds(month_str: str) -> tuple[datetime, datetime]:
     """Return (month_start, month_end) as naive NVR-local datetimes.
 
@@ -165,12 +265,17 @@ async def recording_index(
             "date is not a valid calendar date",
         ) from None
 
-    # ── NVR lookup — no SSRF: host always comes from the DB row ──────────────
+    # ── NVR + Camera lookup — no SSRF: hosts always come from the DB rows ────
     nvr = (
         await session.execute(select(Nvr).where(Nvr.id == nvr_id))
     ).scalar_one_or_none()
-    if nvr is None or not user_can_access_nvr(user, nvr):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
 
     # ── Cache check ───────────────────────────────────────────────────────────
     cache_key = (nvr_id, channel, date)
@@ -185,6 +290,22 @@ async def recording_index(
 
     day_start_local = datetime.strptime(date, "%Y-%m-%d")
     day_end_local = day_start_local + timedelta(days=1)
+
+    # ── Non-Dahua recorders: playback unsupported (graceful, not a 502) ───────
+    # Playback speaks Dahua's mediaFileFind CGI, which Hikvision (and others)
+    # return 404 for. Return a VALID empty index flagged playback_supported=False
+    # so the UI shows a clear "not supported on this recorder" state instead of a
+    # 502. (Real Hikvision playback via ISAPI is a separate feature.)
+    if nvr.vendor != Vendor.dahua:
+        empty: dict = {
+            "tz_offset_minutes": tz_offset,
+            "day_start_epoch": day_start_epoch,
+            "day_end_epoch": day_end_epoch,
+            "clips": [],
+            "playback_supported": False,
+        }
+        _cache_set(cache_key, empty)
+        return empty
 
     # ── Fetch from NVR ────────────────────────────────────────────────────────
     # nvr.port is the RTSP port (default 554); Dahua HTTP CGI is on port 80,
@@ -216,6 +337,7 @@ async def recording_index(
         "tz_offset_minutes": tz_offset,
         "day_start_epoch": day_start_epoch,
         "day_end_epoch": day_end_epoch,
+        "playback_supported": True,
         "clips": [
             {
                 "start_epoch": nvr_naive_to_epoch(c.start, tz_offset),
@@ -229,6 +351,636 @@ async def recording_index(
 
     _cache_set(cache_key, result)
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Active-sessions endpoint — /playback/sessions  (Task 10)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Admin-only: lists every currently active PlaybackSession (across all NVRs and
+# users) with counters and metadata.  Mirrors go2rtc's /api/streams pattern.
+# Per-camera RBAC does NOT apply here — this is a global admin observability view.
+
+
+@router.get("/sessions")
+async def active_playback_sessions(user: AdminUser) -> dict:  # noqa: ARG001
+    """List active playback sessions. **Admin-only.**
+
+    Returns:
+        ``{"total": N, "sessions": [{session_id, nvr_id, nvr_label, channel,
+        user_id, username, client_ip, state, speed, footage_epoch,
+        uptime_seconds, seek_count, bytes_sent, fragments_sent}, ...]}``
+
+    A 403 is raised (by the ``AdminUser`` dep) if the caller is not an admin.
+    """
+    sessions = [s.to_status_dict() for s in iter_active_sessions()]
+    return {
+        "total": len(sessions),
+        "sessions": sessions,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Playback WebSocket — /playback/{nvr_id}/{channel}/stream  (Task 8)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Persistent control channel: JWT-authenticated handshake (BEFORE accept),
+# per-camera RBAC (Contract #1), per-NVR/global budget (Task 6), one
+# PlaybackSession (Task 7), and a small JSON control protocol multiplexed with
+# binary fMP4 fragments.
+#
+# Close codes (Contract #2):
+#   4001 — unauthenticated (missing/bad token, unknown/inactive user)
+#   4003 — forbidden (no per-camera access)
+#   4004 — NVR/camera not found or disabled (or a bad channel/start target)
+#   4429 — resource exhausted (lockout / rate-limit / NVR or global budget cap)
+#
+# Credential hygiene (Contract #12): the NVR password and credentialed RTSP URL
+# never appear in any WS payload or log line.
+
+# Full MIME for MSE addSourceBuffer() (Contract #14; bare codec strings are
+# rejected). avc1.640032 = H.264 High profile, level 5.0 — the ACTUAL avcC of
+# the libx264 re-encode, verified against 192.168.20.15 on 2026-07-01 (High L5.0
+# covers every camera in this deployment: ≤4MP; a higher declared level than the
+# real stream is accepted by MSE). The earlier avc1.42E01E (Baseline L3.0) did
+# NOT match the High-profile output. Follow-up: derive from the pinned init
+# segment's avcC box for encoder-independence.
+_INIT_CODEC = 'video/mp4; codecs="avc1.640032"'
+
+# How long the fragment-sender waits for the pinned fMP4 init segment after a
+# (re)spawn before giving up and streaming fragments without it.
+_INIT_SEGMENT_TIMEOUT = 10.0
+
+# Per-user session-open rate limiter (Task 8 / spec §7): {user_id: deque[monotonic]}.
+_RATE_WINDOW = 60.0
+_rate_limits: dict[str, deque] = {}
+
+
+def _rate_limit_exceeded(user_id: str) -> bool:
+    """Peek the sliding 60 s window WITHOUT recording an attempt.
+
+    Returns ``True`` if the user is already at/over
+    ``settings.playback_rate_limit_per_minute``.  Recording is deferred to
+    ``_record_rate_limit`` so a connect rejected later (e.g. by the budget) does
+    not burn the user's window (L3).
+    """
+    limit = get_settings().playback_rate_limit_per_minute
+    now = time.monotonic()
+    dq = _rate_limits.setdefault(user_id, deque())
+    while dq and now - dq[0] > _RATE_WINDOW:
+        dq.popleft()
+    return len(dq) >= limit
+
+
+def _record_rate_limit(user_id: str) -> None:
+    """Record one session-open attempt in the user's sliding window.
+
+    Called only AFTER the budget slot is acquired (L3), so budget-rejected
+    (4429) connects never count against the rate-limit window.
+    """
+    _rate_limits.setdefault(user_id, deque()).append(time.monotonic())
+
+
+def _classify_session_end(returncode: int | None) -> str:
+    """Decide clean end-of-stream vs crash from ffmpeg's exit code (Task-8 #2).
+
+    The session does NOT self-transition to a terminal state when ffmpeg exits
+    on its own, so the WS layer makes this call.  A clean exit (``rc == 0``) is
+    an EOF (end of the requested recording span); anything else — a non-zero
+    code or a signal death we did not initiate — is treated as a crash.
+
+    Pure + mockable: unit-tested without a live NVR.
+    """
+    return "eof" if returncode == 0 else "error"
+
+
+# Sentinel pushed onto the egress queue to tell the single sender to drain any
+# already-queued items (e.g. a final eof/error) and then stop.
+_EGRESS_STOP = object()
+
+# R1 anti-deadlock bounds.  _emit_structural waits for the egress to drain the
+# bounded queue, but a client that holds the TCP socket open yet stops READING
+# leaves the egress ALIVE-but-blocked in ws.send_* — the queue never drains and
+# egress.done() stays False, so the old unbounded wait spun forever and held the
+# session + NvrBudget slot until the OS finally errored the send (minutes).  We
+# now give up after this many seconds of NO drain progress (the timer resets
+# whenever a slot frees), dropping the structural frame — strictly better than a
+# permanent deadlock.
+_STRUCTURAL_NO_DRAIN_TIMEOUT = 10.0
+# Teardown bounds (R1 part 2): the _EGRESS_STOP enqueue is bounded so it can
+# never block the UNCONDITIONAL cancel that follows, guaranteeing teardown
+# always completes and the budget slot is released.
+_EGRESS_STOP_TIMEOUT = 2.0
+_EGRESS_JOIN_TIMEOUT = 2.0
+
+
+def _enqueue_clock(outbound: "asyncio.Queue", item) -> None:
+    """Best-effort enqueue of a 2 s clock tick (Contract #3).
+
+    A clock tick is disposable: if the bounded egress queue is momentarily full
+    (slow client) we DROP THE TICK rather than evict a queued item — the queue
+    may hold a structural message (reinit / init segment / eof / error) or a
+    media fragment that must never be discarded.  ``put_nowait`` never suspends.
+    """
+    try:
+        outbound.put_nowait(item)
+    except asyncio.QueueFull:
+        pass  # drop the tick; never evict a queued item
+
+
+async def _emit_structural(
+    outbound: "asyncio.Queue",
+    *items,
+    egress: "asyncio.Task | None" = None,
+    no_drain_timeout: float = _STRUCTURAL_NO_DRAIN_TIMEOUT,
+) -> None:
+    """Enqueue one or more structural messages that must NEVER be dropped or
+    evicted (reinit / init segment / eof / error / the egress sentinel).
+
+    When several items are passed (a ``reinit``/``init`` JSON + its pinned init
+    segment) they land CONTIGUOUSLY on the wire: we first wait — without evicting
+    anything — until the bounded queue has room for the whole group, then enqueue
+    them back-to-back with ``put_nowait`` and NO awaited suspension between them,
+    so a clock tick (or any other producer) can never interleave the pair.
+    Structural messages are small and rare, so this awaited back-pressure is
+    cheap.  An unbounded queue (``maxsize == 0``) always has room.
+
+    Exit conditions — the wait ends on ANY of (R1):
+      * **room became available** — the group is enqueued (normal path);
+      * **egress is dead** (``egress.done()``) — nowhere to drain, so return
+        without enqueuing (a crashed/closed sender);
+      * **no drain progress for ``no_drain_timeout`` seconds** — the egress is
+        ALIVE but blocked in ``ws.send_*`` to a client that holds the socket
+        open yet stopped reading; the queue never drains and ``egress.done()``
+        never flips, so an unbounded wait would deadlock forever and hold the
+        session + NvrBudget slot.  We give up and DROP this structural frame —
+        a stalled non-reading client losing a trailing structural message is
+        strictly better than a permanent deadlock.  The timer RESETS whenever a
+        slot frees, so a slow-but-alive client that keeps draining is never cut
+        off.
+    When no ``egress`` is supplied the caller runs inside a producer task that
+    the control loop cancels on teardown, so the wait is also bounded by
+    cancellation.
+    """
+    n = len(items)
+    maxsize = outbound.maxsize
+    if maxsize:
+        last_progress = time.monotonic()
+        last_qsize = outbound.qsize()
+        while maxsize - outbound.qsize() < n:
+            if egress is not None and egress.done():
+                return  # egress is dead — nowhere to drain; give up
+            cur_qsize = outbound.qsize()
+            if cur_qsize < last_qsize:
+                # A slot freed → the egress IS draining; reset the no-progress
+                # timer so a slow-but-alive client is waited on indefinitely.
+                last_progress = time.monotonic()
+                last_qsize = cur_qsize
+            elif time.monotonic() - last_progress > no_drain_timeout:
+                # Egress alive but not draining (client stopped reading) → give
+                # up rather than deadlock; drop this structural message.
+                log.warning(
+                    "playback egress stalled %.0fs with a full queue — dropping a "
+                    "structural frame to avoid deadlock", no_drain_timeout,
+                )
+                return
+            await asyncio.sleep(0.005)  # let the egress loop drain; never evict
+    for it in items:
+        outbound.put_nowait(it)
+
+
+async def _drain_and_stop_egress(
+    outbound: "asyncio.Queue",
+    egress: "asyncio.Task",
+    already_done: bool,
+) -> None:
+    """Bounded, UNCONDITIONAL egress shutdown for ``_control_loop`` teardown (R1).
+
+    Enqueues ``_EGRESS_STOP`` so the egress can flush any already-queued final
+    ``eof``/``error`` — but the enqueue is DOUBLE-bounded (``_emit_structural``'s
+    own no-drain cap plus this ``wait_for``) so a client that holds the socket
+    open yet stops reading can never make it block.  The cancel is then
+    UNCONDITIONAL: whatever happened above, the egress is awaited and, if it
+    hasn't stopped, cancelled — so teardown always completes and the NvrBudget
+    slot is released (no minutes-long leak on a stuck send).
+    """
+    # Bounded attempt to flush the sentinel; never let it block the cancel.
+    try:
+        await asyncio.wait_for(
+            _emit_structural(outbound, _EGRESS_STOP, egress=egress),
+            timeout=_EGRESS_STOP_TIMEOUT,
+        )
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+        pass
+    if already_done:
+        return
+    # Bounded wait for a clean stop, then ALWAYS cancel + await so the egress
+    # task can never outlive teardown.
+    try:
+        await asyncio.wait_for(egress, timeout=_EGRESS_JOIN_TIMEOUT)
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+        egress.cancel()
+        await asyncio.gather(egress, return_exceptions=True)
+
+
+async def _dispatch(msg: dict, sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
+    """Apply one parsed client control message to the session.
+
+    Validators run BEFORE any session mutation (so a bad ``speed``/``seek`` is
+    rejected before ffmpeg is touched).  Invalid client input — including a
+    non-integer ``speed`` like ``"fast"`` (Task-8 review #3) — is turned into a
+    sanitised ``{type:"error"}`` enqueued on the egress queue; this method NEVER
+    raises and NEVER tears the session down.
+
+    ``reinit`` is intentionally NOT emitted here.  The single ``_fragment_producer``
+    owns reinit → new init segment → new fragments so that ordering can't be
+    raced by a second sender (Task-8 review, ordering requirement #2).
+    """
+    try:
+        if "seek" in msg:
+            epoch = validate_footage_epoch(msg["seek"])
+            await sess.seek(epoch)
+        elif "speed" in msg:
+            try:
+                raw_speed = int(msg["speed"])
+            except (ValueError, TypeError):
+                # int("fast") → ValueError; map to the same graceful path as an
+                # out-of-whitelist speed instead of killing the session (#3).
+                raise PlaybackUrlError("speed must be an integer")
+            speed = validate_speed(raw_speed)
+            await sess.set_speed(speed)
+        elif "pause" in msg:
+            await sess.pause()
+        elif "play" in msg:
+            # HIGH-1: resume at the FROZEN footage epoch (sess.t0), NOT
+            # footage_now() — while paused footage_now is frozen at t0, but
+            # resuming from t0 is the explicit contract and guards against any
+            # caller that unfreezes.  No-op when already PLAYING so a stray
+            # {play} can't respawn a live stream.
+            if sess.state != SessionState.PLAYING:
+                await sess.resume(sess.t0)
+        elif "keepalive" in msg:
+            # HIGH-4: keepalive is a recognised server-side NO-OP.  It keeps the
+            # WS/TCP path warm but must NOT reset the paused-idle timer —
+            # otherwise a walked-away viewer whose client keeps sending
+            # keepalives would hold its NvrBudget slot until max_lifetime.  So
+            # the paused-idle clock keeps counting and the reaper can close +
+            # release a session paused longer than the idle timeout.  (The old
+            # ``_last_keepalive`` write was dead — read nowhere — so it's gone.)
+            pass
+        elif "stream" in msg:
+            # Contract #5: NVR records main-only; silently ignore stream switches.
+            log.debug("stream switch requested (%r) — ignored (main-only NVR)", msg["stream"])
+        else:
+            log.warning("Unknown playback control message: %r", msg)
+    except PlaybackUrlError:
+        # Sanitise to a generic reason (MED-7b): the exception string could
+        # otherwise leak validator/internal detail to the client (Contract #12).
+        await _emit_structural(outbound, {"type": "error", "reason": "invalid control message"})
+
+
+async def _egress_loop(ws: WebSocket, outbound: "asyncio.Queue") -> None:
+    """The SOLE owner of the WebSocket send side (Task-8 review, single egress).
+
+    Drains ``outbound`` in FIFO order and is the ONLY coroutine that ever calls
+    ``ws.send_bytes`` / ``ws.send_json``.  This serialises every send — the 2 s
+    clock tick can no longer interleave ASGI messages mid-fragment (which would
+    corrupt frames or raise "another coroutine is already waiting") — and pins
+    wire order to enqueue order.  Stops on the ``_EGRESS_STOP`` sentinel.
+    """
+    while True:
+        item = await outbound.get()
+        if item is _EGRESS_STOP:
+            return
+        if isinstance(item, (bytes, bytearray)):
+            await ws.send_bytes(item)
+        else:
+            await ws.send_json(item)
+
+
+async def _clock_sender(sess: PlaybackSession, outbound: "asyncio.Queue", interval: float) -> None:
+    """Enqueue ``{type:"clock", wall_ts:<footage epoch>}`` while PLAYING (Contract #3)."""
+    while sess.state not in (SessionState.CLOSED, SessionState.ERROR):
+        await asyncio.sleep(interval)
+        if sess.state == SessionState.PLAYING:
+            _enqueue_clock(outbound, {"type": "clock", "wall_ts": sess.footage_now()})
+
+
+async def _fragment_producer(sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
+    """Single producer of init/reinit JSON, the pinned init segment, and fMP4
+    fragments — enqueued onto the egress queue in strict order (Task-8 review).
+
+    On every new ``_spawn_gen`` it emits, contiguously (no awaited suspension
+    between them, so no clock/error tick can interleave): the gen-0 ``init`` —
+    or a ``reinit`` on respawn — JSON, then the pinned init segment bytes; then
+    it streams new-timeline fragments from the back-pressure ring.  Because the
+    session CLEARS the ring on every respawn (review #1), the fragments read
+    after the init segment are always from the new timeline — stale pre-respawn
+    media can never land after the new init segment.
+
+    When the ring drains AND ffmpeg has exited on its own while PLAYING, we
+    classify clean-EOF vs crash (review #2), enqueue the signal, and return; the
+    endpoint then closes the session.
+
+    INTEGRATION: the exact fMP4 byte-boundary alignment of the pinned init
+    segment is an on-network check (no live NVR here).
+    """
+    last_gen = -1
+    held: bytes | None = None  # a fetched chunk that must wait behind a pending reinit
+    held_gen = -1              # the _spawn_gen the held chunk was fetched at
+    while not sess._closing and sess.state not in (SessionState.CLOSED, SessionState.ERROR):
+        if sess._spawn_gen != last_gen:
+            init = await sess.wait_init_segment(timeout=_INIT_SEGMENT_TIMEOUT)
+            # A respawn during the (wide) init-wait advances _spawn_gen and makes
+            # wait_init_segment return the NEWER gen's init, so snapshot the gen
+            # AFTER the await — it is the generation the init segment we are about
+            # to emit actually corresponds to, not a pre-await snapshot.
+            gen = sess._spawn_gen
+            # reinit/init JSON + the pinned init segment are emitted as ONE
+            # contiguous group so no clock tick can interleave the pair.
+            head = (
+                {"type": "init", "t0": sess.t0, "codec": _INIT_CODEC, "session_id": sess.session_id}
+                if last_gen == -1
+                else {"type": "reinit", "t0": sess.t0, "session_id": sess.session_id}
+            )
+            if init:
+                await _emit_structural(outbound, head, init)
+            else:
+                await _emit_structural(outbound, head)
+            last_gen = gen
+            # fall through to flush / drop any chunk held across the gen boundary
+        if held is not None:
+            if held_gen != sess._spawn_gen:
+                # A newer spawn superseded this chunk while we waited for the new
+                # init segment (rapid double-seek): its init + fragments win, so
+                # DROP the now-stale held chunk — emitting an old-timeline fragment
+                # after a fresh init segment corrupts the MSE source buffer.
+                held = None
+                held_gen = -1
+                continue
+            await outbound.put(held)
+            held = None
+            held_gen = -1
+            continue
+        try:
+            chunk = await asyncio.wait_for(sess._ring.get(), timeout=0.5)
+        except asyncio.TimeoutError:
+            # Ring empty: has ffmpeg ended on its own (not a seek/pause kill)?
+            proc = sess._proc
+            if (
+                sess.state == SessionState.PLAYING
+                and proc is not None
+                and proc.returncode is not None
+                and sess._ring.empty()
+            ):
+                kind = _classify_session_end(proc.returncode)
+                if kind == "eof":
+                    await _emit_structural(outbound, {"type": "eof"})
+                else:
+                    await _emit_structural(
+                        outbound,
+                        {"type": "error", "reason": "playback stream ended unexpectedly"},
+                    )
+                return
+            continue
+        if sess._spawn_gen != last_gen:
+            # A respawn happened while we were blocked on the (now-cleared) ring,
+            # so this chunk belongs to the NEW generation: tag it with that gen,
+            # hold it, and loop so the reinit + new init segment are emitted ahead
+            # of it.  If yet another respawn lands during the next init-wait, the
+            # held-gen check above drops this now-stale chunk (review follow-up).
+            held = chunk
+            held_gen = sess._spawn_gen
+            continue
+        # Media fragments use the awaited put: when the egress queue fills (slow
+        # client) the producer blocks here, the session ring fills, and it drops
+        # the OLDEST chunk — preserving the Contract #11 back-pressure discipline.
+        await outbound.put(chunk)
+
+
+async def _receive_loop(ws: WebSocket, sess: PlaybackSession, outbound: "asyncio.Queue") -> None:
+    """Read client control JSON and dispatch it (bad input → sanitised error)."""
+    while True:
+        try:
+            msg = await ws.receive_json()  # raises WebSocketDisconnect on close
+        except JSONDecodeError:
+            # L2: a malformed text frame must NOT tear the session down — log and
+            # ignore that frame, keep reading.  (WebSocketDisconnect still
+            # propagates to end the loop normally on a real client close.)
+            log.warning("Ignoring malformed playback control frame (invalid JSON)")
+            continue
+        if not isinstance(msg, dict):
+            log.warning("Ignoring non-object playback control message")
+            continue
+        await _dispatch(msg, sess, outbound)
+
+
+async def _control_loop(ws: WebSocket, sess: PlaybackSession, clock_interval: float) -> None:
+    """Wire up the single egress + the receive/clock/fragment producers.
+
+    All three producers PUT onto one ``outbound`` queue; ``_egress_loop`` is the
+    sole WS sender (Task-8 review, single egress).  A client disconnect surfaces
+    from ``_receive_loop`` as ``WebSocketDisconnect``; end-of-stream/crash from
+    ``_fragment_producer``.  Whichever finishes first — including a crashed egress
+    (IMPORTANT 4) — the others are cancelled, the egress is allowed to flush any
+    final eof/error then stop, and we re-raise the first producer's exception so
+    the endpoint's ``finally`` runs.  The session ``finally`` (close + budget
+    release) always runs regardless of which task finishes first.
+    """
+    outbound: asyncio.Queue = asyncio.Queue(maxsize=max(8, sess.ring_buffer_chunks))
+    egress = asyncio.create_task(_egress_loop(ws, outbound), name="pb-egress")
+    recv = asyncio.create_task(_receive_loop(ws, sess, outbound), name="pb-recv")
+    clock = asyncio.create_task(_clock_sender(sess, outbound, clock_interval), name="pb-clock")
+    frag = asyncio.create_task(_fragment_producer(sess, outbound), name="pb-frag")
+    producers = {recv, clock, frag}
+    # Include egress in the wait set: a crashed sender also tears the loop down
+    # (IMPORTANT 4a) so it can never busy-loop with a dead drainer.
+    done, pending = await asyncio.wait({*producers, egress}, return_when=asyncio.FIRST_COMPLETED)
+    # Stop the still-running producers so nothing new is enqueued.
+    for t in pending & producers:
+        t.cancel()
+    await asyncio.gather(*(pending & producers), return_exceptions=True)
+    # Let the egress drain whatever is already queued (e.g. a final eof/error),
+    # then stop — bounded enqueue + UNCONDITIONAL cancel (R1) so a client that
+    # stops reading with a full queue can never wedge teardown or leak the slot.
+    await _drain_and_stop_egress(outbound, egress, already_done=egress in done)
+    # Surface the first PRODUCER's exception (e.g. WebSocketDisconnect from recv,
+    # eof-signal from frag).  Egress exceptions are NOT re-raised — an egress crash
+    # silently tears the loop; the endpoint finally block owns all cleanup.
+    for t in done:
+        if t is egress:
+            continue
+        exc = t.exception()
+        if exc is not None:
+            raise exc
+
+
+@router.websocket("/{nvr_id}/{channel}/stream")
+async def playback_stream(
+    websocket: WebSocket,
+    nvr_id: str,
+    channel: int,
+    session: SessionDep,
+    token: str | None = None,   # JWT from ?token= (browsers can't set WS headers)
+    t: int | None = None,       # initial footage epoch (UTC seconds) to play from
+    transport: str | None = None,  # RTSP transport: "udp" (default) or "tcp"
+) -> None:
+    """Persistent playback WebSocket — auth handshake + control protocol.
+
+    The full auth + budget gauntlet runs BEFORE ``websocket.accept()`` so no
+    ffmpeg is ever spawned for an unauthenticated/forbidden/over-budget client
+    (Contract #2).  See the module banner for close-code semantics.
+    """
+    # ── 1. JWT (Contract #2: validate BEFORE accept) ──────────────────────────
+    if not token:
+        await websocket.close(code=4001)
+        return
+    try:
+        payload = decode_token(token)
+    except jwt.PyJWTError:
+        await websocket.close(code=4001)
+        return
+    sub = payload.get("sub")
+    try:
+        user_id = _uuid.UUID(str(sub))
+    except (TypeError, ValueError):
+        await websocket.close(code=4001)
+        return
+    user = (
+        await session.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if user is None or not user.is_active:
+        await websocket.close(code=4001)
+        return
+
+    # ── 2. Validate channel + start target (before any ffmpeg op) ─────────────
+    try:
+        validate_channel(channel)
+        start_epoch = validate_footage_epoch(t) if t is not None else None
+    except PlaybackUrlError:
+        await websocket.close(code=4004)
+        return
+    if start_epoch is None:
+        # A playback session needs a start position; treat a missing one as a
+        # bad target rather than accepting and immediately erroring.
+        await websocket.close(code=4004)
+        return
+
+    # Transport toggle (Contract #10): "udp" (default, near-realtime but lossy
+    # on this NVR) or "tcp" (clean but slow). Anything else quietly falls back
+    # to "udp" rather than rejecting the connection.
+    validated_transport = transport if transport in ("udp", "tcp") else "udp"
+
+    # ── 3. Per-camera RBAC (Contract #1) ──────────────────────────────────────
+    nvr = (
+        await session.execute(select(Nvr).where(Nvr.id == nvr_id))
+    ).scalar_one_or_none()
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or not nvr.enabled or camera is None or not camera.enabled:
+        await websocket.close(code=4004)
+        return
+    if not user_can_access_camera(user, camera):
+        await websocket.close(code=4003)
+        return
+
+    # ── 4. Lockout (mirror the NVR firmware ban) ──────────────────────────────
+    if await get_active_lockout(nvr.ip) is not None:
+        await websocket.close(code=4429)
+        return
+
+    # ── 5. Per-user rate limit (PEEK only — do not record yet, L3) ─────────────
+    if _rate_limit_exceeded(str(user.id)):
+        log.warning("playback rate-limit hit user=%s nvr=%s", user.id, nvr_id)
+        await websocket.close(code=4429)
+        return
+
+    # ── 6. Budget (Task 6) — acquire BEFORE accept so we can reject with 4429 ──
+    budget_cm = get_budget().session(nvr_id)
+    try:
+        await budget_cm.__aenter__()
+    except BudgetExhausted:
+        await websocket.close(code=4429)
+        return
+
+    # L3: record the rate-limit attempt ONLY now that a budget slot is actually
+    # held — a budget-rejected (4429) connect above must not burn the window.
+    _record_rate_limit(str(user.id))
+
+    # ── 7. Accept + run the session ───────────────────────────────────────────
+    settings = get_settings()
+    sess: PlaybackSession | None = None
+    opened_at = time.monotonic()
+    try:
+        await websocket.accept()
+        password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
+        # Resolve client IP from the WebSocket transport (may be None in tests).
+        _client_ip = websocket.client.host if websocket.client is not None else ""
+        sess = PlaybackSession(
+            # Observability metadata (Task 10) — set once, never mutated.
+            user_id=str(user.id),
+            username=user.username,
+            client_ip=_client_ip,
+            nvr_label=nvr.label,
+            # NVR / stream config.
+            nvr_id=nvr_id,
+            nvr_ip=nvr.ip,
+            rtsp_port=nvr.port,  # Contract #9: nvr.port is the RTSP port
+            rtsp_user=nvr.rtsp_username,
+            rtsp_pw=password,
+            channel=channel,
+            tz_offset_minutes=settings.playback_tz_offset_minutes,
+            transport=validated_transport,
+            # clip_end_epoch is the RTSP endtime — a bounded 24h forward window
+            # capped at the live edge (now), because Dahua /cam/playback with a
+            # future endtime starves the stream (only the fMP4 init segment, no
+            # media fragments; verified 192.168.20.15, 2026-07-01).  The value is
+            # (re)computed by _spawn on EVERY (re)spawn (single source of truth);
+            # this constructor value is just a placeholder overwritten by open().
+            clip_end_epoch=0,
+            ffbin=settings.reencode_ffmpeg_bin,
+            keyframe_seconds=settings.reencode_keyframe_seconds,
+            maxrate_kbps=settings.reencode_maxrate_kbps,
+            ring_buffer_chunks=settings.playback_ring_buffer_chunks,
+        )
+        await sess.open(start_epoch)  # registers in _active_sessions
+        log.info(
+            "playback_start nvr=%s ch=%d user=%s session=%s",
+            nvr_id, channel, user.id, sess.session_id,
+        )
+        # The {type:"init"} signal + pinned init segment are emitted by the
+        # single fragment producer on its first spawn generation (single-egress
+        # ordering); the endpoint no longer sends directly on the socket.
+        await _control_loop(websocket, sess, settings.playback_clock_interval_seconds)
+    except WebSocketDisconnect:
+        pass
+    except asyncio.CancelledError:
+        # Never swallow cancellation — re-raise so graceful lifespan shutdown
+        # isn't interfered with (Task-8 review #4).  The finally below still
+        # runs (session close + budget release).
+        raise
+    except Exception:  # noqa: BLE001 — ensure cleanup on any failure path
+        log.warning("playback session error nvr=%s ch=%d", nvr_id, channel, exc_info=True)
+        try:
+            await websocket.send_json({"type": "error", "reason": "internal error"})
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        sid = sess.session_id if sess is not None else "?"
+        if sess is not None:
+            await sess.close()  # no orphan ffmpeg; removes from _active_sessions
+        await budget_cm.__aexit__(None, None, None)
+        log.info(
+            "playback_stop nvr=%s ch=%d user=%s session=%s duration=%ds",
+            nvr_id, channel, user.id, sid, int(time.monotonic() - opened_at),
+        )
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @router.get("/{nvr_id}/{channel}/availability")
@@ -274,12 +1026,17 @@ async def recording_availability(
             "month is not a valid calendar month",
         ) from None
 
-    # ── NVR lookup — no SSRF: host always comes from the DB row ──────────────
+    # ── NVR + Camera lookup — no SSRF: hosts always come from the DB rows ────
     nvr = (
         await session.execute(select(Nvr).where(Nvr.id == nvr_id))
     ).scalar_one_or_none()
-    if nvr is None or not user_can_access_nvr(user, nvr):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
 
     # ── Cache check ───────────────────────────────────────────────────────────
     cache_key = (nvr_id, channel, month)
@@ -291,6 +1048,12 @@ async def recording_availability(
     settings = get_settings()
     tz_offset = settings.playback_tz_offset_minutes
     month_start_local, month_end_local = _month_to_local_bounds(month)
+
+    # Non-Dahua recorders: playback unsupported → empty (not a 502). See /index.
+    if nvr.vendor != Vendor.dahua:
+        empty: dict = {"days_with_recordings": [], "oldest_epoch": None, "playback_supported": False}
+        _cache_set(cache_key, empty)
+        return empty
 
     # ── Fetch from NVR ────────────────────────────────────────────────────────
     password = decrypt_password(nvr.rtsp_password_encrypted)
@@ -328,3 +1091,413 @@ async def recording_availability(
 
     _cache_set(cache_key, result)
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Month recording-days endpoint — /playback/{nvr_id}/{channel}/days?month=YYYY-MM
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Calendar helper: which 1-based day numbers of a month have any recording.
+# Same wide single-``find_clips`` call + 120 s cache as /availability, but the
+# response is trimmed to a bare day list so a calendar paging months is cheap.
+# Auth via ?token= OR header (resolve_playback_user); per-camera RBAC (Contract #1).
+
+
+@router.get("/{nvr_id}/{channel}/days")
+async def recording_days(
+    nvr_id: str,
+    channel: int,
+    month: str,
+    session: SessionDep,
+    user: PlaybackTokenUser,
+) -> dict:
+    """Which calendar days in *month* (``YYYY-MM``) have recordings.
+
+    Returns::
+
+        {"month": "2026-07", "days": [1, 3, 4, 7, ...]}
+
+    ``days`` are 1-based, NVR-local, sorted, distinct, and bounded to *month*
+    (a clip spilling into an adjacent month contributes only its in-month days).
+    An empty month returns ``{"month": ..., "days": []}``.  Cached 120 s per
+    ``(nvr_id, channel, "days", month)``.
+    """
+    # ── Input validation (400) ────────────────────────────────────────────────
+    if channel < 1:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "channel must be a positive integer",
+        )
+    if not _MONTH_RE.match(month):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "month must be in YYYY-MM format",
+        )
+    try:
+        year_val, month_val = int(month[:4]), int(month[5:7])
+        if not (1 <= month_val <= 12):
+            raise ValueError("month out of range")
+        datetime(year_val, month_val, 1)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "month is not a valid calendar month",
+        ) from None
+
+    # ── NVR + Camera lookup — no SSRF: hosts always come from the DB rows ────
+    nvr = (
+        await session.execute(select(Nvr).where(Nvr.id == nvr_id))
+    ).scalar_one_or_none()
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
+
+    # ── Cache check ───────────────────────────────────────────────────────────
+    cache_key = (nvr_id, channel, "days", month)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    # ── Compute month boundaries in NVR-local time (one month max) ────────────
+    month_start_local, month_end_local = _month_to_local_bounds(month)
+
+    # Non-Dahua recorders: playback unsupported → empty (not a 502). See /index.
+    if nvr.vendor != Vendor.dahua:
+        empty: dict = {"month": month, "days": [], "playback_supported": False}
+        _cache_set(cache_key, empty)
+        return empty
+
+    # ── Fetch from NVR ────────────────────────────────────────────────────────
+    password = decrypt_password(nvr.rtsp_password_encrypted)
+    try:
+        clips = await find_clips(
+            nvr.ip,
+            80,  # HTTP CGI port, not RTSP port
+            nvr.rtsp_username,
+            password,
+            channel=channel,
+            start=month_start_local,
+            end=month_end_local,  # already last-second-of-month (exclusive boundary)
+        )
+    except MediaFindError as exc:
+        log.warning("NVR %s ch%d %s days failed: %s", nvr_id, channel, month, exc)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "NVR recording availability unavailable",
+        ) from exc
+
+    result: dict = {"month": month, "days": clips_to_day_numbers(clips, month)}
+    _cache_set(cache_key, result)
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Clip export endpoint — /playback/{nvr_id}/{channel}/clip?start=&end=  (download)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Runs ffmpeg to pull the NVR's /cam/playback RTSP for [start,end] over TCP and
+# returns a downloadable MP4 (attachment).  Per-camera RBAC (Contract #1); auth
+# via ?token= OR header (resolve_playback_user).  The requested duration is
+# bounded (clip_export_max_seconds) because this NVR delivers playback at
+# ~realtime or SLOWER — a 10-min clip takes 10+ min of wall time (much longer
+# over TCP).  ffmpeg is torn down (no orphan; releases the NVR playback slot) on
+# client disconnect and the temp file is always cleaned up.  Credential hygiene
+# (Contract #12): the credentialed RTSP URL is never logged.
+
+# The pull runs at ~realtime or slower (TCP ~0.2x on this NVR), so allow ample
+# wall-clock time before declaring a hung NVR: duration / _MIN_PULL_FACTOR plus a
+# fixed headroom.  Bounded by clip_export_max_seconds on the input side.
+_MIN_PULL_FACTOR = 0.15
+_PULL_HEADROOM_SECONDS = 120.0
+
+# Reject clip epochs more than this far past "now" (guards datetime.fromtimestamp
+# overflow → 500; real footage epochs are past or at the live edge).  Computed
+# per-request so it tracks wall-clock (and is trivially testable).
+_CLIP_EPOCH_FUTURE_SLACK_SECONDS = 86_400  # 1 day
+
+
+def _MAX_CLIP_EPOCH() -> int:  # noqa: N802 — sentinel-style helper, not a constant
+    return int(time.time()) + _CLIP_EPOCH_FUTURE_SLACK_SECONDS
+
+
+# Dedicated temp subdir + stable prefix so the stale-clip sweep is PRECISE — it
+# only ever touches this module's own export temp files, never unrelated tmp data.
+_CLIP_TEMP_PREFIX = "clip_"
+_CLIP_STALE_AGE_SECONDS = 3600.0  # sweep clip_*.mp4 older than ~1h at export start
+
+
+def _clip_temp_dir() -> str:
+    """Return (creating if needed) the dedicated temp subdir for clip exports."""
+    d = os.path.join(tempfile.gettempdir(), "dss_clip_exports")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _sweep_stale_clips(temp_dir: str) -> None:
+    """Best-effort delete of orphaned ``clip_*.mp4`` older than ~1h in *temp_dir*.
+
+    Self-healing for the one leak the BackgroundTask can't cover: if a Starlette
+    ``send`` raises after the client vanished mid-download, the cleanup task is
+    skipped and the temp file orphans (disk only — ffmpeg already exited, so no
+    NVR slot leaks).  Running this at the START of each export reaps those.
+    NEVER raises: a sweep failure must not block a fresh export.
+    """
+    try:
+        now = time.time()
+        with os.scandir(temp_dir) as it:
+            for entry in it:
+                name = entry.name
+                if not (name.startswith(_CLIP_TEMP_PREFIX) and name.endswith(".mp4")):
+                    continue
+                try:
+                    if now - entry.stat().st_mtime > _CLIP_STALE_AGE_SECONDS:
+                        os.unlink(entry.path)
+                except FileNotFoundError:
+                    pass
+                except Exception:  # noqa: BLE001
+                    log.debug("stale-clip sweep skip %s", entry.path, exc_info=True)
+    except Exception:  # noqa: BLE001
+        log.debug("stale-clip sweep failed for %s", temp_dir, exc_info=True)
+
+
+@router.get("/{nvr_id}/{channel}/clip")
+async def export_recording_clip(
+    nvr_id: str,
+    channel: int,
+    request: Request,
+    start: int,
+    end: int,
+    session: SessionDep,
+    user: PlaybackTokenUser,
+    transport: str | None = None,  # accepted for contract parity; export forces TCP
+) -> FileResponse:
+    """Export ``[start, end]`` (footage UTC epochs) of one channel as a download.
+
+    Returns an MP4 with ``Content-Disposition: attachment`` and
+    ``Content-Type: video/mp4``.
+
+    Error responses:
+        400 — bad channel/epochs, ``end <= start``, or duration over the cap
+              (``clip_export_max_seconds``).
+        404 — NVR/camera not found or no per-camera access.
+        502 — ffmpeg failed, timed out, client disconnected, or the NVR yielded
+              no data for the range.
+
+    Export always uses **TCP** transport (reliability over speed — a dropped
+    packet must not corrupt the saved file), regardless of the ``transport``
+    query param.  Because the pull is ~realtime, a long clip is a long request;
+    the frontend must message this to the user and bound the selection.
+    """
+    # ── Input validation (400) ────────────────────────────────────────────────
+    try:
+        validate_channel(channel)
+        start_epoch = validate_footage_epoch(start)
+        end_epoch = validate_footage_epoch(end)
+    except PlaybackUrlError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if end_epoch <= start_epoch:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "end must be greater than start",
+        )
+    # Upper-bound sanity: a huge in-range epoch (e.g. milliseconds mistaken for
+    # seconds) would make datetime.fromtimestamp() overflow inside export_clip and
+    # surface as a 500.  Reject anything more than a day past "now" as a 400 before
+    # doing any work — real footage epochs are in the past or at the live edge.
+    if start_epoch > _MAX_CLIP_EPOCH() or end_epoch > _MAX_CLIP_EPOCH():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "start/end epoch is unreasonably far in the future",
+        )
+    settings = get_settings()
+    duration = end_epoch - start_epoch
+    if duration > settings.clip_export_max_seconds:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"requested clip duration {duration}s exceeds the maximum "
+            f"{settings.clip_export_max_seconds}s (this NVR exports at ~realtime, "
+            "so pick a shorter range)",
+        )
+
+    # ── Per-camera RBAC (Contract #1) — no SSRF: IP comes from DB row ─────────
+    nvr = (
+        await session.execute(select(Nvr).where(Nvr.id == nvr_id))
+    ).scalar_one_or_none()
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
+
+    # ── Self-healing: reap orphaned clip temp files from crashed downloads ─────
+    temp_dir = _clip_temp_dir()
+    _sweep_stale_clips(temp_dir)
+
+    # ── NvrBudget slot (Task 6) — mirror the WS /stream path so exports can't ──
+    # starve the NVR's small playback pool.  A clip pull holds an NVR playback
+    # slot for its full ~realtime duration, so it MUST be capped exactly like a
+    # live playback session.  Acquire BEFORE spawning ffmpeg; at capacity → 429.
+    # The slot is released in the teardown ``finally`` on EVERY exit path — ffmpeg
+    # has fully exited by the time export_clip returns, so the slot is freed
+    # before the file is streamed back (the download itself holds no NVR slot).
+    budget = get_budget()
+    try:
+        await budget.try_acquire(nvr_id)
+    except BudgetExhausted as exc:
+        log.info("clip export budget-exhausted nvr=%s ch=%d", nvr_id, channel)
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, "recorder busy, try again"
+        ) from exc
+
+    # ── Run ffmpeg into a temp MP4 (faststart needs a seekable output) ────────
+    # decrypt_password (raises on a rotated/invalid Fernet key) and mkstemp
+    # (raises on disk-full/permission) run INSIDE the try so the ``finally``
+    # still releases the acquired NVR slot — else a decrypt/mkstemp failure would
+    # permanently leak a slot and eventually 429-lock all playback for this NVR.
+    out_path: str | None = None
+    try:
+        password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
+        fd, out_path = tempfile.mkstemp(suffix=".mp4", prefix=_CLIP_TEMP_PREFIX, dir=temp_dir)
+        os.close(fd)  # ffmpeg (re)creates it with -y; we just reserved the path
+        overall_timeout = duration / _MIN_PULL_FACTOR + _PULL_HEADROOM_SECONDS
+        await export_clip(
+            ip=nvr.ip,
+            rtsp_port=nvr.port,  # Contract #9: nvr.port is the RTSP port
+            user=nvr.rtsp_username,
+            pw=password,
+            channel=channel,
+            start_epoch=start_epoch,
+            end_epoch=end_epoch,
+            tz_offset_minutes=settings.playback_tz_offset_minutes,
+            ffbin=settings.reencode_ffmpeg_bin,
+            out_path=out_path,
+            overall_timeout_seconds=overall_timeout,
+            is_disconnected=request.is_disconnected,  # tear down if client navigates away
+            transport="tcp",  # Contract #10: reliability over speed for a saved file
+        )
+    except ClipExportError as exc:
+        if out_path:
+            _cleanup_file(out_path)
+        # Log the (already-redacted) reason only; never the credentialed URL.
+        log.warning("clip export failed nvr=%s ch=%d: %s", nvr_id, channel, exc)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Clip export unavailable"
+        ) from exc
+    except BaseException:
+        # Cancellation or any other failure: never leak the temp file.
+        if out_path:
+            _cleanup_file(out_path)
+        raise
+    finally:
+        # Release the NVR slot on EVERY exit path (success, 502, cancel, error).
+        # ffmpeg has already exited here, so freeing the slot before the download
+        # streams back is correct — the FileResponse reads the temp file off disk.
+        await budget.release(nvr_id)
+
+    filename = f"{nvr_id}_ch{channel}_{start_epoch}.mp4"
+    # FileResponse sets Content-Disposition: attachment; filename="..." from the
+    # filename kwarg.  The BackgroundTask deletes the temp file after the body is
+    # fully sent (or the connection drops).
+    return FileResponse(
+        out_path,
+        media_type="video/mp4",
+        filename=filename,
+        background=BackgroundTask(_cleanup_file, out_path),
+    )
+
+
+def _cleanup_file(path: str) -> None:
+    """Best-effort delete of the temp export file (idempotent, never raises)."""
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except Exception:  # noqa: BLE001
+        log.warning("clip export temp cleanup failed for %s", path, exc_info=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Thumbnail endpoint — /playback/{nvr_id}/{channel}/thumb?at=<epoch>  (Task 9)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Returns a single JPEG frame extracted by ffmpeg from the NVR recording at the
+# requested footage epoch.  Used by the timeline drag-preview (throttled: emit on
+# drag-settle/end, not every pointermove — Contract #7).
+#
+# Auth:  per-camera RBAC (Contract #1) — load Camera by (nvr_id, channel),
+#        authorize with user_can_access_camera.  Missing NVR or camera → 404.
+# Snapshot does NOT acquire NvrBudget — it is a short-lived one-shot (< 15 s).
+# Credential hygiene (Contract #12): password and credentialed URL never logged.
+
+
+@router.get("/{nvr_id}/{channel}/thumb")
+async def playback_thumb(
+    nvr_id: str,
+    channel: int,
+    at: int,            # footage epoch (UTC seconds)
+    session: SessionDep,
+    user: CurrentUser,
+) -> Response:
+    """Return a JPEG frame at the given footage epoch.
+
+    Returns:
+        JPEG bytes with ``Content-Type: image/jpeg``.
+
+    Error responses:
+        400 — invalid channel (< 1) or epoch (≤ 0).
+        404 — NVR or camera not found, or user has no per-camera access.
+        502 — ffmpeg failed, timed out, or returned empty output.
+
+    Rate note: not cached — callers must throttle (drag-preview: fire on
+    drag-settle/end, not every pointermove).
+    """
+    # ── Input validation (400) ─────────────────────────────────────────────
+    try:
+        validate_channel(channel)
+        validate_footage_epoch(at)
+    except PlaybackUrlError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    # ── Per-camera RBAC (Contract #1) — no SSRF: IP comes from DB row ─────
+    nvr = (
+        await session.execute(select(Nvr).where(Nvr.id == nvr_id))
+    ).scalar_one_or_none()
+    camera = (
+        await session.execute(
+            select(Camera).where(Camera.nvr_id == nvr_id, Camera.channel == channel)
+        )
+    ).scalar_one_or_none()
+    if nvr is None or camera is None or not user_can_access_camera(user, camera):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recording source not found")
+
+    # ── Extract frame via ffmpeg ──────────────────────────────────────────
+    settings = get_settings()
+    password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
+    try:
+        jpeg = await grab_frame(
+            ip=nvr.ip,
+            rtsp_port=nvr.port,          # Contract #9: nvr.port is the RTSP port
+            user=nvr.rtsp_username,
+            pw=password,
+            channel=channel,
+            footage_epoch=at,
+            tz_offset_minutes=settings.playback_tz_offset_minutes,
+            ffbin=settings.reencode_ffmpeg_bin,
+        )
+    except SnapshotError as exc:
+        # Log exc text only — it never contains the password (Contract #12).
+        log.warning(
+            "Snapshot failed nvr=%s ch=%d at=%d: %s",
+            nvr_id, channel, at, exc,
+        )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Snapshot unavailable"
+        ) from exc
+
+    return Response(content=jpeg, media_type="image/jpeg")

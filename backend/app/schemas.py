@@ -8,12 +8,24 @@ Conventions:
 
 from __future__ import annotations
 
+import ipaddress
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import Role, StreamQuality, Vendor
+
+
+def _validate_ip_str(v: str) -> str:
+    """Accept only a literal IPv4/IPv6 address (deployment uses raw IPs — no
+    hostnames). Stored as a plain str; this just rejects garbage at the edge so a
+    typo fails on create/update instead of silently producing a dead RTSP URL."""
+    try:
+        ipaddress.ip_address(v)
+    except ValueError as e:
+        raise ValueError(f"'{v}' is not a valid IP address") from e
+    return v
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────
@@ -94,7 +106,7 @@ class RegionRead(RegionBase):
 class NvrBase(BaseModel):
     label: str = Field(min_length=1, max_length=128)
     ip: str
-    port: int = 554
+    port: int = Field(default=554, ge=1, le=65535)
     rtsp_username: str = "admin"
     vendor: Vendor = Vendor.dahua
     enabled: bool = True
@@ -103,6 +115,10 @@ class NvrBase(BaseModel):
 
 
 class NvrCreate(NvrBase):
+    # IP validated on INPUT only (create/update) — NvrRead must stay permissive
+    # so a legacy DB row with a non-IP value can't 500 every GET /nvrs.
+    _v_ip = field_validator("ip")(_validate_ip_str)
+
     # id is optional — if omitted the router derives one from the IP address
     # (e.g. "192.168.20.34" → "nvr-192-168-20-34") so casual users don't have
     # to invent an identifier.
@@ -121,7 +137,7 @@ class NvrCreate(NvrBase):
 class SetChannelsRequest(BaseModel):
     """Bulk-set how many channels an NVR has. Creates cameras for any missing
     channel in 1..count. With `prune=True`, also deletes channels above
-    `count` (and their MediaMTX paths). Used to populate a multi-channel NVR
+    `count` (and their go2rtc streams). Used to populate a multi-channel NVR
     in one shot instead of adding cameras one at a time."""
     count: int = Field(ge=1, le=512)
     prune: bool = False
@@ -130,13 +146,18 @@ class SetChannelsRequest(BaseModel):
 class NvrUpdate(BaseModel):
     label: str | None = None
     ip: str | None = None
-    port: int | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
     rtsp_username: str | None = None
     rtsp_password: str | None = None
     vendor: Vendor | None = None
     enabled: bool | None = None
     group: str | None = None
     region_id: uuid.UUID | None = None
+
+    @field_validator("ip")
+    @classmethod
+    def _v_ip(cls, v: str | None) -> str | None:
+        return None if v is None else _validate_ip_str(v)
 
 
 class NvrRead(NvrBase):
@@ -202,17 +223,13 @@ class CameraIpImportResult(BaseModel):
 class StreamUrlResponse(BaseModel):
     """What the client receives to start playback.
 
-    `webrtc_whep_url` is the primary low-latency path; `hls_url` is the fallback.
-    Neither contains NVR credentials — both point at MediaMTX, which fans
-    out a single RTSP pull to N viewers.
+    `path` is the go2rtc stream name the player connects to. It contains no NVR
+    credentials — go2rtc fans out a single RTSP pull to N viewers.
     """
 
     camera_id: uuid.UUID
     quality: StreamQuality
     path: str
-    webrtc_whep_url: str
-    hls_url: str
-    rtsp_url: str | None = None  # exposed only to admin / on demand
 
 
 # ── Health / events ─────────────────────────────────────────────────────────

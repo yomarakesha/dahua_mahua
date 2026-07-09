@@ -18,6 +18,7 @@ from app.deps import CurrentUser, SessionDep
 from app.models import User
 from app.schemas import ChangePasswordRequest, LoginRequest, TokenResponse, UserRead
 from app.security import (
+    dummy_verify,
     hash_password,
     issue_access_token,
     needs_rehash,
@@ -64,7 +65,14 @@ async def login(
     user = (
         await session.execute(select(User).where(User.username == body.username))
     ).scalar_one_or_none()
-    if user is None or not user.is_active or not verify_password(body.password, user.password_hash):
+    if user is None or not user.is_active:
+        # No matching (or disabled) account: still run a full Argon2 verify against
+        # a dummy hash so this path costs the same as a wrong-password path — no
+        # timing oracle for username enumeration.
+        dummy_verify(body.password)
+        log.warning("Login FAIL ip=%s user=%r ua=%r", client_ip, body.username, ua)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
+    if not verify_password(body.password, user.password_hash):
         log.warning("Login FAIL ip=%s user=%r ua=%r", client_ip, body.username, ua)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
 
@@ -76,6 +84,10 @@ async def login(
 
     user.last_login_at = datetime.now(timezone.utc)
     await session.commit()
+
+    # Successful auth clears this IP's failed-attempt budget so a legitimate user
+    # who fat-fingered a few times isn't left one slip from a lockout.
+    rate_limit.reset(client_ip)
 
     settings = get_settings()
     token = issue_access_token(subject=str(user.id), role=user.role.value)

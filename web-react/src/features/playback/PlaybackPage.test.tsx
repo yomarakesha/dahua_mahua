@@ -1,0 +1,276 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { AuthProvider } from "@/lib/auth";
+import PlaybackPage from "./PlaybackPage";
+
+// Mutable recording-index the mock returns — default null (no index) so the
+// existing tests keep seeing the "timeline-placeholder". The debounce test below
+// sets it to a real RecordingIndex so the Timeline mounts. vi.hoisted so it is
+// initialized before the hoisted vi.mock factory runs.
+const mockState = vi.hoisted(() => ({ index: null as unknown }));
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+
+const MOCK_NVRS = [
+  {
+    id: "nvr1",
+    label: "Office NVR",
+    ip: "192.168.1.1",
+    port: 554,
+    rtsp_username: "admin",
+    vendor: "dahua" as const,
+    enabled: true,
+    group: null,
+    region_id: null,
+    created_at: "",
+    updated_at: "",
+    camera_count: 2,
+    create_notice: null,
+  },
+];
+
+const MOCK_CAMERAS = [
+  {
+    id: "cam1",
+    nvr_id: "nvr1",
+    channel: 1,
+    name: "Front Door",
+    ip: null,
+    enabled: true,
+    has_sub: true,
+    has_main: true,
+    display_name: "Front Door",
+    region_id: null,
+  },
+  {
+    id: "cam2",
+    nvr_id: "nvr1",
+    channel: 2,
+    name: "Parking",
+    ip: null,
+    enabled: true,
+    has_sub: true,
+    has_main: true,
+    display_name: "Parking",
+    region_id: null,
+  },
+];
+
+// ── Mocks ─────────────────────────────────────────────────────────────────────
+
+vi.mock("@/api/hooks", () => ({
+  useNvrs: () => ({ data: MOCK_NVRS, isLoading: false }),
+  useCameras: () => ({ data: MOCK_CAMERAS, isLoading: false }),
+  useRecordingAvailability: () => ({ data: null, isLoading: false }),
+  useRecordingIndex: () => ({ data: mockState.index, isLoading: false }),
+  useRecordingDays: () => ({ data: null, isLoading: false }),
+}));
+
+afterEach(() => {
+  mockState.index = null;
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function renderPage(initialEntries: string[] = ["/playback"]) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <AuthProvider>
+        <PlaybackPage />
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe("PlaybackPage", () => {
+  it("renders NVR selector with options", () => {
+    renderPage();
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i });
+    expect(nvrSelect).toBeTruthy();
+    expect(screen.getByText("Office NVR")).toBeTruthy();
+  });
+
+  it("camera selector is disabled before NVR is selected", () => {
+    renderPage();
+    const camSelect = screen.getByRole("combobox", { name: /camera/i }) as HTMLSelectElement;
+    expect(camSelect.disabled).toBe(true);
+  });
+
+  it("renders date picker trigger showing today's date", () => {
+    renderPage();
+    // The plain <input type=date> was replaced by the RecordingsCalendar popover;
+    // its trigger is a button labelled "Date" showing the selected date string.
+    const dateBtn = screen.getByRole("button", { name: /date/i });
+    expect(dateBtn).toBeTruthy();
+    expect(dateBtn.textContent).toContain(new Date().toISOString().slice(0, 10));
+  });
+
+  it("has no speed buttons (FF removed — realtime-only recorders)", () => {
+    renderPage();
+    for (const s of [1, 2, 4, 8]) {
+      expect(screen.queryByRole("button", { name: `${s}× speed` })).toBeNull();
+    }
+  });
+
+  it("snapshot button is disabled until player ready", () => {
+    renderPage();
+    const snap = screen.getByRole("button", { name: /snapshot/i }) as HTMLButtonElement;
+    expect(snap.disabled).toBe(true);
+  });
+
+  it("selecting an NVR enables camera selector and cameras appear", () => {
+    renderPage();
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
+    fireEvent.change(nvrSelect, { target: { value: "nvr1" } });
+
+    const camSelect = screen.getByRole("combobox", { name: /camera/i }) as HTMLSelectElement;
+    expect(camSelect.disabled).toBe(false);
+    // Cameras for nvr1 appear in the select
+    expect(screen.getByText(/Front Door ch1/)).toBeTruthy();
+    expect(screen.getByText(/Parking ch2/)).toBeTruthy();
+  });
+
+  it("changing NVR resets camera selector value to empty", () => {
+    renderPage();
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
+    fireEvent.change(nvrSelect, { target: { value: "nvr1" } });
+
+    const camSelect = screen.getByRole("combobox", { name: /camera/i }) as HTMLSelectElement;
+    fireEvent.change(camSelect, { target: { value: "cam1" } });
+    expect(camSelect.value).toBe("cam1");
+
+    // Change NVR — camera should reset
+    fireEvent.change(nvrSelect, { target: { value: "" } });
+    expect(camSelect.value).toBe("");
+  });
+
+  it("renders both transport toggle buttons, Smooth active by default", () => {
+    renderPage();
+    const smooth = screen.getByRole("button", { name: /smooth transport/i });
+    const clear = screen.getByRole("button", { name: /clear transport/i });
+    expect(smooth).toBeTruthy();
+    expect(clear).toBeTruthy();
+    expect(smooth.getAttribute("aria-pressed")).toBe("true");
+    expect(clear.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("clicking Clear activates it and deactivates Smooth", () => {
+    renderPage();
+    const smooth = screen.getByRole("button", { name: /smooth transport/i });
+    const clear = screen.getByRole("button", { name: /clear transport/i });
+    fireEvent.click(clear);
+    expect(clear.getAttribute("aria-pressed")).toBe("true");
+    expect(smooth.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows the slow-loading caption only when Clear is active", () => {
+    renderPage();
+    expect(screen.queryByText(/loads slowly/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /clear transport/i }));
+    expect(screen.getByText(/loads slowly/i)).toBeTruthy();
+  });
+
+  it("renders player placeholder area", () => {
+    renderPage();
+    expect(screen.getByTestId("player-placeholder")).toBeTruthy();
+  });
+
+  it("renders timeline placeholder area", () => {
+    renderPage();
+    expect(screen.getByTestId("timeline-placeholder")).toBeTruthy();
+  });
+});
+
+// ── Deep-link preselect (Item 4: Live tile "Watch in Playback") ────────────────
+
+describe("PlaybackPage — deep link (?nvr=&ch=)", () => {
+  it("preselects NVR + camera from query params and defaults date to today", () => {
+    renderPage(["/playback?nvr=nvr1&ch=2"]);
+
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
+    expect(nvrSelect.value).toBe("nvr1");
+
+    const camSelect = screen.getByRole("combobox", { name: /camera/i }) as HTMLSelectElement;
+    expect(camSelect.value).toBe("cam2");
+
+    const dateBtn = screen.getByRole("button", { name: /date/i });
+    expect(dateBtn.textContent).toContain(new Date().toISOString().slice(0, 10));
+  });
+
+  it("ignores an unknown deep-link camera and behaves like no params", () => {
+    renderPage(["/playback?nvr=nvr1&ch=99"]);
+
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
+    expect(nvrSelect.value).toBe("");
+    const camSelect = screen.getByRole("combobox", { name: /camera/i }) as HTMLSelectElement;
+    expect(camSelect.disabled).toBe(true);
+  });
+
+  it("behaves exactly as today when no deep-link params are present", () => {
+    renderPage(["/playback"]);
+    const nvrSelect = screen.getByRole("combobox", { name: /nvr/i }) as HTMLSelectElement;
+    expect(nvrSelect.value).toBe("");
+  });
+});
+
+// ── Seek debounce (HIGH-2 / Contract §7) ──────────────────────────────────────
+
+describe("PlaybackPage — seek debounce", () => {
+  // 2025-06-30 — safely in the past so the Timeline's clamp-to-now is a no-op here.
+  const DAY = 1_751_241_600;
+
+  it("collapses a rapid seek burst into ONE committed seek after 250 ms", () => {
+    vi.useFakeTimers();
+    mockState.index = {
+      tz_offset_minutes: 0,
+      day_start_epoch: DAY,
+      day_end_epoch: DAY + 86_400,
+      clips: [{ start_epoch: DAY + 3_600, end_epoch: DAY + 7_200, type: "Timing", stream: "Main" }],
+    };
+    try {
+      renderPage();
+      const placeholder = screen.getByTestId("player-placeholder");
+      const slider = screen.getByRole("slider");
+
+      // Rapid burst of keyboard seeks (each would otherwise respawn ffmpeg).
+      fireEvent.keyDown(slider, { key: "ArrowRight" });
+      fireEvent.keyDown(slider, { key: "ArrowRight" });
+      fireEvent.keyDown(slider, { key: "ArrowRight" });
+
+      // Still nothing committed while the 250 ms trailing timer is pending.
+      expect(placeholder.getAttribute("data-seek-target")).toBe("");
+
+      // Fire the trailing timer → exactly one seekTarget commit lands.
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(placeholder.getAttribute("data-seek-target")).toBe(String(DAY + 3_600));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not commit before the debounce window elapses", () => {
+    vi.useFakeTimers();
+    mockState.index = {
+      tz_offset_minutes: 0,
+      day_start_epoch: DAY,
+      day_end_epoch: DAY + 86_400,
+      clips: [{ start_epoch: DAY + 3_600, end_epoch: DAY + 7_200, type: "Timing", stream: "Main" }],
+    };
+    try {
+      renderPage();
+      const placeholder = screen.getByTestId("player-placeholder");
+      fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
+      act(() => {
+        vi.advanceTimersByTime(200); // under the 250 ms window
+      });
+      expect(placeholder.getAttribute("data-seek-target")).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -7,6 +7,7 @@ Mirrors test_playback_router_index.py exactly.
 
 from __future__ import annotations
 
+import uuid as _uuid_mod
 import warnings
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
@@ -25,7 +26,7 @@ with warnings.catch_warnings():
 from app.crypto import encrypt_password
 from app.db import Base, get_session
 from app.deps import get_current_user
-from app.models import Nvr, Role, User, Vendor
+from app.models import Camera, Nvr, Region, Role, User, Vendor
 from app.services.playback.index_parser import Clip
 import app.routers.playback as playback_module
 from app.routers.playback import router as playback_router, clips_to_day_strings
@@ -42,6 +43,10 @@ _SessionMaker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commi
 NVR_ID = "nvr-avail-test"
 NVR_PW = "secret456"
 TZ_OFFSET = 60  # UTC+1
+
+# Fixed IDs so the operator-override fixtures can reference the seeded rows by ID.
+_REGION_UUID = _uuid_mod.UUID("bbbbbbbb-0000-0000-0000-000000000001")
+_CAMERA_UUID = _uuid_mod.UUID("bbbbbbbb-0000-0000-0000-000000000002")
 
 
 # ── App factory ───────────────────────────────────────────────────────────────
@@ -66,14 +71,52 @@ def _make_app() -> FastAPI:
     return app
 
 
+def _make_operator_app(*, with_camera: bool = False, with_region: bool = False) -> FastAPI:
+    """Minimal test app wired with an operator user.
+
+    *with_camera* — grants the seeded Camera to the operator (per-camera access).
+    *with_region* — grants the seeded Region to the operator (old NVR-level access,
+                    used in the negative-RBAC test to show the old path was open).
+    """
+    app = FastAPI()
+    app.include_router(playback_router, prefix="/api/v1")
+
+    async def _override_auth() -> User:
+        u = User(username="testop", password_hash="x", role=Role.operator)
+        u.regions = (
+            [Region(id=_REGION_UUID, slug="avail-region", name="Avail Test Region")]
+            if with_region
+            else []
+        )
+        u.cameras = (
+            [Camera(id=_CAMERA_UUID, nvr_id=NVR_ID, channel=1)]
+            if with_camera
+            else []
+        )
+        return u
+
+    async def _override_session():
+        async with _SessionMaker() as s:
+            yield s
+
+    app.dependency_overrides[get_current_user] = _override_auth
+    app.dependency_overrides[get_session] = _override_session
+    return app
+
+
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
 async def _setup_db():
-    """Create schema and seed one NVR row for the entire module."""
+    """Create schema and seed a Region, one NVR (assigned to that region), and one
+    Camera for the entire module.  The region allows the operator-with-region
+    negative test to exercise the old NVR-level auth path (RED state).
+    """
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with _SessionMaker() as s:
+        s.add(Region(id=_REGION_UUID, slug="avail-region", name="Avail Test Region"))
+        await s.flush()
         s.add(Nvr(
             id=NVR_ID,
             label="Avail Test NVR",
@@ -82,7 +125,10 @@ async def _setup_db():
             rtsp_username="admin",
             rtsp_password_encrypted=encrypt_password(NVR_PW),
             vendor=Vendor.dahua,
+            region_id=_REGION_UUID,
         ))
+        await s.flush()
+        s.add(Camera(id=_CAMERA_UUID, nvr_id=NVR_ID, channel=1))
         await s.commit()
     yield
     await _engine.dispose()
@@ -314,3 +360,42 @@ def test_availability_december_month_boundary(client, monkeypatch):
     expected_end = datetime(2027, 1, 1, 0, 0, 0) - timedelta(seconds=1)
     assert _kwargs.get("start") == expected_start
     assert _kwargs.get("end") == expected_end
+
+
+# ── Per-camera RBAC tests (Task 4b) ──────────────────────────────────────────
+
+def test_availability_200_operator_with_camera(monkeypatch):
+    """Operator explicitly granted this camera must receive 200 (per-camera RBAC).
+
+    RED state (before endpoint change): old user_can_access_nvr only checks the
+    NVR's region; an operator with ONLY a camera grant and no region gets 404.
+    After the change the camera grant alone suffices → 200.
+    """
+    mock_settings = MagicMock()
+    mock_settings.playback_tz_offset_minutes = 0
+    monkeypatch.setattr("app.routers.playback.get_settings", lambda: mock_settings)
+    monkeypatch.setattr("app.routers.playback.find_clips", AsyncMock(return_value=[]))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with TestClient(_make_operator_app(with_camera=True)) as op_client:
+            resp = op_client.get(
+                f"/api/v1/playback/{NVR_ID}/1/availability?month=2026-01"
+            )
+    assert resp.status_code == 200
+
+
+def test_availability_404_operator_without_camera(monkeypatch):
+    """Operator with NVR-region access but no camera grant must get 404.
+
+    RED state (before endpoint change): old user_can_access_nvr lets any operator
+    who has the NVR's region through → 200.  After the change the missing camera
+    grant blocks them → 404.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with TestClient(_make_operator_app(with_region=True)) as op_client:
+            resp = op_client.get(
+                f"/api/v1/playback/{NVR_ID}/1/availability?month=2026-01"
+            )
+    assert resp.status_code == 404

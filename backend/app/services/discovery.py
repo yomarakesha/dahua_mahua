@@ -280,7 +280,7 @@ async def detect_dahua_channels(
             timeout=timeout,
             auth=httpx.DigestAuth(username, password),
             # NVRs live on the LAN. Don't route requests through the user's
-            # HTTP_PROXY (Windows system proxy bites us in `mediamtx_api.py`
+            # HTTP_PROXY (Windows system proxy bites us in `go2rtc_api.py`
             # the same way — see trust_env=False there).
             trust_env=False,
         ) as client:
@@ -310,6 +310,81 @@ async def detect_dahua_channels(
             log.info("Dahua %s channel autodetect → nothing parseable from any endpoint", ip)
     except Exception as e:  # noqa: BLE001
         log.debug("Dahua channel probe %s errored: %s", ip, e)
+    return None
+
+
+# ── Hikvision channel autodetect ─────────────────────────────────────────────
+
+
+# Match by localname so namespace prefixes (e.g. <ns:InputProxyChannel>) don't
+# break the count. Hikvision ISAPI XML varies namespace prefixes across firmware.
+# `<(?!/)` excludes the matching closing tag, so we count each element once.
+# `\b...\b` keeps `<InputProxyChannelList>` (the wrapper) from being counted.
+_HIK_INPUT_PROXY_RE = re.compile(r"<(?!/)[^>]*?\bInputProxyChannel\b", re.IGNORECASE)
+_HIK_VIDEO_INPUT_RE = re.compile(r"<(?!/)[^>]*?\bVideoInputChannel\b", re.IGNORECASE)
+
+
+async def detect_hikvision_channels(
+    ip: str,
+    username: str,
+    password: str,
+    *,
+    port: int = 80,
+    timeout: float = 3.0,
+) -> int | None:
+    """Probe Hikvision's ISAPI over HTTP digest for the channel count.
+
+    Mirrors `detect_dahua_channels`: tries the NVR's proxied-camera list first,
+    then falls back to the physical video-input list, then a reachability-only
+    deviceInfo ping. Returns None if the device isn't Hikvision, creds are
+    wrong, HTTP isn't reachable, or nothing parseable comes back — callers fall
+    back to a sensible default. Never raises. Credentials are never logged.
+    """
+    base = f"http://{ip}:{port}"
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            auth=httpx.DigestAuth(username, password),
+            # LAN device — don't route through the user's system HTTP proxy
+            # (same reason as detect_dahua_channels / go2rtc_api).
+            trust_env=False,
+        ) as client:
+            # ── Primary: proxied IP-camera channels (what an NVR actually has).
+            proxy_ep = "/ISAPI/ContentMgmt/InputProxy/channels"
+            try:
+                r = await client.get(base + proxy_ep)
+                if r.status_code == 200:
+                    count = len(_HIK_INPUT_PROXY_RE.findall(r.text))
+                    log.info("Hik autodetect %s %s → 200, InputProxyChannel=%d (body %dB)",
+                             ip, proxy_ep, count, len(r.text))
+                    if count > 0:
+                        return count
+                else:
+                    log.info("Hik autodetect %s %s → status %d", ip, proxy_ep, r.status_code)
+            except httpx.HTTPError as e:
+                log.info("Hik autodetect %s %s → HTTP error: %s", ip, proxy_ep, e)
+
+            # ── Fallback: physical video-input channels.
+            vin_ep = "/ISAPI/System/Video/inputs/channels"
+            try:
+                r = await client.get(base + vin_ep)
+                if r.status_code == 200:
+                    count = len(_HIK_VIDEO_INPUT_RE.findall(r.text))
+                    log.info("Hik autodetect %s %s → 200, VideoInputChannel=%d (body %dB)",
+                             ip, vin_ep, count, len(r.text))
+                    if count > 0:
+                        return count
+                else:
+                    log.info("Hik autodetect %s %s → status %d", ip, vin_ep, r.status_code)
+            except httpx.HTTPError as e:
+                log.info("Hik autodetect %s %s → HTTP error: %s", ip, vin_ep, e)
+
+            # ── Last resort: deviceInfo only confirms reachability, not a count.
+            #    We can't derive a channel number from it, so return None and let
+            #    the caller apply its default.
+            log.info("Hik %s channel autodetect → nothing parseable", ip)
+    except Exception as e:  # noqa: BLE001
+        log.debug("Hik channel probe %s errored: %s", ip, e)
     return None
 
 

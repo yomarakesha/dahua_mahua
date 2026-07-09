@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { useCameras, useNvrs } from "@/api/hooks";
+import { useCameras, useNvrs, useWarmCameras } from "@/api/hooks";
 import { CONFIG } from "@/lib/config";
+import { recordEvent } from "@/lib/diagnostics";
 import { ChevronRight } from "@/components/icons";
 import type { Camera } from "@/api/types";
 import { LiveTopbar } from "./LiveTopbar";
 import { LiveSidebar } from "./LiveSidebar";
 import { CameraTile } from "./CameraTile";
 import { FullscreenView } from "./FullscreenView";
+import { computeWarmIds } from "./warm";
 import { useClock } from "./useClock";
+import { useTranslation } from "react-i18next";
 
 const PATROL = CONFIG.patrolIntervals;
 const GRID_MIN = 1;
@@ -15,7 +18,13 @@ const GRID_MAX = 8;
 const clampGrid = (n: number) => Math.max(GRID_MIN, Math.min(GRID_MAX, n));
 
 export default function LiveWall() {
-  const { data: cameras, isLoading: camsLoading } = useCameras();
+  const { t } = useTranslation();
+  const {
+    data: cameras,
+    isLoading: camsLoading,
+    isError: camsError,
+    refetch: refetchCameras,
+  } = useCameras();
   const { data: nvrs } = useNvrs();
 
   const [cols, setCols] = useState(4); // columns × rows grid (default 4×4)
@@ -28,7 +37,7 @@ export default function LiveWall() {
   const [fullscreen, setFullscreen] = useState<Camera | null>(null);
 
   const cellCount = cols * rows;
-  const patrolInterval = PATROL[patrolIdx];
+  const patrolInterval = PATROL[patrolIdx]; // the value the operator selected (topbar)
 
   // Enabled cameras only, optionally filtered by NVR + search text.
   const enabled = useMemo(
@@ -63,15 +72,47 @@ export default function LiveWall() {
     [filtered, page, cellCount],
   );
 
+  // #4: patrol churn floor. Each page flip unmounts N tiles and mounts N new ones
+  // (socket + RTSP churn). A fast dwell across many pages (>2) makes that churn
+  // continuous, which can overwhelm go2rtc / the NVR's concurrent-pull cap.
+  // Clamp the EFFECTIVE dwell to ≥10s in that regime (the operator's selection is
+  // still shown/cycled in the topbar) and surface a subtle hint — only when the
+  // clamp actually CHANGED the dwell (<10s); for 10s+ max() is a no-op and
+  // "held at Ns" would be misleading.
+  const churnRisk = patrol && totalPages > 2 && patrolInterval < 10;
+  const effectivePatrolInterval = churnRisk ? Math.max(patrolInterval, 10) : patrolInterval;
+
   // Patrol: auto-advance pages when more than one exists.
   useEffect(() => {
     if (!patrol || totalPages <= 1) return;
     const id = window.setInterval(
       () => setPage((p) => (p + 1) % totalPages),
-      patrolInterval * 1000,
+      effectivePatrolInterval * 1000,
     );
     return () => window.clearInterval(id);
-  }, [patrol, totalPages, patrolInterval]);
+  }, [patrol, totalPages, effectivePatrolInterval]);
+
+  // Warm-set reporting: tell the backend which cameras to keep warm (current page
+  // + next page) so paging/patrol/first-open hit an already-warm producer (~0.5s
+  // vs a 2.6–5s cold dial). The endpoint SETS the desired set (backend diffs) and
+  // no-ops when the feature is disabled, so we post unconditionally and ignore
+  // errors — warming must never block the UI. Debounced ~300ms so a fast patrol
+  // dwell or rapid page flips coalesce into one report per settled view.
+  const warm = useWarmCameras();
+  const warmIds = useMemo(
+    () => computeWarmIds(filtered, page, cellCount, totalPages),
+    [filtered, page, cellCount, totalPages],
+  );
+  const warmKey = warmIds.join(",");
+  useEffect(() => {
+    if (warmIds.length === 0) return;
+    const t = window.setTimeout(() => {
+      warm.mutate(warmIds, { onError: () => {} });
+      recordEvent("warm", `${warmIds.length} cams (pg ${page + 1}/${totalPages})`);
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warmKey]);
 
   // Counts for sidebar (enabled cameras per nvr) + a load proxy.
   const countByNvr = useMemo(() => {
@@ -88,7 +129,9 @@ export default function LiveWall() {
 
   const visibleStreams = pageCams.length;
   const total = enabled.length;
-  const online = filtered.length; // streams we are attempting/showing
+  // How many cameras the current filter/search matches — a VIEW count, not a
+  // health signal. Shown as "Showing X/Y" (see LiveTopbar).
+  const showing = filtered.length;
   // Load proxy: how full the current page is vs. the grid capacity.
   const load = Math.min(1, visibleStreams / cellCount);
 
@@ -105,7 +148,7 @@ export default function LiveWall() {
         onCyclePatrolInterval={() => setPatrolIdx((i) => (i + 1) % PATROL.length)}
         search={search}
         onSearch={setSearch}
-        online={online}
+        showing={showing}
         total={total}
       />
 
@@ -125,6 +168,8 @@ export default function LiveWall() {
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-deep">
           {camsLoading ? (
             <SkeletonGrid cols={cols} rows={rows} />
+          ) : camsError ? (
+            <CamerasErrorState onRetry={() => void refetchCameras()} />
           ) : filtered.length === 0 ? (
             <EmptyState filtered={enabled.length > 0} />
           ) : (
@@ -140,9 +185,22 @@ export default function LiveWall() {
                   freeing the camera segment cuts the UDP packet loss that corrupts
                   the 4MP main (the segment is shared; concurrent pulls add loss).
                   Tiles remount (reconnect) when fullscreen closes. */}
+              {/* #4 chosen approach: keep only the current page mounted (mounting
+                  ALL pages would multiply load — background=true keeps hidden tiles
+                  streaming), but STAGGER each tile's first connect so a page/patrol
+                  flip opens sockets ~120ms apart instead of N at once. Trade-off:
+                  later tiles in a big grid take up to ~3s to appear (capped), which
+                  is far cheaper than a simultaneous N-socket + N-RTSP stampede. */}
               {!fullscreen &&
-                pageCams.map((cam) => (
-                  <CameraTile key={cam.id} cam={cam} onOpen={setFullscreen} />
+                pageCams.map((cam, i) => (
+                  <CameraTile
+                    // key includes the page so a flip remounts tiles (fresh connect
+                    // → the stagger applies) even when a cam id repeats across pages.
+                    key={`${page}:${cam.id}`}
+                    cam={cam}
+                    onOpen={setFullscreen}
+                    connectDelayMs={Math.min(i * 120, 3000)}
+                  />
                 ))}
             </div>
           )}
@@ -154,7 +212,7 @@ export default function LiveWall() {
                 type="button"
                 onClick={() => setPage((p) => (p - 1 + totalPages) % totalPages)}
                 className="pointer-events-auto flex h-7 w-7 rotate-180 items-center justify-center rounded-lg border border-white/[.08] bg-panel/90 text-ink-mute transition hover:text-ink-soft"
-                title="Previous page"
+                title={t("live.previousPage")}
               >
                 <ChevronRight size={14} />
               </button>
@@ -163,7 +221,7 @@ export default function LiveWall() {
                 {filtered.length > cellCount && (
                   <span className="text-ink-faint">
                     {" "}
-                    · +{filtered.length - cellCount} more
+                    · {t("live.plusMore", { count: filtered.length - cellCount })}
                   </span>
                 )}
               </span>
@@ -171,10 +229,17 @@ export default function LiveWall() {
                 type="button"
                 onClick={() => setPage((p) => (p + 1) % totalPages)}
                 className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-lg border border-white/[.08] bg-panel/90 text-ink-mute transition hover:text-ink-soft"
-                title="Next page"
+                title={t("live.nextPage")}
               >
                 <ChevronRight size={14} />
               </button>
+            </div>
+          )}
+
+          {/* #4: patrol dwell clamped to limit reconnect churn — tell the operator. */}
+          {churnRisk && (
+            <div className="pointer-events-none absolute bottom-12 left-1/2 -translate-x-1/2 rounded-lg border border-white/[.08] bg-panel/90 px-3 py-1 font-mono text-2xs text-ink-faint">
+              {t("live.patrolDwellHeld", { seconds: effectivePatrolInterval })}
             </div>
           )}
         </div>
@@ -183,7 +248,7 @@ export default function LiveWall() {
       <StatusBar
         streams={visibleStreams}
         cameras={total}
-        nvrLabel={selectedNvrName(nvrs ?? [], selectedNvrId)}
+        nvrLabel={selectedNvrName(nvrs ?? [], selectedNvrId, t)}
       />
 
       {fullscreen && (
@@ -196,8 +261,9 @@ export default function LiveWall() {
 function selectedNvrName(
   nvrs: { id: string; label: string }[],
   id: string | null,
+  t: (key: string) => string,
 ): string {
-  if (!id) return "ALL NVRS";
+  if (!id) return t("live.allNvrs");
   return nvrs.find((n) => n.id === id)?.label ?? id;
 }
 
@@ -220,13 +286,14 @@ function StatusBar({
   cameras: number;
   nvrLabel: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex h-8 flex-none items-center gap-5 border-t border-white/[.06] bg-gradient-to-b from-[#0c1014] to-[#090c0f] px-4 font-mono text-xs">
       <span className="flex items-center gap-1.5 text-accent-light">
-        <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_7px_#2ecc71]" />
-        Streams: {streams}
+        <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_7px_rgb(var(--brand-primary))]" />
+        {t("live.streamsCount", { count: streams })}
       </span>
-      <span className="text-ink-faint">Cameras: {cameras}</span>
+      <span className="text-ink-faint">{t("live.camerasCount", { count: cameras })}</span>
       <span className="ml-auto truncate text-[#3f4951]">
         {nvrLabel} · <Clock />
       </span>
@@ -253,16 +320,36 @@ function SkeletonGrid({ cols, rows }: { cols: number; rows: number }) {
   );
 }
 
+function CamerasErrorState({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+      <div className="text-base font-semibold text-ink-mute">{t("live.couldntLoadCameras")}</div>
+      <div className="max-w-sm text-2xs text-ink-faint">
+        {t("live.cameraListRequestFailed")}
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="rounded-md border border-white/10 bg-white/[.05] px-3 py-1.5 text-xs font-semibold text-ink-soft transition hover:bg-white/[.1]"
+      >
+        {t("common.retry")}
+      </button>
+    </div>
+  );
+}
+
 function EmptyState({ filtered }: { filtered: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
       <div className="text-base font-semibold text-ink-mute">
-        {filtered ? "No cameras match your filters" : "No cameras available"}
+        {filtered ? t("live.noCamerasMatch") : t("live.noCamerasAvailable")}
       </div>
       <div className="text-2xs text-ink-faint">
         {filtered
-          ? "Try clearing the search or NVR filter."
-          : "Add an NVR and enable channels to populate the wall."}
+          ? t("live.tryClearingFilter")
+          : t("live.addNvrToPopulate")}
       </div>
     </div>
   );

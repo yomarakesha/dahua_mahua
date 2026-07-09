@@ -2,9 +2,7 @@
 
 Reuses path_sync._desired_paths (the single source of truth for which streams
 exist and their RTSP sources — sub `{nvr}_ch{N}`, direct main `{nvr}_ch{N}_main`,
-via-NVR `{nvr}_ch{N}_main_nvr`) and pushes them into go2rtc instead of MediaMTX.
-go2rtc stream names == MediaMTX path names, so the frontend's path logic is
-unchanged; only the delivery transport differs (buffered MSE vs WebRTC).
+via-NVR `{nvr}_ch{N}_main_nvr`) and pushes them into go2rtc.
 """
 
 from __future__ import annotations
@@ -24,14 +22,29 @@ from app.settings import get_settings
 
 log = logging.getLogger("dss.go2rtc_sync")
 
+# Serialize the WHOLE reconcile (file + API modes). Overlapping reconciles
+# (startup + a concurrent inventory mutation) otherwise interleave read→compare
+# →write→restart on the shared YAML and can lost-update it / stack go2rtc
+# restarts. A single module-level lock is cheap and makes reconcile safe to call
+# concurrently. remove_streams_for_nvr calls reconcile() (which takes the lock),
+# so it must NOT hold the lock itself — that would deadlock.
+_reconcile_lock = asyncio.Lock()
+
 
 async def _desired_sources(session: AsyncSession, settings) -> dict[str, str]:
-    """{name: go2rtc-source} — raw RTSP, or an exec:ffmpeg re-encode where enabled."""
+    """{name: go2rtc-source} — raw RTSP, or an exec:ffmpeg re-encode where enabled.
+
+    build_go2rtc_source may run a synchronous encoder probe (vcodec=auto → a real
+    test-encode, up to ~75s across candidates) and other CPU work, so build the
+    source map off the event loop to avoid stalling it. _desired_paths is the only
+    genuinely-async step and stays on the loop."""
     paths = await _desired_paths(session)
-    return {
-        name: build_go2rtc_source(name, cfg["source"], settings)
-        for name, cfg in paths.items()
-    }
+    return await asyncio.to_thread(
+        lambda: {
+            name: build_go2rtc_source(name, cfg["source"], settings)
+            for name, cfg in paths.items()
+        }
+    )
 
 
 async def _apply_go2rtc_reload(settings, client: Go2rtcClient) -> bool:
@@ -77,12 +90,12 @@ async def _reconcile_via_file(
     t0 = time.perf_counter()
     desired = await _desired_sources(session, settings)
     path = settings.go2rtc_config_path
-    current = read_streams(path)
+    current = await asyncio.to_thread(read_streams, path)
     if current == desired:
         log.info("go2rtc file reconcile: no change (%d streams)", len(desired))
         return {"mode": "file", "changed": False, "streams": len(desired)}
 
-    write_streams(path, desired)
+    await asyncio.to_thread(write_streams, path, desired)
     reloaded = await _apply_go2rtc_reload(settings, client)
     dt = (time.perf_counter() - t0) * 1000
     log.info(
@@ -103,7 +116,23 @@ async def reconcile(
     Two modes: when any stream needs an exec source (re-encode enabled, or UDP
     mains which are also exec) we manage go2rtc's YAML + reload (exec sources are
     API-rejected); otherwise we PUT/DELETE raw RTSP sources via the API.
+
+    Serialized by a module-level lock so concurrent callers (startup reconcile +
+    an inventory mutation) never interleave the read→compare→write→restart on the
+    shared config or stack go2rtc restarts.
     """
+    async with _reconcile_lock:
+        return await _reconcile_impl(
+            session, client=client, delete_orphans=delete_orphans
+        )
+
+
+async def _reconcile_impl(
+    session: AsyncSession,
+    *,
+    client: Go2rtcClient | None = None,
+    delete_orphans: bool = True,
+) -> dict:
     client = client or get_client()
     settings = get_settings()
     if settings.reencode_enabled or main_mode_is_exec(settings):
@@ -155,7 +184,23 @@ async def reconcile(
 
 
 async def remove_streams_for_nvr(session: AsyncSession, nvr_id: str) -> None:
-    """Best-effort cleanup of an NVR's streams (mirror of path_sync helper)."""
+    """Best-effort cleanup of an NVR's streams (mirror of path_sync helper).
+
+    In file-managed modes (re-encode enabled, or an exec main mode) the streams
+    live in go2rtc's YAML, not the API — deleting via the HTTP API leaves them
+    orphaned in the file until the next full file reconcile. So when the config
+    is file-managed we run the file-mode reconcile instead: the caller has already
+    deleted the NVR row, so _desired_paths no longer yields its streams and the
+    YAML is rewritten without them. reconcile() takes the module lock; we do NOT
+    hold it here (that would deadlock)."""
+    settings = get_settings()
+    if settings.reencode_enabled or main_mode_is_exec(settings):
+        try:
+            await reconcile(session, delete_orphans=True)
+        except Exception as e:  # noqa: BLE001
+            log.warning("go2rtc file reconcile during NVR %s delete failed: %s", nvr_id, e)
+        return
+
     client = get_client()
     try:
         existing = await client.list_streams()

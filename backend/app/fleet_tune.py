@@ -10,7 +10,7 @@ encoder settings.
 
 Dahua "Smart Codec" (H.264+/H.265+) is the biggest device-side cause of the
 stutter/freeze: it only operates in **VBR** mode and produces long-GOP,
-bursty streams that standard players (and MediaMTX's relay) handle poorly.
+bursty streams that standard players (and a plain WebRTC relay) handle poorly.
 Forcing **CBR** neutralises Smart Codec without needing a firmware-specific
 "smart" key, and shortening **GOP to ~1×FPS** means a dropped frame freezes
 the picture for a fraction of a second instead of seconds. Both are standard,

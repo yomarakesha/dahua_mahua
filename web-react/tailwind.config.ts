@@ -4,6 +4,18 @@ import type { Config } from "tailwindcss";
  * Design tokens extracted from the Kanagatly VMS designer export.
  * Dark "security console" theme, green accent, compact data-dense type.
  */
+
+/** Accent color as a CSS variable (space-separated RGB channels) so the whole
+ *  `accent` scale is white-labelable at runtime while still supporting Tailwind
+ *  opacity modifiers (accent/20 etc.). Defaults live on :root in index.css and
+ *  reproduce today's green; BrandingProvider overrides them per deployment. */
+const accentVar =
+  (v: string) =>
+  ({ opacityValue }: { opacityValue?: string }) =>
+    opacityValue === undefined
+      ? `rgb(var(${v}))`
+      : `rgb(var(${v}) / ${opacityValue})`;
+
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
@@ -14,12 +26,12 @@ export default {
         panel: "#11161a",
         deep: "#060708",
         "green-tint": "#04130a",
-        // accent (KANAGATLY green)
+        // accent (brand color — white-labelable via CSS vars; default green)
         accent: {
-          DEFAULT: "#2ecc71",
-          light: "#43e088",
-          bright: "#34d97e",
-          dark: "#22b864",
+          DEFAULT: accentVar("--brand-primary"),
+          light: accentVar("--brand-primary-light"),
+          bright: accentVar("--brand-primary-bright"),
+          dark: accentVar("--brand-primary-dark"),
         },
         // text ramp
         ink: "#e7edf1",
@@ -27,7 +39,10 @@ export default {
         "ink-soft": "#cdd6db",
         "ink-mute": "#9aa6ad",
         "ink-dim": "#7c878e",
-        "ink-faint": "#5e6a71",
+        // #8a97a0 on #0a0d10 ≈ 6.5:1 — clears WCAG AA (4.5:1) for small text.
+        // (Was #5e6a71 ≈ 3.5:1.) Only used as text/placeholder + a couple of
+        // /50-opacity spinner rings — no structural borders rely on it.
+        "ink-faint": "#8a97a0",
         // status
         warn: "#e0a030",
         danger: "#e76b5e",
@@ -54,7 +69,7 @@ export default {
       },
       boxShadow: {
         panel: "0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.4)",
-        glow: "0 0 0 1px rgba(46,204,113,.25), 0 6px 20px rgba(46,204,113,.12)",
+        glow: "0 0 0 1px rgb(var(--brand-primary) / .25), 0 6px 20px rgb(var(--brand-primary) / .12)",
       },
     },
   },

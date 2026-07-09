@@ -1,34 +1,48 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { login } from "@/api/client";
 import { useAuth } from "@/lib/auth";
 import { LogoMark } from "@/components/Logo";
+import { useBranding, splitBrandName } from "@/lib/branding";
 
 /** 01 · Sign in — centered dark glass card over a radial-glow backdrop. */
 export default function LoginPage() {
+  const { t } = useTranslation();
   const { me, setMe } = useAuth();
+  const brand = useBranding();
+  const { head, tail } = splitBrandName(brand.name);
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  const canSubmit = username.trim() !== "" && password !== "" && !pending;
 
   // Already authenticated → bounce to the live wall.
   if (me) return <Navigate to="/" replace />;
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (pending) return;
+    if (!canSubmit) return;
     setError(null);
     setPending(true);
     try {
       const result = await login(username.trim(), password);
       setMe(result.me);
-      // Always land on the live wall — no forced password change after login.
-      navigate("/", { replace: true });
+      // Fresh admin still on the bootstrap password → straight into first-run
+      // setup. Otherwise land on the live wall (the SetupGate on "/" still
+      // catches the zero-NVR case once the list resolves).
+      if (result.me.role === "admin" && result.mustChange) {
+        navigate("/setup", { replace: true });
+      } else {
+        navigate("/", { replace: true });
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setError(err instanceof Error ? err.message : t("login.signInFailed"));
       setPending(false);
     }
   }
@@ -47,7 +61,7 @@ export default function LoginPage() {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(50% 40% at 50% 38%,rgba(46,204,113,.10) 0%,transparent 70%)",
+            "radial-gradient(50% 40% at 50% 38%,rgb(var(--brand-primary) / .10) 0%,transparent 70%)",
         }}
       />
       <div
@@ -65,7 +79,8 @@ export default function LoginPage() {
       <div className="absolute left-6 top-7 flex items-center gap-2.5 sm:left-9 sm:top-8">
         <LogoMark size={30} />
         <div className="text-sm font-bold tracking-wider text-ink-mute">
-          KANAGATLY <span className="text-accent">VMS</span>
+          {head ? `${head.toUpperCase()} ` : ""}
+          <span className="text-accent">{tail.toUpperCase()}</span>
         </div>
       </div>
 
@@ -88,10 +103,11 @@ export default function LoginPage() {
           <LogoMark size={40} />
           <div>
             <div className="text-xl font-extrabold tracking-tight text-ink-bright">
-              Kanagatly <span className="text-accent">VMS</span>
+              {head ? `${head} ` : ""}
+              <span className="text-accent">{tail}</span>
             </div>
             <div className="text-sm font-medium tracking-wide text-ink-dim">
-              Video surveillance console
+              {t("login.subtitle")}
             </div>
           </div>
         </div>
@@ -100,9 +116,9 @@ export default function LoginPage() {
 
         {/* username */}
         <label htmlFor="login-username" className="dss-label mb-2 block">
-          Username
+          {t("login.username")}
         </label>
-        <div className="mb-[18px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgba(46,204,113,.10)]">
+        <div className="mb-[18px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)_/_.10)]">
           <svg
             width="16"
             height="16"
@@ -117,21 +133,30 @@ export default function LoginPage() {
           </svg>
           <input
             id="login-username"
+            name="username"
             type="text"
             autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             autoFocus
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "login-error" : undefined}
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="admin"
+            onChange={(e) => {
+              setUsername(e.target.value);
+              if (error) setError(null);
+            }}
+            placeholder={t("login.usernamePlaceholder")}
             className="w-full bg-transparent text-sm font-medium text-ink outline-none placeholder:text-ink-faint"
           />
         </div>
 
         {/* password */}
         <label htmlFor="login-password" className="dss-label mb-2 block">
-          Password
+          {t("login.password")}
         </label>
-        <div className="mb-[26px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgba(46,204,113,.10)]">
+        <div className="mb-[26px] flex h-[46px] items-center gap-2.5 rounded-[11px] border border-white/[.07] bg-deep px-3.5 focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)_/_.10)]">
           <svg
             width="16"
             height="16"
@@ -146,17 +171,24 @@ export default function LoginPage() {
           </svg>
           <input
             id="login-password"
+            name="password"
             type={showPassword ? "text" : "password"}
             autoComplete="current-password"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "login-error" : undefined}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (error) setError(null);
+            }}
+            onKeyUp={(e) => setCapsLock(e.getModifierState?.("CapsLock") ?? false)}
             placeholder="••••••••"
             className="w-full bg-transparent text-sm font-medium text-ink outline-none placeholder:text-ink-faint"
           />
           <button
             type="button"
             onClick={() => setShowPassword((v) => !v)}
-            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-label={showPassword ? t("common.hidePassword") : t("common.showPassword")}
             className="ml-auto shrink-0 text-ink-faint transition hover:text-ink-mute"
           >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -166,9 +198,21 @@ export default function LoginPage() {
           </button>
         </div>
 
+        {capsLock && !error && (
+          <div className="mb-3 flex items-center gap-1.5 text-xs font-medium text-warn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="m12 3 7 7h-4v5H9v-5H5l7-7Z" />
+              <path d="M9 19h6" />
+            </svg>
+            {t("login.capsLock")}
+          </div>
+        )}
+
         {error && (
           <div
-            aria-live="polite"
+            id="login-error"
+            role="alert"
+            aria-live="assertive"
             className="mb-3 rounded-md border border-danger/25 bg-danger/[.10] px-3 py-2 text-sm text-danger"
           >
             {error}
@@ -178,15 +222,28 @@ export default function LoginPage() {
         {/* submit */}
         <button
           type="submit"
-          disabled={pending}
-          className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold tracking-wide text-deep shadow-[0_10px_28px_rgba(46,204,113,.28),inset_0_1px_0_rgba(255,255,255,.3)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-          style={{ background: "linear-gradient(180deg,#34d97e,#22b864)" }}
+          disabled={!canSubmit}
+          aria-busy={pending}
+          className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold tracking-wide text-deep shadow-[0_10px_28px_rgb(var(--brand-primary)_/_.28),inset_0_1px_0_rgba(255,255,255,.3)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            background:
+              "linear-gradient(180deg,rgb(var(--brand-primary-bright)),rgb(var(--brand-primary-dark)))",
+          }}
         >
-          {pending ? "Signing in…" : "Sign in"}
-          {!pending && (
+          {pending ? t("login.signingIn") : t("login.signIn")}
+          {pending ? (
+            <svg
+              width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
+              className="animate-spin"
+              aria-hidden="true"
+            >
+              <path d="M12 3a9 9 0 1 0 9 9" strokeLinecap="round" />
+            </svg>
+          ) : (
             <svg
               width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
               className="transition-transform group-hover:translate-x-0.5"
+              aria-hidden="true"
             >
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
@@ -194,8 +251,8 @@ export default function LoginPage() {
         </button>
 
         <div className="mt-[18px] text-center text-sm text-ink-dim">
-          Forgot credentials?{" "}
-          <span className="font-semibold text-accent">Contact admin</span>
+          {t("login.forgotCredentials")}{" "}
+          <span className="font-semibold text-accent">{t("login.contactAdmin")}</span>
         </div>
       </form>
     </div>

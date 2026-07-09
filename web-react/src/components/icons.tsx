@@ -103,6 +103,14 @@ export const CameraIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
     <circle cx="12" cy="13" r="4" />
   </Ic>
 );
+export const CameraOffIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
+  <Ic {...p}>
+    <path d="M1 1l22 22" />
+    <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3" />
+    <path d="M9 3h6l2 3h4a2 2 0 0 1 2 2v9" />
+    <path d="M14.5 10.5a4 4 0 0 1-5 5" />
+  </Ic>
+);
 export const ActivityIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
   <Ic {...p}>
     <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
@@ -154,5 +162,11 @@ export const EyeOff = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
   <Ic {...p}>
     <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
     <path d="M1 1l22 22" />
+  </Ic>
+);
+export const FilmIcon = (p: SVGProps<SVGSVGElement> & { size?: number }) => (
+  <Ic {...p}>
+    <rect x="2" y="2" width="20" height="20" rx="2.18" />
+    <path d="M7 2v20M17 2v20M2 12h20M2 7h5M17 7h5M2 17h5M17 17h5" />
   </Ic>
 );

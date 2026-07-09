@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { useCreateNvr } from "@/api/hooks";
 import type { NvrCreate, Vendor } from "@/api/types";
+import { VENDORS } from "@/api/types";
 import { PlusIcon, ChevronDown, ChevronRight } from "@/components/icons";
 import { PasswordInput } from "@/components/PasswordInput";
 
-const VENDORS: Vendor[] = ["dahua", "hikvision"];
-
 /** Inline "ADD NVR" form panel. Calls useCreateNvr on submit, clears on success. */
 export function AddNvrForm() {
+  const { t } = useTranslation();
   const create = useCreateNvr();
   const [label, setLabel] = useState("");
   const [ip, setIp] = useState("");
@@ -50,17 +51,17 @@ export function AddNvrForm() {
 
   return (
     <form onSubmit={submit} className="dss-panel p-4">
-      <div className="dss-label mb-3 tracking-[1.4px]">ADD NVR</div>
+      <div className="dss-label mb-3 tracking-[1.4px]">{t("nvrs.addNvr")}</div>
       <div className="flex flex-wrap items-end gap-3">
-        <Field className="min-w-[160px] flex-[2.2]" label="Name">
+        <Field className="min-w-[160px] flex-[2.2]" label={t("common.name")}>
           <input
             className="dss-input h-[42px]"
-            placeholder="Lobby NVR"
+            placeholder={t("nvrs.namePlaceholder")}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
         </Field>
-        <Field className="min-w-[140px] flex-[2]" label="IP address">
+        <Field className="min-w-[140px] flex-[2]" label={t("nvrs.ipAddress")}>
           <input
             className="dss-input h-[42px] font-mono"
             placeholder="192.168.1.10"
@@ -68,7 +69,7 @@ export function AddNvrForm() {
             onChange={(e) => setIp(e.target.value)}
           />
         </Field>
-        <Field className="min-w-[140px] flex-[2]" label="Password">
+        <Field className="min-w-[140px] flex-[2]" label={t("nvrs.password")}>
           <PasswordInput
             className="h-[42px]"
             placeholder="••••••••"
@@ -77,14 +78,28 @@ export function AddNvrForm() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </Field>
-        <Field className="min-w-[90px] flex-[1.1]" label="Channels">
+        <Field className="min-w-[90px] flex-[1.1]" label={t("nvrs.channels")}>
           <input
             className="dss-input h-[42px]"
-            placeholder="auto"
+            placeholder={t("nvrs.autoPlaceholder")}
             inputMode="numeric"
             value={channels}
             onChange={(e) => setChannels(e.target.value.replace(/[^\d]/g, ""))}
           />
+        </Field>
+        <Field className="min-w-[120px] flex-[1.3]" label={t("nvrs.vendor")}>
+          <select
+            aria-label={t("nvrs.vendor")}
+            className="dss-input h-[42px]"
+            value={vendor}
+            onChange={(e) => setVendor(e.target.value as Vendor)}
+          >
+            {VENDORS.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
         </Field>
         <button
           type="submit"
@@ -92,7 +107,7 @@ export function AddNvrForm() {
           className="dss-btn-primary h-[42px] px-6 font-extrabold"
         >
           <PlusIcon size={15} />
-          {create.isPending ? "Adding…" : "Add"}
+          {create.isPending ? t("nvrs.adding") : t("common.add")}
         </button>
       </div>
 
@@ -101,13 +116,13 @@ export function AddNvrForm() {
         onClick={() => setAdvanced((v) => !v)}
         className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-accent-light"
       >
-        Advanced
+        {t("nvrs.advanced")}
         {advanced ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
       </button>
 
       {advanced && (
         <div className="mt-3 flex flex-wrap items-end gap-3">
-          <Field className="min-w-[100px] flex-1" label="Port">
+          <Field className="min-w-[100px] flex-1" label={t("nvrs.port")}>
             <input
               className="dss-input h-[42px] font-mono"
               placeholder="554"
@@ -116,7 +131,7 @@ export function AddNvrForm() {
               onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))}
             />
           </Field>
-          <Field className="min-w-[120px] flex-1" label="Username">
+          <Field className="min-w-[120px] flex-1" label={t("nvrs.username")}>
             <input
               className="dss-input h-[42px]"
               placeholder="admin"
@@ -124,23 +139,10 @@ export function AddNvrForm() {
               onChange={(e) => setUsername(e.target.value)}
             />
           </Field>
-          <Field className="min-w-[120px] flex-1" label="Vendor">
-            <select
-              className="dss-input h-[42px]"
-              value={vendor}
-              onChange={(e) => setVendor(e.target.value as Vendor)}
-            >
-              {VENDORS.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field className="min-w-[120px] flex-1" label="Group">
+          <Field className="min-w-[120px] flex-1" label={t("nvrs.group")}>
             <input
               className="dss-input h-[42px]"
-              placeholder="optional"
+              placeholder={t("nvrs.optionalPlaceholder")}
               value={group}
               onChange={(e) => setGroup(e.target.value)}
             />

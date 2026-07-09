@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   useUsers,
   useCameras,
@@ -13,7 +14,8 @@ import { PlusIcon, PencilIcon, TrashIcon, XIcon, KeyIcon, ServerIcon } from "@/c
 import { PasswordInput } from "@/components/PasswordInput";
 
 export default function UsersPage() {
-  const { data: users, isLoading } = useUsers();
+  const { t } = useTranslation();
+  const { data: users, isLoading, isError, error } = useUsers();
   const { me } = useAuth();
   const [editing, setEditing] = useState<User | "new" | null>(null);
   const del = useDeleteUser();
@@ -24,39 +26,45 @@ export default function UsersPage() {
       <div className="min-h-0 flex-1 overflow-auto p-5">
         <div className="mb-4 flex items-center gap-3">
           <div className="min-w-0">
-            <h1 className="text-base font-bold text-ink-bright">Users</h1>
-            <p className="text-2xs text-ink-faint">Accounts &amp; per-camera access</p>
+            <h1 className="text-base font-bold text-ink-bright">{t("users.title")}</h1>
+            <p className="text-2xs text-ink-faint">{t("users.subtitle")}</p>
           </div>
           <button
             type="button"
             onClick={() => setEditing("new")}
             className="dss-btn-primary ml-auto"
           >
-            <PlusIcon size={15} /> Add user
+            <PlusIcon size={15} /> {t("users.addUser")}
           </button>
         </div>
         <div className="dss-panel overflow-hidden">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-white/[.06] text-2xs uppercase tracking-wider text-ink-faint">
-                <th className="px-4 py-2.5 font-semibold">User</th>
-                <th className="px-4 py-2.5 font-semibold">Role</th>
-                <th className="px-4 py-2.5 font-semibold">Status</th>
-                <th className="px-4 py-2.5 font-semibold">Cameras</th>
-                <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
+                <th className="px-4 py-2.5 font-semibold">{t("users.colUser")}</th>
+                <th className="px-4 py-2.5 font-semibold">{t("users.role")}</th>
+                <th className="px-4 py-2.5 font-semibold">{t("common.status")}</th>
+                <th className="px-4 py-2.5 font-semibold">{t("users.cameras")}</th>
+                <th className="px-4 py-2.5 text-right font-semibold">{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-ink-faint">
-                    Loading…
+                    {t("common.loading")}
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-sm text-danger">
+                    {t("users.loadFailed", { message: (error as Error)?.message ?? "" })}
                   </td>
                 </tr>
               ) : (users ?? []).length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-ink-faint">
-                    No users.
+                    {t("users.noUsers")}
                   </td>
                 </tr>
               ) : (
@@ -68,7 +76,7 @@ export default function UsersPage() {
                     <td className="px-4 py-2.5 font-medium text-ink">
                       {u.username}
                       {u.id === me?.id && (
-                        <span className="ml-2 text-3xs text-ink-faint">(you)</span>
+                        <span className="ml-2 text-3xs text-ink-faint">{t("users.you")}</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5">
@@ -76,20 +84,20 @@ export default function UsersPage() {
                     </td>
                     <td className="px-4 py-2.5">
                       {u.is_active ? (
-                        <span className="text-accent-light">active</span>
+                        <span className="text-accent-light">{t("users.statusActive")}</span>
                       ) : (
-                        <span className="text-ink-faint">disabled</span>
+                        <span className="text-ink-faint">{t("users.statusDisabled")}</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-ink-mute">
-                      {u.role === "admin" ? "all" : u.camera_ids.length}
+                      {u.role === "admin" ? t("users.allShort") : u.camera_ids.length}
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
                           onClick={() => setEditing(u)}
-                          title="Edit"
+                          title={t("common.edit")}
                           className="dss-btn-ghost h-8 w-8 !p-0"
                         >
                           <PencilIcon size={14} />
@@ -101,7 +109,7 @@ export default function UsersPage() {
                               onClick={() => del.mutate(u.id, { onSettled: () => setConfirmId(null) })}
                               className="dss-btn-danger h-8 px-2 text-xs"
                             >
-                              Confirm
+                              {t("common.confirm")}
                             </button>
                             <button
                               type="button"
@@ -116,7 +124,7 @@ export default function UsersPage() {
                             type="button"
                             disabled={u.id === me?.id}
                             onClick={() => setConfirmId(u.id)}
-                            title={u.id === me?.id ? "You can't delete yourself" : "Delete"}
+                            title={u.id === me?.id ? t("users.cantDeleteSelf") : t("common.delete")}
                             className="dss-btn-danger h-8 w-8 !p-0"
                           >
                             <TrashIcon size={14} />
@@ -144,13 +152,14 @@ export default function UsersPage() {
 }
 
 function RoleBadge({ role }: { role: Role }) {
+  const { t } = useTranslation();
   return role === "admin" ? (
     <span className="rounded-sm border border-accent/30 bg-accent/[.12] px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-accent-light">
-      admin
+      {t("users.roleAdmin")}
     </span>
   ) : (
     <span className="rounded-sm border border-white/[.08] bg-white/[.04] px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-ink-dim">
-      operator
+      {t("users.roleOperator")}
     </span>
   );
 }
@@ -164,6 +173,7 @@ function UserEditor({
   meId: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const isNew = user === null;
   const { data: cameras } = useCameras();
   const { data: nvrs } = useNvrs();
@@ -180,6 +190,21 @@ function UserEditor({
   const isSelf = !isNew && user.id === meId;
   const pending = create.isPending || update.isPending;
 
+  // Dialog a11y: initial focus in, Esc to close, restore focus to the opener.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener?.focus?.();
+    };
+  }, [onClose]);
+
   const toggle = (id: string) =>
     setGrants((prev) => {
       const next = new Set(prev);
@@ -192,8 +217,8 @@ function UserEditor({
     setError(null);
     try {
       if (isNew) {
-        if (username.trim().length < 2) throw new Error("Username must be at least 2 characters");
-        if (password.length < 8) throw new Error("Password must be at least 8 characters");
+        if (username.trim().length < 2) throw new Error(t("users.errUsernameMin"));
+        if (password.length < 8) throw new Error(t("users.errPasswordMin"));
         await create.mutateAsync({
           username: username.trim(),
           password,
@@ -202,7 +227,7 @@ function UserEditor({
           camera_ids: role === "admin" ? [] : [...grants],
         });
       } else {
-        if (password && password.length < 8) throw new Error("Password must be at least 8 characters");
+        if (password && password.length < 8) throw new Error(t("users.errPasswordMin"));
         await update.mutateAsync({
           id: user.id,
           body: {
@@ -222,12 +247,17 @@ function UserEditor({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 p-6 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="dss-panel flex max-h-full w-full max-w-2xl flex-col"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isNew ? t("users.newUser") : t("users.editUserAria", { username: user.username })}
+        tabIndex={-1}
+        className="dss-panel flex max-h-full w-full max-w-2xl flex-col focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-none items-center gap-2 border-b border-white/[.06] px-5 py-3">
           <h2 className="text-sm font-bold text-ink-bright">
-            {isNew ? "New user" : `Edit ${user.username}`}
+            {isNew ? t("users.newUser") : t("users.editUser", { username: user.username })}
           </h2>
           <button type="button" onClick={onClose} className="dss-btn-ghost ml-auto h-8 w-8 !p-0">
             <XIcon size={15} />
@@ -237,39 +267,39 @@ function UserEditor({
         <div className="min-h-0 flex-1 space-y-4 overflow-auto p-5">
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="dss-label">Username</span>
+              <span className="dss-label">{t("users.username")}</span>
               <input
                 className="dss-input mt-1"
                 value={username}
                 disabled={!isNew}
                 autoComplete="username"
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="operator1"
+                placeholder={t("users.usernamePlaceholder")}
               />
             </label>
             <label className="block">
-              <span className="dss-label">{isNew ? "Password" : "Reset password"}</span>
+              <span className="dss-label">{isNew ? t("users.password") : t("users.resetPassword")}</span>
               <PasswordInput
                 className="mt-1"
                 value={password}
                 autoComplete="new-password"
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={isNew ? "min 8 chars" : "leave blank to keep"}
+                placeholder={isNew ? t("users.passwordPlaceholderNew") : t("users.passwordPlaceholderKeep")}
               />
             </label>
           </div>
 
           <div className="flex items-center gap-4">
             <label className="block">
-              <span className="dss-label">Role</span>
+              <span className="dss-label">{t("users.role")}</span>
               <select
                 className="dss-input mt-1 w-40"
                 value={role}
                 disabled={isSelf}
                 onChange={(e) => setRole(e.target.value as Role)}
               >
-                <option value="operator">operator</option>
-                <option value="admin">admin</option>
+                <option value="operator">{t("users.roleOperator")}</option>
+                <option value="admin">{t("users.roleAdmin")}</option>
               </select>
             </label>
             <label className="mt-5 flex cursor-pointer items-center gap-2 text-sm text-ink-soft">
@@ -280,17 +310,18 @@ function UserEditor({
                 onChange={(e) => setIsActive(e.target.checked)}
                 className="h-4 w-4 accent-accent"
               />
-              Active
+              {t("users.activeToggle")}
             </label>
             {isSelf && (
-              <span className="mt-5 text-2xs text-warn">You can't change your own role/status.</span>
+              <span className="mt-5 text-2xs text-warn">{t("users.cantChangeOwn")}</span>
             )}
           </div>
 
           {role === "admin" ? (
             <div className="rounded-md border border-accent/20 bg-accent/[.06] px-3 py-2 text-xs text-ink-mute">
-              Admins can see <span className="text-accent-light">all cameras</span> — no per-camera
-              grants needed.
+              {t("users.adminNoticePrefix")}{" "}
+              <span className="text-accent-light">{t("users.adminNoticeAllCameras")}</span>{" "}
+              {t("users.adminNoticeSuffix")}
             </div>
           ) : (
             <CameraPicker
@@ -313,10 +344,10 @@ function UserEditor({
 
         <div className="flex flex-none items-center justify-end gap-2 border-t border-white/[.06] px-5 py-3">
           <button type="button" onClick={onClose} className="dss-btn-ghost">
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="button" onClick={() => void save()} disabled={pending} className="dss-btn-primary">
-            <KeyIcon size={14} /> {pending ? "Saving…" : isNew ? "Create user" : "Save"}
+            <KeyIcon size={14} /> {pending ? t("users.saving") : isNew ? t("users.createUser") : t("common.save")}
           </button>
         </div>
       </div>
@@ -337,6 +368,7 @@ function CameraPicker({
   onToggle: (id: string) => void;
   onSetAll: (ids: string[], on: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const byNvr = useMemo(() => {
     const m = new Map<string, Camera[]>();
     for (const c of cameras) {
@@ -354,13 +386,13 @@ function CameraPicker({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="dss-label">Camera access ({grants.size} selected)</span>
+        <span className="dss-label">{t("users.cameraAccessCount", { count: grants.size })}</span>
         <div className="flex gap-2 text-2xs">
           <button type="button" onClick={() => onSetAll(allIds, true)} className="text-accent-light hover:underline">
-            Select all
+            {t("users.selectAll")}
           </button>
           <button type="button" onClick={() => onSetAll(allIds, false)} className="text-ink-dim hover:underline">
-            Clear
+            {t("users.clear")}
           </button>
         </div>
       </div>
@@ -378,7 +410,7 @@ function CameraPicker({
                   onClick={() => onSetAll(ids, !allOn)}
                   className="text-2xs text-accent-light hover:underline"
                 >
-                  {allOn ? "none" : "all"}
+                  {allOn ? t("users.noneShort") : t("users.allShort")}
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">

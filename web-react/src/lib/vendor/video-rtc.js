@@ -430,7 +430,13 @@ export class VideoRTC extends HTMLElement {
         this.ws = null;
 
         // reconnect no more than once every X seconds
-        const delay = Math.max(this.RECONNECT_TIMEOUT - (Date.now() - this.connectTS), 0);
+        // DSS patch: thundering-herd guard. The base term is 0 for ANY tile that
+        // stayed connected longer than RECONNECT_TIMEOUT — so on a go2rtc restart
+        // every long-lived tile would reconnect at delay=0 and stampede the server
+        // (N sockets + N RTSP pulls, all at once). Add random jitter to spread the
+        // herd, and a small floor so we never hammer at 0ms. (Minimal, deliberate.)
+        const base = Math.max(this.RECONNECT_TIMEOUT - (Date.now() - this.connectTS), 0);
+        const delay = Math.max(base + Math.random() * 3000, 500);
 
         this.reconnectTID = setTimeout(() => {
             this.reconnectTID = 0;

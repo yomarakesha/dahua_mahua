@@ -26,6 +26,36 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
 
+    # ── Branding / white-label ───────────────────────────────────────────────
+    # The product brand is configurable per deployment AT RUNTIME (no rebuild):
+    # the frontend fetches GET /api/v1/branding (unauthenticated) at boot and
+    # themes itself from these values. The DEFAULTS reproduce today's look
+    # exactly ("Kanagatly VMS" / "KM" / the green accent), so an un-set deploy is
+    # visually unchanged. Override per deploy: BRAND_NAME, BRAND_SHORT,
+    # BRAND_PRIMARY, BRAND_ACCENT, BRAND_LOGO_URL.
+    #   brand_name    — full product name (header + login + document title).
+    #   brand_short   — short mark for the logo circle (used when no logo image).
+    #   brand_primary — primary accent as a #rrggbb hex (the green today). Themes
+    #                   the logo, active nav, primary buttons, focus rings, etc.
+    #   brand_accent  — secondary accent hex (the lighter green today); used for
+    #                   active-nav text and other "accent-light" spots.
+    #   brand_logo_url— optional image URL for the logo + favicon. Empty → the
+    #                   built-in short-mark circle is drawn instead.
+    brand_name: str = "Kanagatly VMS"
+    brand_short: str = "KM"
+    brand_primary: str = "#2ecc71"
+    brand_accent: str = "#43e088"
+    brand_logo_url: str = ""
+
+    # ── Logging ──────────────────────────────────────────────────────────────
+    # On NSSM (Windows service) stderr is not persisted, so add a rotating file
+    # handler alongside the stream handler. Empty string disables the file
+    # handler (stderr only). The parent dir is created if missing; if it can't
+    # be written, startup logs a warning and continues with stderr only.
+    log_file: str = "logs/backend.log"
+    log_file_max_bytes: int = 10_485_760  # 10 MiB
+    log_file_backup_count: int = 5
+
     # ── Database ─────────────────────────────────────────────────────────────
     # SQLite is the default so local dev works without installing Postgres.
     # For prod set DATABASE_URL=postgresql+asyncpg://dss:dss@host:5432/dss
@@ -43,23 +73,10 @@ class Settings(BaseSettings):
     # url-safe base64 string. Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
     nvr_secret_key: str = _DEFAULT_NVR_SECRET_KEY
 
-    # ── MediaMTX ─────────────────────────────────────────────────────────────
-    mediamtx_api_url: str = "http://localhost:9997"
-    mediamtx_webrtc_url: str = "http://localhost:8889"
-    mediamtx_hls_url: str = "http://localhost:8888"
-    mediamtx_rtsp_url: str = "rtsp://localhost:8554"
-    # When true, backend manages MediaMTX as a child process.
-    # When false (e.g. inside docker-compose), MediaMTX runs separately.
-    mediamtx_managed: bool = False
-    mediamtx_bin: str = "mediamtx"
-    mediamtx_config_path: str = "mediamtx.yml"
-
     # ── go2rtc (buffered MSE relay) ──────────────────────────────────────────
-    # relay = "go2rtc" (MSE, default) or "mediamtx" (legacy WebRTC). go2rtc's
-    # buffered MSE pipeline absorbs bursty/jittery camera frame delivery that
-    # freezes WebRTC at 0% packet loss — see docs/perf-tuning.md. The React
-    # frontend speaks go2rtc/MSE only, so this is the default it expects.
-    relay: str = "go2rtc"
+    # go2rtc is the sole relay: its buffered MSE pipeline absorbs bursty/jittery
+    # camera frame delivery that freezes plain WebRTC at 0% packet loss (see
+    # docs/perf-tuning.md), and it also serves WebRTC for the fullscreen main.
     go2rtc_api_url: str = "http://localhost:1984"
     # Browser-facing base the frontend uses for the MSE/WebRTC WebSocket.
     go2rtc_ws_url: str = "ws://localhost:1984"
@@ -68,19 +85,24 @@ class Settings(BaseSettings):
     # Cameras ship a ~2s GOP (keyframe interval); on any jitter the picture
     # freezes up to 2s waiting for the next keyframe. Re-encoding to a short
     # forced keyframe interval cuts recovery to a blink. This is THE thing that
-    # made 4MP stable pre-redesign (was MediaMTX runOnDemand; here it's a go2rtc
-    # `exec:ffmpeg` source). NOT the transport. On-demand → only streams being
+    # made 4MP stable pre-redesign (a go2rtc `exec:ffmpeg` on-demand source).
+    # NOT the transport. On-demand → only streams being
     # viewed are encoded, so concurrency is bounded by viewers, not 34 channels.
     # On the server set REENCODE_ENABLED=true + REENCODE_VCODEC=h264_qsv (Intel
     # QuickSync iGPU). vcodec=libx264 is the portable CPU fallback (heavier).
     reencode_enabled: bool = False
     reencode_keyframe_seconds: float = 0.5
     reencode_qualities: str = "sub"  # "sub" | "main" | "both"
-    # "auto" probes the host (real test-encode) and picks the best WORKING encoder:
+    # Video encoder. Default is the portable CPU encoder "libx264" (works
+    # everywhere) — this preserves the deployed default (the auto-probe box has
+    # no GPU, so it would resolve to libx264 anyway). The auto-probe-best-encoder
+    # feature is OPT-IN via env: set REENCODE_VCODEC=auto to have the host probed
+    # (real test-encode) and the best WORKING encoder picked:
     # h264_qsv → h264_nvenc → h264_vaapi → libx264 (CPU). A codec can be compiled
-    # into ffmpeg yet fail at runtime when the GPU is absent (this box: no GPU →
-    # auto resolves to libx264). Set an explicit codec to skip probing.
-    reencode_vcodec: str = "auto"
+    # into ffmpeg yet fail at runtime when the GPU is absent, which is why the
+    # probe runs a tiny real encode rather than trusting ffmpeg's encoder list.
+    # Set an explicit codec (e.g. h264_qsv) to skip probing entirely.
+    reencode_vcodec: str = "libx264"
     reencode_preset: str = "veryfast"
     reencode_ffmpeg_bin: str = "ffmpeg"
     # Cap the re-encoded bitrate (VBV: -maxrate/-bufsize). 0 = unconstrained CRF.
@@ -154,39 +176,8 @@ class Settings(BaseSettings):
     main_start_timeout: str = "20s"
     main_close_after: str = "60s"
 
-    # ── Re-encode (anti-freeze) ──────────────────────────────────────────────
-    # The Dahua cameras emit a keyframe only every ~2s (GOP=50 @ 25fps). Over
-    # WebRTC/MSE (inter-frame H.264) that means every cold start — and every
-    # patrol/layout re-subscribe — waits up to 2s for a keyframe and freezes,
-    # and any hiccup freezes until the next sparse keyframe. Measured: a raw
-    # sub stream froze 8.1s/16s; re-encoded to a 0.5s GOP it dropped to 2.8s
-    # and ~2.5× the delivered frames (docs: zoneminder/keyframe + rtcstats run).
-    #
-    # When enabled, MediaMTX pulls each requested path through an ffmpeg
-    # `runOnDemand` that re-emits the same H.264 with a forced short keyframe
-    # interval, so cold starts and recoveries are sub-second. Requires `ffmpeg`
-    # on the relay host. CPU scales with the number of *concurrently viewed*
-    # tiles (sourceOnDemand keeps idle paths off), not the whole fleet — size
-    # the relay accordingly, or enable for sub only / use a GPU encoder.
-    reencode_enabled: bool = False
-    # Force a keyframe at least this often (seconds). 0.5 = keyframe every 500ms.
-    reencode_keyframe_seconds: float = 0.5
-    # Which qualities to re-encode: "sub", "main", or "both". Sub feeds the grid
-    # (where freezes are most visible across many tiles); main is fullscreen.
-    reencode_qualities: str = "sub"
-    # Video encoder. "libx264" (CPU, works everywhere) is the safe default.
-    # Hardware encoders slash CPU and let one box drive far more tiles:
-    # "h264_qsv" (Intel QuickSync), "h264_nvenc" (NVIDIA), "h264_vaapi" (Linux).
-    reencode_vcodec: str = "libx264"
-    # x264 preset — trade CPU for quality. ultrafast/superfast/veryfast/faster.
-    reencode_preset: str = "veryfast"
-    # ffmpeg binary used by the relay's runOnDemand. "ffmpeg" (on PATH) suits
-    # Linux/containers; on Windows set an absolute path (no spaces) because the
-    # already-running relay process won't pick up a PATH change after install.
-    reencode_ffmpeg_bin: str = "ffmpeg"
-
     # ── Source watchdog ──────────────────────────────────────────────────────
-    # Polls MediaMTX's runtime API and auto-disables an NVR whose source keeps
+    # Polls go2rtc's runtime API and auto-disables an NVR whose source keeps
     # failing while a viewer is pulling it — before the camera firmware bans
     # our account for repeated failed RTSP auths. Disable only fires when the
     # NVR has NO working channel (so one offline camera won't kill the NVR).
@@ -207,20 +198,95 @@ class Settings(BaseSettings):
     # source restart) must not be disabled — otherwise transient network loss
     # makes working cameras vanish from the grid.
     source_watch_camera_recovery_seconds: float = 180.0
+    # First-dial grace for the NVR-wide disable path. When an NVR idle longer
+    # than the recovery window is reopened, EVERY channel briefly shows
+    # "consumer attached, no producer" while go2rtc (re)dials — on the
+    # via-NVR / exec-ffmpeg sites that dial can exceed interval×threshold, and
+    # without this grace a HEALTHY recorder would be auto-disabled. Failures
+    # are counted only after the NVR has been failing continuously this long.
+    source_watch_dial_grace_seconds: float = 20.0
     # Startup grace period. On a cold start the grid immediately pulls streams
-    # while MediaMTX is still spinning up the on-demand RTSP sources, so for the
+    # while go2rtc is still spinning up the on-demand RTSP sources, so for the
     # first few seconds every path is "active but not ready" — which looks
     # exactly like an auth failure to the watchdog and made it disable healthy
     # NVRs on every boot. During this window we poll but never disable, giving
     # sources time to connect.
     source_watch_startup_grace_seconds: float = 45.0
 
-    # ── Playback ─────────────────────────────────────────────────────────────
+    # ── Playback (Phase 1) ───────────────────────────────────────────────────
     # UTC offset of the NVR's internal clock (minutes east of UTC). Used when
     # converting NVR-local naive recording timestamps to UTC epoch seconds.
     # NOTE: live NVR-clock querying is wired by a later spike task; for now
     # this value is the Phase-1 source of the offset (configurable per deploy).
     playback_tz_offset_minutes: int = 0
+
+    # ── Playback (Phase 2) ───────────────────────────────────────────────────
+    # Settings for the server-side ffmpeg playback session (Task 7) and the
+    # WebSocket control handler (Task 8).  The ffmpeg binary and keyframe
+    # interval are reused from reencode_ffmpeg_bin / reencode_keyframe_seconds
+    # above (no duplication needed).
+    # Note: the RTSP port is taken from nvr.port (Contract #9) — no deploy-wide
+    # default is needed here.
+
+    # Per-NVR playback slot limit (NvrBudget, Task 6).  Defaults to 2 pending
+    # V9 verification of how many concurrent RTSP pulls the NVR supports.
+    playback_nvr_budget: int = 2
+
+    # Hard global cap on concurrent playback sessions across all NVRs
+    # (NvrBudget, Task 6).  When reached, the WS endpoint closes with code
+    # 4429 ("resource exhausted"; Contract #2).
+    playback_global_cap: int = 4
+
+    # Size of the fMP4 ring buffer (number of chunks).  When full, the oldest
+    # chunk is dropped before enqueueing the newest — the stdout reader never
+    # blocks on a slow WS client (Contract #11).
+    playback_ring_buffer_chunks: int = 32
+
+    # Idle timeout: close a PAUSED/idle session after this many seconds with no
+    # activity (the reaper, Task 7).  The client sends ``{"keepalive": true}``
+    # (~every 30s) to keep a paused session alive, so this must exceed that
+    # interval and cover the spec §10 5-minute-pause check.
+    playback_idle_timeout_seconds: int = 300
+
+    # Hard maximum session lifetime (seconds) regardless of activity (reaper,
+    # Task 7).
+    playback_max_lifetime_seconds: int = 3600
+
+    # How often to emit a ``{"type": "clock", "wall_ts": <epoch>}`` heartbeat
+    # to the client so it can correct playhead drift (Contract #3).
+    playback_clock_interval_seconds: float = 2.0
+
+    # Rate-limit: max playback WS session OPEN attempts per user per minute
+    # (Task 8); excess attempts are rejected with code 4429.
+    playback_rate_limit_per_minute: int = 10
+
+    # Clip export (GET /playback/{nvr}/{ch}/clip): hard ceiling on the requested
+    # [start,end] duration in SECONDS.  This NVR's /cam/playback RTSP delivers at
+    # ~realtime or SLOWER (TCP ~0.2x, UDP ~0.9x), so an export pulls in roughly
+    # real time — a 10-min clip takes 10+ min of wall clock (much longer over
+    # TCP).  Requests longer than this are rejected with 400 so a user can't
+    # accidentally pin an ffmpeg + NVR playback slot for an hour.  Raise per
+    # deploy only if operators accept the proportionally longer pull time.
+    clip_export_max_seconds: int = 600
+
+    # ── Warm-stream pool (live-open latency) ─────────────────────────────────
+    # Keeps a bounded set of server-side consumers draining go2rtc SUB streams so
+    # those cameras open ~instantly (warm producer + cached keyframe → ~0.5s vs
+    # 2.6–5s cold). SUBS ONLY — mains use an mpegts pipe with no keyframe cache
+    # and don't benefit. DEFAULT OFF: over-warming would exhaust an NVR's hard
+    # concurrent-pull cap (e.g. testik 192.168.20.39). When False the POST
+    # /live/warm endpoint is a 202 no-op so the frontend can call it uncondition-
+    # ally. Enable per deploy with WARM_POOL_ENABLED=true.
+    warm_pool_enabled: bool = False
+    # Global cap on concurrently-warmed streams across all NVRs.
+    warm_pool_max_streams: int = 24
+    # Per-NVR cap. A warm stream is cheaper than a playback session but STILL
+    # counts against the NVR's real concurrent-pull budget — never warm any NVR
+    # beyond this (mirrors the NvrBudget per-NVR discipline).
+    warm_pool_per_nvr_max: int = 8
+    # De-selected streams are kept warm this long before teardown, so a quick
+    # page flip (open → close → reopen) doesn't re-dial the NVR.
+    warm_pool_drop_grace_seconds: float = 10.0
 
     # ── Bootstrap ────────────────────────────────────────────────────────────
     # On first startup, create this user if no users exist. Operator must

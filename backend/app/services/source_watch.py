@@ -1,27 +1,25 @@
-"""Source watchdog — disable NVRs whose MediaMTX source keeps failing.
+"""Source watchdog — disable NVRs whose go2rtc source keeps failing.
 
 The problem this solves
 -----------------------
-MediaMTX retries an on-demand RTSP source aggressively while a viewer is
+go2rtc retries an on-demand RTSP source aggressively while a viewer is
 connected. If the stored password is wrong, every retry is a failed digest
-auth (the `bad status code: 401` lines in MediaMTX's log). Dahua/Hikvision
-firmware bans the *account* after a handful of these — which is how a typo'd
-password locks you out of the NVR's own web UI.
+auth. Dahua/Hikvision firmware bans the *account* after a handful of these —
+which is how a typo'd password locks you out of the NVR's own web UI.
 
 How it works
 ------------
-We poll MediaMTX's runtime API (`/v3/paths/list`) every few seconds. For each
-DSS-managed path we look at whether the source is up (`ready`) and whether a
-viewer is actively pulling it (`readers` present, or a `source` attempt in
-flight). An NVR is considered "failing" only when it has active-but-unready
-paths and **no** ready path at all — i.e. the failure is account-wide
-(wrong password / host down), not one offline camera. After N consecutive
-failing polls we set `enabled=False` and yank the NVR's paths, stopping the
-retry loop before the firmware lockout triggers.
+We poll go2rtc's `/api/streams` runtime API every few seconds (normalised to a
+`{ready, readers, source}` shape in `_fetch_paths`). For each DSS-managed
+stream we look at whether the source is up (`ready`) and whether a viewer is
+actively pulling it (`readers` present, or a `source` attempt in flight). An
+NVR is considered "failing" only when it has active-but-unready streams and
+**no** ready stream at all — i.e. the failure is account-wide (wrong password /
+host down), not one offline camera. After N consecutive failing polls we set
+`enabled=False`, stopping the retry loop before the firmware lockout triggers.
 
-This runs as a single asyncio task started in the app lifespan. It works
-regardless of how MediaMTX is launched (managed child or separate process),
-because it only talks to the HTTP API.
+This runs as a single asyncio task started in the app lifespan; it only talks
+to go2rtc's HTTP API.
 """
 
 from __future__ import annotations
@@ -35,8 +33,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import Nvr, NvrEvent
-from app.services import nvr_events, path_sync
-from app.services.mediamtx_api import MediaMTXError, get_client
+from app.services import go2rtc_api, nvr_events
 from app.settings import get_settings
 
 log = logging.getLogger("dss.source_watch")
@@ -66,10 +63,16 @@ def _nvr_id_from_path(name: str) -> str | None:
 
 
 async def _disable_camera(nvr_id: str, channel: int, reason: str) -> None:
-    """Disable a single channel and drop its MediaMTX paths. Used when one
-    channel keeps failing (phantom channel that doesn't exist on the NVR, or a
-    camera that's offline) while the rest of the NVR streams fine — so one bad
-    channel can't hammer the NVR into a firmware IP-ban."""
+    """Disable a single channel. Used when one channel keeps failing (phantom
+    channel that doesn't exist on the NVR, or a camera that's offline) while the
+    rest of the NVR streams fine — so one bad channel can't hammer the NVR into a
+    firmware IP-ban.
+
+    The `enabled=False` flag is the source of truth: viewers stop pulling the
+    now-hidden channel, its on-demand go2rtc source tears down, and the next full
+    reconcile (startup or any inventory edit) drops it from the config. We do
+    NOT force a reconcile here — that would rewrite/restart go2rtc and disturb
+    every other live viewer for one disabled channel."""
     from app.models import Camera
 
     async with SessionLocal() as session:
@@ -89,11 +92,6 @@ async def _disable_camera(nvr_id: str, channel: int, reason: str) -> None:
             event_type="camera_auto_disabled",
             message=f"ch{channel}: {reason}",
         )
-        # Reconcile removes this camera's now-undesired paths (delete_orphans).
-        try:
-            await path_sync.reconcile(session, delete_orphans=True)
-        except Exception as e:  # noqa: BLE001
-            log.warning("reconcile after disabling %s ch%d failed: %s", nvr_id, channel, e)
     log.warning("Auto-disabled camera %s ch%d — %s", nvr_id, channel, reason)
 
 
@@ -121,9 +119,11 @@ async def reenable_cameras_for_nvr(session, nvr_id: str) -> int:
 
 
 async def _disable_nvr(nvr_id: str, reason: str) -> None:
-    """Set enabled=False, log an audit event, and remove the NVR's MediaMTX
-    paths so the retry loop stops immediately. Best-effort on the MediaMTX
-    side — the DB flag is the source of truth and reconcile honours it."""
+    """Set enabled=False and log an audit event so the retry loop stops. The DB
+    flag is the source of truth: with the NVR hidden, viewers stop pulling its
+    channels, their on-demand go2rtc sources tear down, and the next full
+    reconcile drops them from the config. We do NOT force a reconcile here — that
+    would rewrite/restart go2rtc and disturb every other live viewer."""
     async with SessionLocal() as session:
         nvr = (
             await session.execute(select(Nvr).where(Nvr.id == nvr_id))
@@ -139,10 +139,25 @@ async def _disable_nvr(nvr_id: str, reason: str) -> None:
             event_type="auto_disabled",
             message=reason,
         )
-        # Pull paths last — even if MediaMTX is unreachable, the enabled=False
-        # flag means the next reconcile won't re-add them.
-        await path_sync.remove_paths_for_nvr(session, nvr_id)
     log.warning("Auto-disabled NVR %s — %s", nvr_id, reason)
+
+
+async def _fetch_paths() -> dict[str, dict] | None:
+    """Runtime stream states from go2rtc's ``/api/streams``, normalised to a
+    ``{name: {ready, readers, source}}`` shape so the disable-decision logic
+    below can treat every stream uniformly.
+
+    Returns ``None`` when go2rtc is unreachable (restarting / down): the caller
+    then does nothing this round. The watchdog must never flap an NVR just
+    because the relay bounced, so unreachable == quiet-degrade, not failure.
+    """
+    try:
+        return await go2rtc_api.get_client().list_stream_states()
+    except (go2rtc_api.Go2rtcError, httpx.HTTPError, ValueError) as e:
+        # ValueError covers a non-JSON 200 body (proxy/HTML error page) —
+        # same quiet-degrade as unreachable, not a traceback every 3s.
+        log.debug("source-watch poll skipped (go2rtc unreachable): %s", type(e).__name__)
+        return None
 
 
 async def _poll_once(
@@ -153,15 +168,14 @@ async def _poll_once(
     threshold: int,
     cam_threshold: int,
     recovery_seconds: float,
+    nvr_first_fail: dict[str, float] | None = None,
+    dial_grace_seconds: float = 0.0,
 ) -> None:
     now = time.monotonic()
-    client = get_client()
-    try:
-        paths = await client.list_active_paths()
-    except (MediaMTXError, httpx.HTTPError) as e:
-        # MediaMTX down / restarting / unreachable. Nothing to police this
-        # round — keep it to one quiet line, not a traceback every 3s.
-        log.debug("source-watch poll skipped (MediaMTX unreachable): %s", type(e).__name__)
+    if nvr_first_fail is None:
+        nvr_first_fail = {}
+    paths = await _fetch_paths()
+    if paths is None:
         return
 
     ok_nvrs: set[str] = set()
@@ -195,6 +209,7 @@ async def _poll_once(
         ch_last_ready[key] = now
     for nvr_id in ok_nvrs:
         nvr_last_ready[nvr_id] = now
+        nvr_first_fail.pop(nvr_id, None)
         if nvr_fail.pop(nvr_id, None):
             log.info("source-watch: %s recovered, NVR counter cleared", nvr_id)
 
@@ -237,6 +252,20 @@ async def _poll_once(
         else:
             # No channel on this NVR is ready → account-wide failure
             # (wrong password / host unreachable). Disable the whole NVR.
+            #
+            # First-dial grace: when an NVR left idle > recovery_seconds is
+            # reopened, ALL its channels legitimately show consumer-attached +
+            # no-producer while go2rtc dials (slow on the via-NVR/exec-ffmpeg
+            # sites). Without a grace, interval×threshold ≈ 6s of dialing
+            # would auto-disable a HEALTHY recorder. Count failures only once
+            # the NVR has been failing continuously past the grace window.
+            first = nvr_first_fail.setdefault(nvr_id, now)
+            if dial_grace_seconds > 0 and (now - first) < dial_grace_seconds:
+                log.debug(
+                    "source-watch: %s dialing (grace %.0fs/%.0fs) — not counted",
+                    nvr_id, now - first, dial_grace_seconds,
+                )
+                continue
             last_ok = nvr_last_ready.get(nvr_id)
             if last_ok is not None and (now - last_ok) < recovery_seconds:
                 # The NVR streamed fine moments ago, so every channel dropping
@@ -259,12 +288,19 @@ async def _poll_once(
                     "Fix the password via the lock button, then re-enable.",
                 )
                 nvr_fail.pop(nvr_id, None)
+                nvr_first_fail.pop(nvr_id, None)
+
+    # Drop first-fail marks for NVRs no longer in a failing episode, so a stale
+    # timestamp from an old episode can't skip the dial grace next time.
+    for nvr_id in list(nvr_first_fail):
+        if nvr_id not in failing_by_nvr:
+            nvr_first_fail.pop(nvr_id, None)
 
 
 async def reenable_auto_disabled() -> None:
     """On startup, re-enable NVRs that the *watchdog itself* disabled — i.e.
     those whose most recent audit event is `auto_disabled`. A transient
-    cold-start failure (MediaMTX warming up) shouldn't leave an NVR dark
+    cold-start failure (go2rtc warming up) shouldn't leave an NVR dark
     forever; give it a fresh chance each boot. NVRs disabled some other way
     (e.g. manually unchecked in the UI) are left untouched."""
     async with SessionLocal() as session:
@@ -313,10 +349,12 @@ async def _run() -> None:
     cam_threshold = settings.source_watch_camera_threshold
     grace = settings.source_watch_startup_grace_seconds
     recovery = settings.source_watch_camera_recovery_seconds
+    dial_grace = settings.source_watch_dial_grace_seconds
     nvr_fail: dict[str, int] = {}
     cam_fail: dict[tuple[str, int], int] = {}
     ch_last_ready: dict[tuple[str, int], float] = {}
     nvr_last_ready: dict[str, float] = {}
+    nvr_first_fail: dict[str, float] = {}
     log.info(
         "Source watchdog running (interval=%.1fs nvr_threshold=%d cam_threshold=%d grace=%.0fs)",
         interval, threshold, cam_threshold, grace,
@@ -337,6 +375,8 @@ async def _run() -> None:
                 await _poll_once(
                     nvr_fail, cam_fail, ch_last_ready, nvr_last_ready,
                     threshold, cam_threshold, recovery,
+                    nvr_first_fail=nvr_first_fail,
+                    dial_grace_seconds=dial_grace,
                 )
             except Exception as e:  # noqa: BLE001 — watchdog must never die
                 log.exception("source-watch poll error: %s", e)

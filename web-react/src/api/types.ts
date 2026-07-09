@@ -1,7 +1,9 @@
 /** Types mirroring backend/app/schemas.py (kept in sync by hand). */
 
 export type Role = "admin" | "operator";
-export type Vendor = "dahua" | "hikvision";
+/** Supported NVR vendors. Single source of truth — UI selectors map over VENDORS. */
+export const VENDORS = ["dahua", "hikvision"] as const;
+export type Vendor = (typeof VENDORS)[number];
 export type StreamQuality = "sub" | "main";
 
 export interface Me {
@@ -148,6 +150,43 @@ export interface CameraIpImportResult {
   found: number;
   updated: number;
   message: string;
+}
+
+// ── Playback recording types ──────────────────────────────────────────────────
+
+/** One merged clip span from GET /playback/{nvr_id}/{ch}/index */
+export interface RecordingClip {
+  start_epoch: number;   // UTC epoch seconds (inclusive)
+  end_epoch: number;     // UTC epoch seconds (exclusive)
+  type: string;          // semantic record type from Flags[0], e.g. "Timing" or "Event"
+  stream: string;        // "Main" (always Main per spike V4)
+}
+
+/** Full response from GET /playback/{nvr_id}/{ch}/index?date=YYYY-MM-DD */
+export interface RecordingIndex {
+  tz_offset_minutes: number;   // NVR local = UTC + tz_offset_minutes
+  day_start_epoch: number;     // epoch of 00:00:00 NVR-local
+  day_end_epoch: number;       // epoch of 00:00:00 NVR-local next day
+  clips: RecordingClip[];
+  /** False for non-Dahua (e.g. Hikvision) recorders — playback isn't supported
+   *  there yet (Dahua mediaFileFind CGI only). UI shows a clear state, not an error. */
+  playback_supported?: boolean;
+}
+
+/** Response from GET /playback/{nvr_id}/{ch}/availability?month=YYYY-MM */
+export interface RecordingAvailability {
+  days_with_recordings: string[];  // sorted ["YYYY-MM-DD", ...]
+  oldest_epoch: number | null;     // epoch of oldest clip start, null if empty month
+}
+
+/**
+ * Response from GET /playback/{nvr_id}/{ch}/days?month=YYYY-MM
+ * `days` are 1-based NVR-local day-of-month numbers that have recordings; an
+ * empty month returns `days: []`. Drives the recordings-calendar highlighting.
+ */
+export interface RecordingDays {
+  month: string;    // "YYYY-MM"
+  days: number[];   // 1-based days with recordings
 }
 
 /**

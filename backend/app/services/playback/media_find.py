@@ -33,11 +33,15 @@ from urllib.parse import quote
 
 import httpx
 
-from .index_parser import Clip, FindRecord, merge_into_clips, parse_find_records
+from .index_parser import (
+    _DT_FMT,
+    Clip,
+    FindRecord,
+    merge_into_clips,
+    parse_find_records,
+)
 
 log = logging.getLogger("dss.playback.media_find")
-
-_DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 __all__ = ["MediaFindError", "find_clips"]
 

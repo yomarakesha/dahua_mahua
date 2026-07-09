@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useEvents, useNvrHealth, useNvrs, useReconcile } from "@/api/hooks";
 import type { NvrHealthResult } from "@/api/types";
 import { ActivityIcon, CheckIcon, RefreshIcon, ServerIcon } from "@/components/icons";
@@ -8,6 +9,7 @@ import { PerformancePanel } from "./PerformancePanel";
 
 /** Admin screen: add / configure / monitor NVRs (recorders). */
 export default function NvrManagement() {
+  const { t } = useTranslation();
   const nvrs = useNvrs();
   const [showHealth, setShowHealth] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
@@ -31,8 +33,8 @@ export default function NvrManagement() {
             <ServerIcon size={18} />
           </div>
           <div>
-            <h1 className="text-[17px] font-extrabold text-ink-bright">NVR Management</h1>
-            <p className="text-sm text-ink-dim">Add, configure and monitor recorders</p>
+            <h1 className="text-[17px] font-extrabold text-ink-bright">{t("nvrs.title")}</h1>
+            <p className="text-sm text-ink-dim">{t("nvrs.subtitle")}</p>
           </div>
         </header>
 
@@ -42,7 +44,7 @@ export default function NvrManagement() {
         <section className="dss-panel p-4">
           <div className="mb-3 flex items-center justify-between">
             <span className="dss-label tracking-[1.4px]">
-              NVRS ({nvrs.isLoading ? "…" : list.length})
+              {t("nvrs.nvrsHeading")} ({nvrs.isLoading ? "…" : list.length})
             </span>
             <div className="flex gap-2">
               <button
@@ -56,7 +58,7 @@ export default function NvrManagement() {
                 ].join(" ")}
               >
                 <ActivityIcon size={12} />
-                Health
+                {t("nvrs.health")}
               </button>
               <button
                 type="button"
@@ -65,13 +67,13 @@ export default function NvrManagement() {
                 className="flex h-[30px] items-center gap-1.5 rounded-md border border-white/[.07] bg-panel px-3 text-sm font-semibold text-ink-mute hover:text-ink-soft disabled:opacity-50"
               >
                 {reconcile.isPending ? (
-                  "Reconciling…"
+                  t("nvrs.reconciling")
                 ) : reconcile.isSuccess ? (
                   <>
-                    <CheckIcon size={12} /> Reconciled
+                    <CheckIcon size={12} /> {t("nvrs.reconciled")}
                   </>
                 ) : (
-                  "Reconcile"
+                  t("nvrs.reconcile")
                 )}
               </button>
               <button
@@ -84,11 +86,11 @@ export default function NvrManagement() {
                     : "border border-white/[.07] bg-panel text-ink-mute hover:text-ink-soft",
                 ].join(" ")}
               >
-                Events
+                {t("nvrs.events")}
               </button>
               <button
                 type="button"
-                title="Refresh"
+                title={t("common.refresh")}
                 disabled={nvrs.isFetching}
                 onClick={() => void nvrs.refetch()}
                 className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-white/[.07] bg-panel text-ink-mute hover:text-ink-soft disabled:opacity-50"
@@ -106,7 +108,7 @@ export default function NvrManagement() {
             <TableSkeleton />
           ) : nvrs.isError ? (
             <p className="px-2 py-6 text-sm text-danger">
-              Failed to load NVRs: {(nvrs.error as Error).message}
+              {t("nvrs.loadFailed", { message: (nvrs.error as Error).message })}
             </p>
           ) : (
             <NvrTable nvrs={list} showHealth={showHealth} health={healthMap} />
@@ -122,18 +124,19 @@ export default function NvrManagement() {
 }
 
 function EventsPanel() {
+  const { t } = useTranslation();
   const events = useEvents(50);
   return (
     <div className="mt-4 rounded-xl border border-white/[.06] bg-deep/60 p-3">
       <div className="mb-2 text-2xs font-extrabold uppercase tracking-[1.2px] text-ink-faint">
-        Recent events
+        {t("nvrs.recentEvents")}
       </div>
       {events.isLoading ? (
-        <p className="text-sm text-ink-dim">Loading…</p>
+        <p className="text-sm text-ink-dim">{t("common.loading")}</p>
       ) : events.isError ? (
         <p className="text-sm text-danger">{(events.error as Error).message}</p>
       ) : (events.data ?? []).length === 0 ? (
-        <p className="text-sm text-ink-dim">No events recorded.</p>
+        <p className="text-sm text-ink-dim">{t("nvrs.noEvents")}</p>
       ) : (
         <ul className="max-h-64 space-y-1 overflow-y-auto">
           {(events.data ?? []).map((e) => (

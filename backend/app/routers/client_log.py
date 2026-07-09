@@ -51,7 +51,7 @@ def _sanitize(s: str) -> str:
 class ClientLogEntry(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     ts: str | None = None  # client-side HH:MM:SS.mmm; advisory only
-    path: str = ""         # MediaMTX path / NVR id the entry is about, optional
+    path: str = ""         # go2rtc stream / NVR id the entry is about, optional
     msg: str = Field(default="", max_length=_MAX_FIELD_LEN)
     detail: str = Field(default="", max_length=_MAX_FIELD_LEN)
 

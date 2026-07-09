@@ -1,0 +1,500 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
+import {
+  useNvrs,
+  useCameras,
+  useRecordingAvailability,
+  useRecordingIndex,
+} from "@/api/hooks";
+import { CameraIcon } from "@/components/icons";
+import Timeline from "./Timeline";
+import PlaybackPlayer from "./PlaybackPlayer";
+import type { PlaybackControls } from "./PlaybackPlayer";
+import TransportBar from "./TransportBar";
+import RecordingsCalendar from "./RecordingsCalendar";
+import ClipExportButton from "./ClipExportButton";
+import { useSnapshot } from "./useSnapshot";
+import { useVideoZoom } from "./useVideoZoom";
+import type { FootageAnchor, PlayerState } from "./types";
+
+type Transport = "udp" | "tcp";
+
+/** Today as "YYYY-MM-DD" (UTC). The NVR tz offset is applied to the min/max
+ *  constraints once `indexData.tz_offset_minutes` is available. */
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * PlaybackPage — NVR → camera → date selectors, speed controls, and snapshot.
+ * Player (Task 14) and Timeline (Task 13) are placeholder divs here; their
+ * eventual props are documented in comments below so the swap is mechanical.
+ */
+export default function PlaybackPage() {
+  const { t } = useTranslation();
+  const [selectedNvrId, setSelectedNvrId] = useState<string | null>(null);
+  const [selectedCamId, setSelectedCamId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  /** "YYYY-MM" — tracks the month visible in the date picker for availability. */
+  const [viewMonth, setViewMonth] = useState<string>(todayIso().slice(0, 7));
+  /** Footage epoch (UTC seconds) committed by the Timeline on drag-release. */
+  const [seekTarget, setSeekTarget] = useState<number | null>(null);
+  /** Transport toggle: Smooth = udp (default, near-realtime but lossy on this
+   *  NVR), Clear = tcp (clean but slow). Per-playback; changing it reopens the WS. */
+  const [transport, setTransport] = useState<Transport>("udp");
+  /**
+   * Player state — set via PlaybackPlayer's onStateChange.
+   * Defaults to "loading"; Timeline disables drag/seek when "error".
+   */
+  const [playerState, setPlayerState] = useState<PlayerState>("loading");
+  /** Live footage-time playhead (epoch) emitted by the player for the Timeline. */
+  const [playhead, setPlayhead] = useState<number | null>(null);
+  /** Latest FootageAnchor, lifted for Task 15's snapshot footage-time mapping. */
+  const [anchor, setAnchor] = useState<FootageAnchor | null>(null);
+  /** Export selection painted on the Timeline (clamped ≤10 min & ≤now); null = none. */
+  const [exportSelection, setExportSelection] = useState<{ start: number; end: number } | null>(
+    null,
+  );
+  /** Shared <video> ref so Task 15's snapshot can read pixels from the player. */
+  const videoRef = useRef<HTMLVideoElement>(null);
+  /** Digital (CSS-transform) zoom on the video — scroll to zoom, drag to pan. */
+  const zoom = useVideoZoom();
+
+  // Clear the page-level export selection + reset digital zoom whenever the
+  // NVR / camera / day changes, so a stale range can't export the wrong footage
+  // and a new camera doesn't open pre-zoomed. (Timeline's own state resets via
+  // its key; this covers the state lifted into the page.)
+  const { reset: resetZoom } = zoom;
+  useEffect(() => {
+    setExportSelection(null);
+    resetZoom();
+  }, [selectedNvrId, selectedCamId, selectedDate, resetZoom]);
+  /** Imperative play/pause handle populated by PlaybackPlayer; driven by TransportBar. */
+  const controlsRef = useRef<PlaybackControls | null>(null);
+
+  // ── Seek debounce (Contract §7) ───────────────────────────────────────────────
+  // Every committed seek respawns backend ffmpeg; the NVR's small playback pool
+  // exhausts under rapid seeks (drag-release bursts, held ←/→, prev/next). Collapse
+  // a burst to ONE committed seek with a 250 ms trailing debounce. The ghost/visual
+  // playhead stays responsive (that lives in Timeline's local drag state); only the
+  // committed seekTarget that respawns ffmpeg is debounced here.
+  const SEEK_DEBOUNCE_MS = 250;
+  const seekDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPendingSeek = useCallback(() => {
+    if (seekDebounceRef.current) {
+      clearTimeout(seekDebounceRef.current);
+      seekDebounceRef.current = null;
+    }
+  }, []);
+
+  const commitSeek = useCallback(
+    (epoch: number) => {
+      if (seekDebounceRef.current) clearTimeout(seekDebounceRef.current);
+      seekDebounceRef.current = setTimeout(() => {
+        seekDebounceRef.current = null;
+        setSeekTarget(epoch);
+      }, SEEK_DEBOUNCE_MS);
+    },
+    [],
+  );
+
+  // Cancel any pending debounced seek on unmount.
+  useEffect(() => clearPendingSeek, [clearPendingSeek]);
+
+  // ── Data ────────────────────────────────────────────────────────────────────
+
+  const { data: nvrs = [] } = useNvrs();
+  const { data: allCameras = [] } = useCameras();
+
+  // ── Deep-link preselect (Live grid → "Watch in Playback") ──────────────────
+  // A live tile's context menu links here as /playback?nvr=<id>&ch=<channel>.
+  // Consume it once the camera list has loaded, preselecting NVR + camera and
+  // defaulting the date to today, then strip the params so later manual
+  // selection doesn't re-trigger it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    const nvrParam = searchParams.get("nvr");
+    const chParam = searchParams.get("ch");
+    if (!nvrParam || !chParam) return;
+    if (allCameras.length === 0) return; // wait for cameras to load
+
+    const channelNum = Number(chParam);
+    const cam = allCameras.find(
+      (c) => c.nvr_id === nvrParam && c.channel === channelNum && c.enabled,
+    );
+    deepLinkAppliedRef.current = true;
+    if (!cam) return;
+
+    setSelectedNvrId(nvrParam);
+    setSelectedCamId(cam.id);
+    const today = todayIso();
+    setSelectedDate(today);
+    setViewMonth(today.slice(0, 7));
+    setSeekTarget(null);
+    setPlayhead(null);
+    setSearchParams({}, { replace: true });
+  }, [allCameras, searchParams, setSearchParams]);
+
+  /** Cameras belonging to the selected NVR, enabled, sorted by channel. */
+  const cameras = allCameras
+    .filter((c) => c.nvr_id === selectedNvrId && c.enabled)
+    .sort((a, b) => a.channel - b.channel);
+
+  const selectedCam = cameras.find((c) => c.id === selectedCamId) ?? null;
+  /** 1-based channel passed to playback hooks (Contract #9 / channel 1-based). */
+  const channel = selectedCam?.channel ?? 0;
+
+  const hasSelection = !!selectedNvrId && channel > 0;
+
+  const { data: availabilityData } = useRecordingAvailability(
+    selectedNvrId ?? "",
+    channel,
+    viewMonth,
+    hasSelection,
+  );
+
+  const { data: indexData } = useRecordingIndex(
+    selectedNvrId ?? "",
+    channel,
+    selectedDate,
+    hasSelection && !!selectedDate,
+  );
+
+  // Fast-forward (2/4/8x) was removed: these recorders only stream footage at
+  // realtime over RTSP, so smooth server-side FF is impossible and client
+  // skip-seek froze (each jump restarts the stream slower than the jump). Fast
+  // navigation is the zoomable timeline — drag/click the playhead to seek. 1x
+  // playback is smooth (mp4-like).
+
+  // ── Snapshot (Task 15) ──────────────────────────────────────────────────────
+  // tzOffsetMinutes comes from the loaded RecordingIndex; default 0 before it loads.
+  const tzOffsetMinutes = indexData?.tz_offset_minutes ?? 0;
+  const { takeSnapshot, isAvailable: snapshotAvailable } = useSnapshot(
+    videoRef,
+    anchor,
+    tzOffsetMinutes,
+    selectedCam?.display_name ?? "",
+  );
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
+
+  function handleNvrChange(nvrId: string) {
+    setSelectedNvrId(nvrId || null);
+    // Changing NVR resets camera and date (brief requirement)
+    setSelectedCamId(null);
+    const today = todayIso();
+    setSelectedDate(today);
+    setViewMonth(today.slice(0, 7));
+    clearPendingSeek(); // drop any in-flight debounced seek so it can't override the reset
+    setSeekTarget(null);
+    setPlayhead(null);
+  }
+
+  function handleCamChange(camId: string) {
+    setSelectedCamId(camId || null);
+    clearPendingSeek();
+    setSeekTarget(null);
+    setPlayhead(null);
+  }
+
+  function handleDateSelect(val: string) {
+    // "YYYY-MM-DD" from the RecordingsCalendar popover.
+    setSelectedDate(val);
+    // Keep viewMonth in sync so availability refetches for the visible month
+    if (val.length >= 7) setViewMonth(val.slice(0, 7));
+    clearPendingSeek();
+    setSeekTarget(null);
+    setPlayhead(null);
+  }
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
+
+  /** Oldest available date from NVR retention data — used as min for date picker. */
+  const oldestDate: string | null =
+    availabilityData?.oldest_epoch != null
+      ? new Date(availabilityData.oldest_epoch * 1000).toISOString().slice(0, 10)
+      : null;
+
+  const maxDate = todayIso();
+
+  // playerState retained for Timeline (passes it as prop) and future overlays.
+
+  // ── Player gating ─────────────────────────────────────────────────────────────
+  // Contract #6: when /index returns zero clips for the day, never open the WS —
+  // PlaybackPage owns the "no_coverage" state. Otherwise start at the explicit
+  // seekTarget, falling back to the first clip's start.
+  const firstClipStart = indexData?.clips[0]?.start_epoch ?? null;
+  const effectiveSeek = seekTarget ?? firstClipStart;
+  const noCoverage = !!indexData && indexData.clips.length === 0;
+  // Non-Dahua recorders (e.g. Hikvision) don't support playback yet — the backend
+  // flags it so we show a clear message instead of an error / "no recordings".
+  const playbackUnsupported = indexData?.playback_supported === false;
+  const showPlayer =
+    hasSelection && !!selectedNvrId && !!indexData && !noCoverage && effectiveSeek != null;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-bg">
+      {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
+      <div
+        className={[
+          "flex flex-none flex-wrap items-end gap-3 border-b border-white/[.06] bg-[#0c1014] px-4 pt-2",
+          // Extra bottom padding reserves room for the absolutely-positioned
+          // "Oldest recording" hint under the date field so it never shifts
+          // the NVR/CAMERA/DATE controls off their shared baseline.
+          oldestDate ? "pb-5" : "pb-2",
+        ].join(" ")}
+      >
+        {/* NVR selector */}
+        <div className="flex flex-col gap-0.5">
+          <label
+            htmlFor="pb-nvr"
+            className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim"
+          >
+            {t("playback.nvr")}
+          </label>
+          <select
+            id="pb-nvr"
+            aria-label={t("playback.nvr")}
+            value={selectedNvrId ?? ""}
+            onChange={(e) => handleNvrChange(e.target.value)}
+            className="h-8 rounded-md border border-white/[.08] bg-[#161b22] px-2 text-sm text-ink-soft focus:outline-none focus:ring-1 focus:ring-accent/50"
+          >
+            <option value="">{t("playback.selectNvrPlaceholder")}</option>
+            {nvrs.map((nvr) => (
+              <option key={nvr.id} value={nvr.id}>
+                {nvr.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Camera selector */}
+        <div className="flex flex-col gap-0.5">
+          <label
+            htmlFor="pb-cam"
+            className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim"
+          >
+            {t("playback.camera")}
+          </label>
+          <select
+            id="pb-cam"
+            aria-label={t("playback.camera")}
+            value={selectedCamId ?? ""}
+            onChange={(e) => handleCamChange(e.target.value)}
+            disabled={!selectedNvrId || cameras.length === 0}
+            className="h-8 rounded-md border border-white/[.08] bg-[#161b22] px-2 text-sm text-ink-soft focus:outline-none focus:ring-1 focus:ring-accent/50 disabled:opacity-40"
+          >
+            <option value="">{t("playback.selectCameraPlaceholder")}</option>
+            {cameras.map((cam) => (
+              <option key={cam.id} value={cam.id}>
+                {cam.display_name} {t("playback.channelShort", { channel: cam.channel })}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Date picker — calendar popover highlighting days with recordings */}
+        <div className="relative">
+          <RecordingsCalendar
+            nvrId={selectedNvrId}
+            channel={channel}
+            selectedDate={selectedDate}
+            onSelect={handleDateSelect}
+            minDate={oldestDate}
+            maxDate={maxDate}
+            disabled={!selectedCamId}
+          />
+          {oldestDate && (
+            // Absolutely positioned so it never contributes to this column's
+            // flex height — keeps the DATE control on the same baseline as
+            // NVR/CAMERA regardless of whether this hint is shown.
+            <span className="pointer-events-none absolute left-0 top-full mt-0.5 whitespace-nowrap text-[10px] text-ink-dim">
+              {t("playback.oldestRecording", { date: oldestDate })}
+            </span>
+          )}
+        </div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* No speed selector: these recorders only stream at realtime, so 2/4/8x
+            fast-forward isn't possible. Fast navigation = drag the timeline. */}
+
+        {/* Transport toggle — Smooth (udp, default) vs Clear (tcp): per-playback
+            RTSP transport (Contract #10). Reopens the WS on change. */}
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1" aria-label={t("playback.transportControlLabel")}>
+            <button
+              aria-label={t("playback.smoothAriaLabel")}
+              title={t("playback.smoothTitle")}
+              aria-pressed={transport === "udp"}
+              onClick={() => setTransport("udp")}
+              className={[
+                "h-8 rounded-md px-3 text-sm font-semibold transition",
+                transport === "udp"
+                  ? "bg-accent/[.18] text-accent-light ring-1 ring-accent/30"
+                  : "text-ink-dim hover:bg-white/[.05] hover:text-ink-soft",
+              ].join(" ")}
+            >
+              {t("playback.smooth")}
+            </button>
+            <button
+              aria-label={t("playback.clearAriaLabel")}
+              title={t("playback.clearTitle")}
+              aria-pressed={transport === "tcp"}
+              onClick={() => setTransport("tcp")}
+              className={[
+                "h-8 rounded-md px-3 text-sm font-semibold transition",
+                transport === "tcp"
+                  ? "bg-accent/[.18] text-accent-light ring-1 ring-accent/30"
+                  : "text-ink-dim hover:bg-white/[.05] hover:text-ink-soft",
+              ].join(" ")}
+            >
+              {t("playback.clear")}
+            </button>
+          </div>
+          {transport === "tcp" && (
+            <span className="text-[10px] text-ink-dim">{t("playback.clearCaption")}</span>
+          )}
+        </div>
+
+        {/* Snapshot — enabled when snapshotAvailable (video ready + anchor set) */}
+        <button
+          aria-label={t("playback.snapshot")}
+          disabled={!snapshotAvailable}
+          title={snapshotAvailable ? t("playback.takeSnapshot") : t("playback.startPlaybackFirst")}
+          onClick={() => void takeSnapshot()}
+          className="flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-semibold text-ink-dim transition hover:bg-white/[.05] hover:text-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <CameraIcon size={15} />
+          {t("playback.snapshot")}
+        </button>
+      </div>
+
+      {/* ── Player area ─────────────────────────────────────────────────────── */}
+      {/* data-seek-target exposes seekTarget for Task 14 swap and test assertions */}
+      <div
+        className="relative min-h-0 flex-1 overflow-hidden bg-black"
+        data-testid="player-placeholder"
+        data-seek-target={seekTarget ?? ""}
+        {...zoom.containerProps}
+      >
+        {showPlayer && selectedNvrId && effectiveSeek != null ? (
+          <PlaybackPlayer
+            // Fresh session per NVR/camera/day (a new day = a new VOD session, not
+            // a mid-session cross-day seek). Within a day, drag-seeks reuse the WS.
+            key={`${selectedNvrId}-${channel}-${selectedDate}`}
+            nvrId={selectedNvrId}
+            channel={channel}
+            seekTarget={effectiveSeek}
+            // Always 1x — these recorders only stream at realtime, so there is no
+            // fast-forward (removed). Fast navigation is timeline scrubbing.
+            speed={1}
+            transport={transport}
+            videoRef={videoRef}
+            controlsRef={controlsRef}
+            videoStyle={zoom.videoStyle}
+            onStateChange={setPlayerState}
+            onPlayhead={setPlayhead}
+            onAnchorChange={setAnchor}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-ink-dim/50">
+            {nvrs.length === 0
+              ? t("playback.noRecorders")
+              : !selectedNvrId
+              ? t("playback.selectNvrToStart")
+              : !selectedCamId
+              ? t("playback.selectCameraPrompt")
+              : !selectedDate
+              ? t("playback.selectDatePrompt")
+              : playbackUnsupported
+              ? t("playback.notSupportedOnRecorder")
+              : noCoverage
+              ? t("playback.noCoverage")
+              : t("playback.loadingIndex")}
+          </div>
+        )}
+        {zoom.zoomed && (
+          <button
+            type="button"
+            onClick={zoom.reset}
+            title={t("playback.resetVideoZoom")}
+            aria-label={t("playback.resetVideoZoom")}
+            className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-white/15 bg-black/60 px-2 py-1 font-mono text-xs font-semibold text-ink-soft backdrop-blur transition hover:bg-black/80"
+          >
+            {zoom.scale.toFixed(1)}× · {t("playback.resetVideoZoom")}
+          </button>
+        )}
+      </div>
+
+      {/* ── Transport control bar ───────────────────────────────────────────── */}
+      {/* Mounted whenever we have a recording index for the day — drives play/pause
+          through the player's controlsRef and commits seeks via the debounced
+          commitSeek (same clamp-to-now + 250 ms debounce as the Timeline). */}
+      {indexData && !noCoverage && (
+        <TransportBar
+          playheadEpoch={playhead ?? seekTarget}
+          dayStartEpoch={indexData.day_start_epoch}
+          dayEndEpoch={indexData.day_end_epoch}
+          clips={indexData.clips}
+          tzOffsetMinutes={indexData.tz_offset_minutes}
+          onSeek={commitSeek}
+          playerState={playerState}
+          controlsRef={controlsRef}
+        />
+      )}
+
+      {/* ── Clip export bar (only while a Timeline selection exists) ─────────── */}
+      {indexData && exportSelection && selectedNvrId && (
+        <div className="flex flex-none items-center gap-2 border-t border-white/[.06] bg-[#0c1014] px-8 py-1.5">
+          <ClipExportButton
+            nvrId={selectedNvrId}
+            channel={channel}
+            selection={exportSelection}
+            onClear={() => setExportSelection(null)}
+          />
+        </div>
+      )}
+
+      {/* ── Timeline ────────────────────────────────────────────────────────── */}
+      <div className="flex-none border-t border-white/[.06] bg-[#0c1014] py-2">
+        {indexData ? (
+          <Timeline
+            // Key by nvr/camera/day so the Timeline's internal selection + zoom
+            // reset on any switch — else a range painted on day/camera A survives
+            // and Export would download the WRONG footage.
+            key={`${selectedNvrId}-${channel}-${selectedDate}`}
+            dayStartEpoch={indexData.day_start_epoch}
+            dayEndEpoch={indexData.day_end_epoch}
+            clips={indexData.clips}
+            tzOffsetMinutes={indexData.tz_offset_minutes}
+            playheadEpoch={playhead ?? seekTarget}
+            onSeek={commitSeek}
+            playerState={playerState}
+            onSelectionChange={setExportSelection}
+          />
+        ) : (
+          /*
+           * Placeholder shown before indexData arrives.
+           * data-testid preserved for PlaybackPage.test.tsx which mocks
+           * useRecordingIndex to return null data.
+           */
+          <div
+            className="flex h-16 items-center justify-center text-xs text-ink-dim/40"
+            data-testid="timeline-placeholder"
+          >
+            {hasSelection ? t("playback.loadingIndex") : t("playback.timelinePlaceholder")}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

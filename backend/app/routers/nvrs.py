@@ -28,7 +28,7 @@ from app.schemas import (
     SetChannelsRequest,
 )
 from app.services import camera_import, lockouts, nvr_events, relay_sync
-from app.services.discovery import detect_dahua_channels
+from app.services.discovery import detect_dahua_channels, detect_hikvision_channels
 from app.services.rtsp_probe import probe_rtsp, tcp_reachable
 
 log = logging.getLogger("dss.nvrs")
@@ -93,6 +93,22 @@ async def health_all(session: SessionDep, user: CurrentUser) -> list[NvrHealthRe
     return await asyncio.gather(*[_probe(n) for n in nvrs])
 
 
+@router.post("/reconcile")
+async def reconcile_streams(
+    session: SessionDep,
+    _: AdminUser,
+    delete_orphans: bool = True,
+) -> dict:
+    """Force a go2rtc reconcile from the current DB inventory (admin).
+
+    Reconcile already runs automatically after every inventory edit; this is the
+    manual trigger for when go2rtc was restarted out-of-band and lost streams, or
+    to push a cred change without bouncing. Declared before /{nvr_id} so that
+    route can't swallow 'reconcile' as an nvr_id.
+    """
+    return await relay_sync.reconcile(session, delete_orphans=delete_orphans)
+
+
 @router.get("/{nvr_id}", response_model=NvrRead)
 async def get_nvr(nvr_id: str, session: SessionDep, user: CurrentUser) -> NvrRead:
     nvr = (
@@ -113,6 +129,19 @@ def _derive_nvr_id(ip: str) -> str:
 _DEFAULT_FALLBACK_CHANNELS = 1
 
 
+async def _detect_channels(
+    vendor: Vendor, ip: str, username: str, password: str
+) -> int | None:
+    """Dispatch channel autodetect by vendor. Returns None for unknown vendors
+    or when the vendor-specific probe can't determine a count (caller falls
+    back to `_DEFAULT_FALLBACK_CHANNELS`)."""
+    if vendor == Vendor.dahua:
+        return await detect_dahua_channels(ip, username, password)
+    if vendor == Vendor.hikvision:
+        return await detect_hikvision_channels(ip, username, password)
+    return None
+
+
 async def _validate_region(session, region_id) -> None:
     """Reject a region_id that doesn't exist. SQLite won't enforce the FK on
     its own, and even on Postgres a clear 400 beats an opaque IntegrityError."""
@@ -128,7 +157,7 @@ async def _validate_region(session, region_id) -> None:
 @router.post("", response_model=NvrRead, status_code=status.HTTP_201_CREATED)
 async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrRead:
     """Create an NVR with safeguards against the classic footgun:
-    "wrong password gets written to DB → MediaMTX hammers RTSP with bad
+    "wrong password gets written to DB → go2rtc hammers RTSP with bad
     creds → NVR firmware IP-bans us for 30 minutes". We validate before
     we write, and refuse the write if creds are bad or IP is in cooldown.
 
@@ -186,7 +215,7 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
         if not result.ok:
             # Timeout / network error / unexpected status. The creds *might*
             # be right but we can't tell. Save the config but keep it disabled
-            # so MediaMTX won't repeatedly retry on a flaky host.
+            # so go2rtc won't repeatedly retry on a flaky host.
             enable_after_create = False
             notice = (
                 f"NVR unreachable during validation ({result.message}). "
@@ -199,10 +228,10 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
     # ── Channel auto-detect — only when caller didn't pin a value.
     channels = body.channels
     if channels is None:
-        if body.vendor == Vendor.dahua and not body.skip_probe:
+        if not body.skip_probe:
             try:
-                detected = await detect_dahua_channels(
-                    body.ip, body.rtsp_username, body.rtsp_password,
+                detected = await _detect_channels(
+                    body.vendor, body.ip, body.rtsp_username, body.rtsp_password,
                 )
             except Exception as e:  # noqa: BLE001
                 log.warning("Channel autodetect for %s errored: %s", nvr_id, e)
@@ -249,7 +278,7 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
     # cameras from day one (the NVR relay drops packets on main — audit §9).
     # Failure is non-fatal: the operator can run it later via
     # POST /nvrs/{id}/import-camera-ips.
-    if body.vendor == Vendor.dahua and not body.skip_probe:
+    if body.vendor in (Vendor.dahua, Vendor.hikvision) and not body.skip_probe:
         try:
             _, imported = await camera_import.apply_camera_ips(session, nvr)
             if imported:
@@ -259,14 +288,14 @@ async def create_nvr(body: NvrCreate, session: SessionDep, _: AdminUser) -> NvrR
                 )
         except Exception as e:  # noqa: BLE001
             log.warning("NVR %s: camera IP import failed (non-fatal): %s", nvr.id, e)
-    # Push paths to MediaMTX so the new cameras are immediately playable.
-    # Best-effort: if MediaMTX is unreachable we still return 201 so the DB
+    # Push streams to go2rtc so the new cameras are immediately playable.
+    # Best-effort: if go2rtc is unreachable we still return 201 so the DB
     # row stays. Reconcile is idempotent and the operator can retry via
-    # POST /mediamtx/reconcile once MediaMTX is back.
+    # POST /nvrs/reconcile once go2rtc is back.
     try:
         await relay_sync.reconcile(session, delete_orphans=False)
     except Exception as e:
-        log.warning("NVR %s created in DB but MediaMTX reconcile failed: %s", nvr.id, e)
+        log.warning("NVR %s created in DB but go2rtc reconcile failed: %s", nvr.id, e)
     return _to_read(nvr, create_notice=notice)
 
 
@@ -298,7 +327,7 @@ async def update_nvr(
     cred_changed = bool(cred_fields & data.keys())
     # A disabled→enabled transition must re-validate creds too, even if they
     # didn't change: the NVR may have been auto-disabled by the watchdog for a
-    # wrong stored password. Re-enabling without a probe would put MediaMTX
+    # wrong stored password. Re-enabling without a probe would put go2rtc
     # straight back into the 401-loop that triggers the firmware IP-ban.
     enabling = final_enabled and not nvr.enabled
 
@@ -317,7 +346,7 @@ async def update_nvr(
     # Guard 2: if the caller is changing RTSP creds (ip/port/user/pass) OR
     # turning a disabled NVR back on, validate the effective creds first.
     # Saving a typo'd password to an enabled NVR — or re-enabling one that was
-    # auto-disabled for bad creds — is the exact path that gets MediaMTX to
+    # auto-disabled for bad creds — is the exact path that gets go2rtc to
     # hammer the NVR with 401s and trigger a firmware-side ban.
     if final_enabled and (cred_changed or enabling):
         final_pw = (
@@ -344,7 +373,7 @@ async def update_nvr(
                 f"Update refused: {result.message}. NVR row not changed.",
             )
         # Unreachable / non-auth failure: trust the operator and apply, but
-        # they'll see paths fail in MediaMTX until the NVR comes back online.
+        # they'll see streams fail in go2rtc until the NVR comes back online.
 
     if "rtsp_password" in data:
         nvr.rtsp_password_encrypted = encrypt_password(data.pop("rtsp_password"))
@@ -362,12 +391,12 @@ async def update_nvr(
     await session.refresh(nvr, attribute_names=["cameras"])
     log.info("NVR updated id=%s fields=%s", nvr_id, list(data.keys()))
     # Re-push: fields like ip / port / rtsp creds / enabled change the
-    # MediaMTX source URL or the desired set of paths. Non-fatal: a 200
-    # still goes back if MediaMTX is unreachable.
+    # go2rtc source URL or the desired set of streams. Non-fatal: a 200
+    # still goes back if go2rtc is unreachable.
     try:
         await relay_sync.reconcile(session, delete_orphans=True)
     except Exception as e:
-        log.warning("NVR %s saved in DB but MediaMTX reconcile failed: %s", nvr_id, e)
+        log.warning("NVR %s saved in DB but go2rtc reconcile failed: %s", nvr_id, e)
     return _to_read(nvr)
 
 
@@ -413,12 +442,12 @@ async def set_channels(
     ).scalar_one()
     log.info("NVR %s set-channels count=%d added=%d removed=%d",
              nvr_id, body.count, added, removed)
-    # Push the new/removed paths to MediaMTX. delete_orphans=True so pruned
-    # channels' paths are torn down too.
+    # Push the new/removed streams to go2rtc. delete_orphans=True so pruned
+    # channels' streams are torn down too.
     try:
         await relay_sync.reconcile(session, delete_orphans=True)
     except Exception as e:
-        log.warning("NVR %s set-channels saved but MediaMTX reconcile failed: %s", nvr_id, e)
+        log.warning("NVR %s set-channels saved but go2rtc reconcile failed: %s", nvr_id, e)
 
     notice_bits = []
     if added:
@@ -449,10 +478,10 @@ async def import_camera_ips(
     ).scalar_one_or_none()
     if nvr is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "NVR not found")
-    if nvr.vendor != Vendor.dahua:
+    if nvr.vendor not in (Vendor.dahua, Vendor.hikvision):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Camera IP import is only implemented for Dahua NVRs.",
+            f"Camera IP import is not implemented for {nvr.vendor} NVRs.",
         )
 
     try:
@@ -467,7 +496,7 @@ async def import_camera_ips(
         try:
             await relay_sync.reconcile(session, delete_orphans=False)
         except Exception as e:  # noqa: BLE001
-            log.warning("NVR %s: IPs saved but MediaMTX reconcile failed: %s", nvr_id, e)
+            log.warning("NVR %s: IPs saved but go2rtc reconcile failed: %s", nvr_id, e)
 
     return CameraIpImportResult(
         nvr_id=nvr_id,

@@ -1,8 +1,10 @@
+import { useTranslation } from "react-i18next";
 import { useCameras, useNvrs } from "@/api/hooks";
 import type { Camera } from "@/api/types";
 
 /** Honest "concurrent streams" estimate from enabled cameras + their stream variants. */
 export function PerformancePanel() {
+  const { t } = useTranslation();
   const cameras = useCameras();
   const nvrs = useNvrs();
 
@@ -18,17 +20,20 @@ export function PerformancePanel() {
   return (
     <div className="rounded-2xl border border-white/[.06] bg-white/[.02] px-4 py-4">
       <div className="mb-3 text-2xs font-extrabold uppercase tracking-[1.2px] text-ink-faint">
-        Performance
+        {t("nvrs.performance")}
       </div>
       <div className="flex items-center gap-3">
-        <span className="text-base text-ink-mute">Concurrent streams</span>
+        <span className="text-base text-ink-mute">{t("nvrs.concurrentStreams")}</span>
         <div className="flex h-9 min-w-[64px] items-center justify-center rounded-lg border border-white/[.07] bg-deep px-3 font-mono text-base font-bold text-ink">
           {cameras.isLoading ? "…" : concurrent}
         </div>
       </div>
       <div className="mt-2 text-xs text-ink-dim">
-        {nvrCount} NVR{nvrCount === 1 ? "" : "s"} · {enabledCams.length} of {cams.length} cameras
-        enabled
+        {t("nvrs.performanceSummary", {
+          count: nvrCount,
+          enabled: enabledCams.length,
+          total: cams.length,
+        })}
       </div>
     </div>
   );

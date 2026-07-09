@@ -7,12 +7,25 @@ import NvrManagement from "@/features/nvrs/NvrManagement";
 import CameraChannels from "@/features/nvrs/CameraChannels";
 import UsersPage from "@/features/users/UsersPage";
 import SettingsPage from "@/features/settings/SettingsPage";
+import PlaybackPage from "@/features/playback/PlaybackPage";
+import LicensePage from "@/features/license/LicensePage";
+import SetupWizard from "@/features/setup/SetupWizard";
+import { SetupGate } from "@/features/setup/SetupGate";
 
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* First-run setup — full-screen (outside AppShell), admin-only. */}
+        <Route
+          path="/setup"
+          element={
+            <RequireAuth adminOnly>
+              <SetupWizard />
+            </RequireAuth>
+          }
+        />
         <Route
           element={
             <RequireAuth>
@@ -20,7 +33,14 @@ export default function App() {
             </RequireAuth>
           }
         >
-          <Route index element={<LiveWall />} />
+          <Route
+            index
+            element={
+              <SetupGate>
+                <LiveWall />
+              </SetupGate>
+            }
+          />
           <Route
             path="nvrs"
             element={
@@ -46,6 +66,8 @@ export default function App() {
             }
           />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="playback" element={<PlaybackPage />} />
+          <Route path="license" element={<LicensePage />} />
         </Route>
       </Routes>
     </AuthProvider>

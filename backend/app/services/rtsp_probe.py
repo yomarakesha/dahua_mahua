@@ -120,7 +120,7 @@ def build_rtsp_url(
     password: str | None = None,
 ) -> str:
     """Build vendor-specific RTSP URL. Credentials are optional (used by both
-    the probe and MediaMTX path generation)."""
+    the probe and go2rtc stream generation)."""
     from urllib.parse import quote
 
     vendor_str = vendor.value if isinstance(vendor, Vendor) else (vendor or "dahua").lower()
