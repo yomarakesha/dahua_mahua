@@ -12,6 +12,27 @@ export interface LicenseLimits {
   max_nvrs: number | null;
 }
 
+/** Enforcement state machine (mirrors backend licensing.license_state). */
+export type LicenseState =
+  | "valid"
+  | "grace"
+  | "expired"
+  | "missing"
+  | "invalid"
+  | "mismatch";
+
+/** States in which the backend hard-blocks the protected API when enforced. */
+export const BLOCKED_STATES: readonly LicenseState[] = [
+  "expired",
+  "missing",
+  "invalid",
+  "mismatch",
+];
+
+export function isBlockedState(state: LicenseState | undefined): boolean {
+  return !!state && BLOCKED_STATES.includes(state);
+}
+
 export interface LicenseStatus {
   valid: boolean;
   reason: string;
@@ -23,6 +44,12 @@ export interface LicenseStatus {
   limits: LicenseLimits;
   days_left: number | null;
   fingerprint: string;
+  // Enforcement view (added by the backend GET /license). `enforced` is the
+  // deployment flag; `state` is the computed state; grace_days_left is only
+  // meaningful in the "grace" state.
+  state: LicenseState;
+  enforced: boolean;
+  grace_days_left: number | null;
 }
 
 export function fetchLicense(): Promise<LicenseStatus> {

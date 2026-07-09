@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, text
 
 from app.db import Base, SessionLocal, engine
-from app.middleware import RequestIDMiddleware
+from app.middleware import LicenseEnforcementMiddleware, RequestIDMiddleware
 from app.models import User, Role  # noqa: F401  (ensure mappers register before create_all)
 from app.routers import (
     auth,
@@ -228,6 +228,12 @@ def create_app() -> FastAPI:
     # Correlation id + JSON 500 on unhandled HTTP errors. Added before CORS so
     # it runs innermost (closest to the route); WebSocket routes are untouched.
     app.add_middleware(RequestIDMiddleware)
+
+    # License enforcement (NO-OP unless license_enforcement_enabled). Added AFTER
+    # RequestID and BEFORE CORS so CORS stays the OUTERMOST middleware — it then
+    # handles OPTIONS preflight and decorates even a 402 block response with the
+    # ACAO headers the browser needs to read it.
+    app.add_middleware(LicenseEnforcementMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

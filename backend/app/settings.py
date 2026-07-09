@@ -47,6 +47,22 @@ class Settings(BaseSettings):
     brand_accent: str = "#43e088"
     brand_logo_url: str = ""
 
+    # ── License enforcement ──────────────────────────────────────────────────
+    # The app is deployed and running WITHOUT any license today, so enforcement
+    # ships DEFAULT OFF: when False the licensing subsystem only *reports* status
+    # (the License page + GET /license) and NOTHING is ever blocked — behaviour is
+    # byte-for-byte today's. An operator flips LICENSE_ENFORCEMENT_ENABLED=true
+    # only AFTER they've generated keys and installed a valid `.lic`. When True the
+    # grace→hard-block policy in licensing.license_state() activates: a valid or
+    # in-grace license runs the full app; an expired-past-grace / missing / invalid
+    # / machine-mismatched license gets protected API routes rejected with HTTP 402
+    # (login + the license-activation + health + branding endpoints stay open so an
+    # admin can recover by installing a fresh license without a shell).
+    license_enforcement_enabled: bool = False
+    # Days past `expires` that the app keeps working (with a renewal warning
+    # banner) before it hard-blocks. Only meaningful when enforcement is ON.
+    license_grace_days: int = 7
+
     # ── Logging ──────────────────────────────────────────────────────────────
     # On NSSM (Windows service) stderr is not persisted, so add a rotating file
     # handler alongside the stream handler. Empty string disables the file

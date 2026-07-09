@@ -386,6 +386,72 @@ def verify_license(
     )
 
 
+# ── License state machine (grace → hard-block) ───────────────────────────────
+# The set of states in which enforcement (when ON) hard-blocks the protected API.
+# ``valid`` and ``grace`` are allowed through; everything else is a block.
+BLOCKED_STATES = frozenset({"expired", "missing", "invalid", "mismatch"})
+
+
+def license_state(
+    status: LicenseStatus | None = None,
+    *,
+    today: datetime | date | None = None,
+    grace_days: int = 0,
+) -> dict[str, Any]:
+    """Classify a verified license into an enforcement state. Pure + testable.
+
+    Returns ``{"state", "days_left", "grace_days_left"}`` where ``state`` is one of:
+      • ``valid``    — signed, machine-matched, not expired (or perpetual).
+      • ``grace``    — signed + machine-matched but EXPIRED, within ``grace_days``
+                       of ``expires`` → app keeps working with a renewal warning.
+      • ``expired``  — past ``expires`` AND past the grace window → block.
+      • ``missing``  — no license file installed → block.
+      • ``invalid``  — bad/absent signature, tampered, or unverifiable → block.
+      • ``mismatch`` — signature valid but bound to a different machine → block.
+
+    ``today`` is injectable so expiry/grace boundaries are deterministic in tests;
+    it defaults to the current UTC date. ``days_left`` is the (possibly negative)
+    day count to ``expires``; ``grace_days_left`` is how many grace days remain
+    (only set for the grace state, ``None`` otherwise).
+
+    Reason strings from ``verify_license`` are used to disambiguate the failure
+    kinds — the same substring convention the frontend already relies on. Expiry
+    itself is re-decided here from ``expires`` vs ``today`` so a license that was
+    valid at verify-time is correctly rolled into grace/expired as the clock moves.
+    """
+    if status is None:
+        status = get_status()
+    when = _today(today)
+    reason = (status.reason or "").lower()
+
+    # A signature-valid, machine-matched license reaches verify's expiry check —
+    # so it is either ``valid`` (status.valid) or rejected solely for expiry
+    # ("...has expired"). Both mean crypto + hardware binding are sound; only the
+    # clock decides valid / grace / expired from here.
+    crypto_and_machine_ok = status.valid or "expired" in reason
+    if crypto_and_machine_ok:
+        exp_raw = status.expires
+        if exp_raw in (None, "", "null"):
+            return {"state": "valid", "days_left": None, "grace_days_left": None}
+        exp_date = _parse_date(str(exp_raw))
+        if exp_date is None:
+            # Expiry present but unparseable → treat as invalid (never runs).
+            return {"state": "invalid", "days_left": None, "grace_days_left": None}
+        days_left = (exp_date - when).days
+        if days_left >= 0:
+            return {"state": "valid", "days_left": days_left, "grace_days_left": None}
+        grace_left = grace_days + days_left  # days_left is negative here
+        if grace_left >= 0:
+            return {"state": "grace", "days_left": days_left, "grace_days_left": grace_left}
+        return {"state": "expired", "days_left": days_left, "grace_days_left": grace_left}
+
+    if "no license" in reason or "empty" in reason or "unreadable" in reason:
+        return {"state": "missing", "days_left": None, "grace_days_left": None}
+    if "machine" in reason:  # "License is bound to a different machine"
+        return {"state": "mismatch", "days_left": None, "grace_days_left": None}
+    return {"state": "invalid", "days_left": None, "grace_days_left": None}
+
+
 # ── Loading from disk + cache ────────────────────────────────────────────────
 def license_path() -> Path:
     override = os.environ.get(ENV_LICENSE_FILE)

@@ -41,3 +41,66 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             )
         response.headers["X-Request-ID"] = request_id
         return response
+
+
+class LicenseEnforcementMiddleware(BaseHTTPMiddleware):
+    """Hard-block the protected API when the license is not runnable.
+
+    NO-OP unless ``settings.license_enforcement_enabled`` is True — so the live
+    deployment (running today with no license installed) is completely unaffected
+    until an operator opts in. When enforcement is ON and the current license
+    state is one of ``licensing.BLOCKED_STATES`` (expired-past-grace / missing /
+    invalid / mismatch), every request is rejected with **HTTP 402 Payment
+    Required** and a JSON body ``{"error": "license_blocked", "state": "<state>"}``
+    — except an allow-list that MUST stay reachable so an admin can recover:
+
+      • the license endpoints  (…/license  — GET status + POST activate),
+      • the auth endpoints     (…/auth/*   — log in),
+      • branding               (…/branding — the block screen themes itself),
+      • liveness/readiness      (/healthz, /health, /readyz).
+
+    The ``grace`` and ``valid`` states never block. WebSocket scopes are untouched
+    (BaseHTTPMiddleware only wraps HTTP); the REST inventory routes are blocked, so
+    the app is unusable regardless — and a WS can't carry a 402 anyway.
+    """
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        from app import licensing
+        from app.settings import get_settings
+
+        settings = get_settings()
+        if not settings.license_enforcement_enabled:
+            return await call_next(request)
+
+        if self._is_allowed(request.url.path, settings.api_prefix):
+            return await call_next(request)
+
+        try:
+            info = licensing.license_state(
+                grace_days=settings.license_grace_days,
+            )
+            state = info.get("state", "invalid")
+        except Exception:  # noqa: BLE001 — never let the gate itself crash the API
+            log.exception("license enforcement check failed — allowing request")
+            return await call_next(request)
+
+        if state in licensing.BLOCKED_STATES:
+            return JSONResponse(
+                status_code=402,
+                content={"error": "license_blocked", "state": state},
+            )
+        return await call_next(request)
+
+    @staticmethod
+    def _is_allowed(path: str, api_prefix: str) -> bool:
+        # Always-open liveness/readiness probes (no prefix).
+        if path in ("/healthz", "/health", "/readyz"):
+            return True
+        prefix = api_prefix.rstrip("/")
+        # …/license and …/license/* (status + activation), …/auth/* (login),
+        # …/branding (block-screen theming).
+        for sub in ("/license", "/auth", "/branding"):
+            base = f"{prefix}{sub}"
+            if path == base or path.startswith(base + "/"):
+                return True
+        return False

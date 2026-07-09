@@ -28,7 +28,8 @@
     "hidePassword": "Hide password",
     "connecting": "connecting",
     "signalLost": "signal lost",
-    "retryStream": "Retry stream"
+    "retryStream": "Retry stream",
+    "dismiss": "Dismiss"
   },
   "nav": {
     "live": "Live",
@@ -359,6 +360,20 @@
     "title": "License",
     "subtitle": "Activation, entitlements and machine binding",
     "adminOnlyNotice": "Only an administrator can install or update the license file."
+  },
+  "licenseGate": {
+    "blockedTitle": "License required",
+    "state": {
+      "valid": "Your license is active.",
+      "grace": "Your license has expired but is within the renewal grace period.",
+      "expired": "Your license has expired and the renewal grace period is over.",
+      "missing": "No license is installed on this machine.",
+      "invalid": "The installed license is invalid or has been tampered with.",
+      "mismatch": "The installed license is bound to a different machine."
+    },
+    "contactAdmin": "Please contact your administrator to activate a license for this machine.",
+    "loginAsAdmin": "Log in as administrator",
+    "graceWarning": "Your license has expired — {{days}} day(s) left to renew before access is blocked."
   },
   "setup": {
     "subtitle": "First-run setup",

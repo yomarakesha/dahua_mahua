@@ -182,6 +182,95 @@ def test_status_to_dict_shape(keys):
     assert d["limits"] == {"max_cameras": 64, "max_nvrs": 8}
 
 
+# ── license_state: grace → hard-block state machine ──────────────────────────
+GRACE = 7
+
+
+def _state(priv, pem, *, today, expires, fingerprint=FP, verify_fp=FP, grace=GRACE):
+    doc = _make(priv, expires=expires, fingerprint=fingerprint)
+    status = licensing.verify_license(
+        json.dumps(doc), pubkey=pem, fingerprint=verify_fp, now=today
+    )
+    return licensing.license_state(status, today=today, grace_days=grace)
+
+
+def test_state_valid_before_expiry(keys):
+    priv, _pub, pem = keys
+    # expiry-1: valid
+    r = _state(priv, pem, today=date(2026, 1, 9), expires="2026-01-10")
+    assert r["state"] == "valid"
+    assert r["days_left"] == 1
+    assert r["grace_days_left"] is None
+
+
+def test_state_valid_on_expiry_day(keys):
+    priv, _pub, pem = keys
+    r = _state(priv, pem, today=date(2026, 1, 10), expires="2026-01-10")
+    assert r["state"] == "valid" and r["days_left"] == 0
+
+
+def test_state_perpetual_is_valid(keys):
+    priv, _pub, pem = keys
+    r = _state(priv, pem, today=date(2026, 1, 10), expires=None)
+    assert r["state"] == "valid" and r["days_left"] is None
+
+
+def test_state_grace_one_day_past_expiry(keys):
+    priv, _pub, pem = keys
+    # expiry+1, within grace → grace
+    r = _state(priv, pem, today=date(2026, 1, 11), expires="2026-01-10")
+    assert r["state"] == "grace"
+    assert r["days_left"] == -1
+    assert r["grace_days_left"] == GRACE - 1  # 6
+
+
+def test_state_grace_last_day_of_window(keys):
+    priv, _pub, pem = keys
+    # expiry+grace exactly → still grace (grace_days_left == 0)
+    r = _state(priv, pem, today=date(2026, 1, 17), expires="2026-01-10")
+    assert r["state"] == "grace"
+    assert r["grace_days_left"] == 0
+
+
+def test_state_expired_past_grace(keys):
+    priv, _pub, pem = keys
+    # expiry+grace+1 → expired (blocked)
+    r = _state(priv, pem, today=date(2026, 1, 18), expires="2026-01-10")
+    assert r["state"] == "expired"
+    assert r["grace_days_left"] == -1
+
+
+def test_state_missing_when_no_file(tmp_path):
+    status = licensing.load_license(tmp_path / "nope.lic")
+    r = licensing.license_state(status, today=date(2026, 1, 1), grace_days=GRACE)
+    assert r["state"] == "missing"
+
+
+def test_state_invalid_on_tamper(keys):
+    priv, _pub, pem = keys
+    doc = _make(priv)
+    doc["max_cameras"] = 9999  # break the signature
+    status = licensing.verify_license(json.dumps(doc), pubkey=pem, fingerprint=FP)
+    r = licensing.license_state(status, today=date(2026, 1, 1), grace_days=GRACE)
+    assert r["state"] == "invalid"
+
+
+def test_state_mismatch_on_wrong_machine(keys):
+    priv, _pub, pem = keys
+    doc = _make(priv)
+    status = licensing.verify_license(
+        json.dumps(doc), pubkey=pem, fingerprint="deadbeef" * 4
+    )
+    r = licensing.license_state(status, today=date(2026, 1, 1), grace_days=GRACE)
+    assert r["state"] == "mismatch"
+
+
+def test_blocked_states_set():
+    assert licensing.BLOCKED_STATES == {"expired", "missing", "invalid", "mismatch"}
+    assert "valid" not in licensing.BLOCKED_STATES
+    assert "grace" not in licensing.BLOCKED_STATES
+
+
 def test_issue_tool_roundtrip(tmp_path, monkeypatch):
     """The CLI issuer signs a license our verifier accepts."""
     from tools import issue_license
