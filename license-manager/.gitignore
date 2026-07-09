@@ -1,9 +1,0 @@
-# Never commit the signing keys, the client registry, or minted licenses.
-data/
-vendor-keys/
-*.db
-*.db-shm
-*.db-wal
-*.lic
-__pycache__/
-*.pyc

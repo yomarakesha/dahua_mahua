@@ -69,3 +69,6 @@ console-dump.txt
 netcheck-result.md
 netcheck-mac-result.md
 docs/rtcstats_dump*.gz
+
+# Vendor-only license manager — LOCAL ONLY, never pushed
+/license-manager/
