@@ -250,11 +250,12 @@ export function FullscreenView({ cam, onClose }: Props) {
                   className="absolute inset-0 h-full w-full transition-opacity duration-300"
                   style={{ opacity: layers.mainOpaque ? 1 : 0 }}
                 >
-                  {/* 4MP main. mode="webrtc,mse" by default: the vendor races
-                      WebRTC (drop-late → smooth) against MSE (buffered fallback) on
-                      the SAME <video>; onStatus goes "live" when currentTime starts
-                      advancing (either transport), which drives the cross-fade.
-                      key={mainMode} remounts on an engine toggle so el.mode reapplies. */}
+                  {/* 4MP main. mode="webrtc" by default (drop-late → smooth); an
+                      app-level 6s/error fallback flips to single "mse" (buffered)
+                      — NOT the vendor "webrtc,mse" race, which overflowed the MSE
+                      buffer. onStatus goes "live" when currentTime advances, driving
+                      the cross-fade. key={mainMode} remounts on toggle/fallback so
+                      el.mode reapplies. */}
                   <MsePlayer
                     key={mainMode}
                     src={streamName(cam, "main", viaNvr)}

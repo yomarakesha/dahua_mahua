@@ -128,9 +128,6 @@
     "date": "Date",
     "channelShort": "ch{{channel}}",
     "oldestRecording": "Oldest recording: {{date}}",
-    "speedControlLabel": "Playback speed",
-    "speedButton": "{{speed}}× speed",
-    "speedLabel": "{{speed}}×",
     "transportControlLabel": "Playback transport",
     "smoothAriaLabel": "Smooth transport (UDP)",
     "smoothTitle": "Smooth — real-time, may show artifacts on weak links",
@@ -170,7 +167,6 @@
     "stepForward": "Forward 10 seconds",
     "jumpToStart": "Jump to first recording",
     "jumpToEnd": "Jump to last recording",
-    "cyclePlaybackSpeed": "Playback speed — {{speed}}× (click to change)",
     "currentFootageTime": "Current footage time",
     "openCalendar": "Open calendar",
     "previousMonth": "Previous month",
@@ -184,7 +180,6 @@
     "exportFailed": "Export failed — try again",
     "resetVideoZoom": "Reset zoom",
     "noRecorders": "No recorders yet — add one in NVR Management to review footage.",
-    "ffSampled": "Fast-forward samples the recording in steps — this recorder only streams at realtime, so 2×/4×/8× jump-scan rather than play smoothly.",
     "notSupportedOnRecorder": "Playback isn't available for this recorder yet (Hikvision recorders use a different system). Live view works normally."
   },
   "nvrs": {

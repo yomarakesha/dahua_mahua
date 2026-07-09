@@ -1356,11 +1356,16 @@ async def export_recording_clip(
         ) from exc
 
     # ── Run ffmpeg into a temp MP4 (faststart needs a seekable output) ────────
-    password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
-    fd, out_path = tempfile.mkstemp(suffix=".mp4", prefix=_CLIP_TEMP_PREFIX, dir=temp_dir)
-    os.close(fd)  # ffmpeg (re)creates it with -y; we just reserved the path
-    overall_timeout = duration / _MIN_PULL_FACTOR + _PULL_HEADROOM_SECONDS
+    # decrypt_password (raises on a rotated/invalid Fernet key) and mkstemp
+    # (raises on disk-full/permission) run INSIDE the try so the ``finally``
+    # still releases the acquired NVR slot — else a decrypt/mkstemp failure would
+    # permanently leak a slot and eventually 429-lock all playback for this NVR.
+    out_path: str | None = None
     try:
+        password = decrypt_password(nvr.rtsp_password_encrypted)  # never logged
+        fd, out_path = tempfile.mkstemp(suffix=".mp4", prefix=_CLIP_TEMP_PREFIX, dir=temp_dir)
+        os.close(fd)  # ffmpeg (re)creates it with -y; we just reserved the path
+        overall_timeout = duration / _MIN_PULL_FACTOR + _PULL_HEADROOM_SECONDS
         await export_clip(
             ip=nvr.ip,
             rtsp_port=nvr.port,  # Contract #9: nvr.port is the RTSP port
@@ -1377,7 +1382,8 @@ async def export_recording_clip(
             transport="tcp",  # Contract #10: reliability over speed for a saved file
         )
     except ClipExportError as exc:
-        _cleanup_file(out_path)
+        if out_path:
+            _cleanup_file(out_path)
         # Log the (already-redacted) reason only; never the credentialed URL.
         log.warning("clip export failed nvr=%s ch=%d: %s", nvr_id, channel, exc)
         raise HTTPException(
@@ -1385,7 +1391,8 @@ async def export_recording_clip(
         ) from exc
     except BaseException:
         # Cancellation or any other failure: never leak the temp file.
-        _cleanup_file(out_path)
+        if out_path:
+            _cleanup_file(out_path)
         raise
     finally:
         # Release the NVR slot on EVERY exit path (success, 502, cancel, error).

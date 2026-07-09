@@ -20,8 +20,11 @@ brief):
   blocking the reader would stall ffmpeg's RTSP pipeline.
 * **#12 Credential hygiene** — the password and the credentialed RTSP URL are
   never logged; URLs are redacted to ``***`` before any log line.
-* **#13 Speed = backend-owned** — server-side frame decimation; the speed
-  filter appears in ``argv`` only when ``speed > 1``.
+* **#13 Speed** — NO server-side fast-forward. This NVR streams recordings at
+  ~realtime and frame-decimation produced a black screen, so ffmpeg always
+  plays 1x; ``speed`` is retained in the API/log only. Client-side skip-seek FF
+  was tried and also removed (respawn latency froze it) — fast navigation is the
+  timeline. ``speed`` never appears in ``argv``.
 """
 
 from __future__ import annotations
@@ -37,7 +40,6 @@ from typing import AsyncIterator
 
 from app.services.lockouts import get_active_lockout, record_lockout
 from app.services.playback.url_builder import (
-    SPEED_WHITELIST,
     PlaybackUrlError,
     build_playback_url,
     epoch_to_nvr_local,
@@ -112,19 +114,15 @@ def _build_ffmpeg_argv(
 ) -> list[str]:
     """Build the ffmpeg argv for playback (list, no shell).
 
-    Output: fMP4 on stdout (``pipe:1``).  Audio: transcoded to AAC.
-    Speed > 1: an I-frame-stride filter drops non-keyframe frames and remaps
-    PTS so the output plays at realtime pace on the client (each output second
-    covers ``speed`` seconds of footage).
+    Output: fMP4 on stdout (``pipe:1``).  Audio dropped (``-an``).
+    ALWAYS plays 1x — there is no server-side speed (the ``speed`` arg is
+    accepted for back-compat but never changes the argv; see module docstring
+    #13). Fast-forward is not done here.
 
     ``transport`` — RTSP transport for the ffmpeg input (``"udp"`` or
     ``"tcp"``). UDP (default) is near-realtime but lossy on this NVR; TCP is
     clean but slow (Contract #10). Callers must validate the value before
     calling this (only "udp"/"tcp" are meaningful to ffmpeg).
-
-    Note: the exact ``-vf`` filter for speed>1 must be validated during
-    integration testing.  The signature and structure are specced here; the
-    runtime ffmpeg behaviour is not unit-testable.
     """
     argv = [
         ffbin,

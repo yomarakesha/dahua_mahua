@@ -128,9 +128,6 @@
     "date": "Sene",
     "channelShort": "kan{{channel}}",
     "oldestRecording": "Iň köne ýazgy: {{date}}",
-    "speedControlLabel": "Ýaýlym tizligi",
-    "speedButton": "{{speed}}× tizlik",
-    "speedLabel": "{{speed}}×",
     "transportControlLabel": "Ýaýlym geçiriş usuly",
     "smoothAriaLabel": "Tekiz geçiriş (UDP)",
     "smoothTitle": "Tekiz — hakyky wagt, gowşak baglanyşyklarda artefaktlar bolup biler",
@@ -170,7 +167,6 @@
     "stepForward": "10 sekunt öňe",
     "jumpToStart": "Ilkinji ýazga geç",
     "jumpToEnd": "Soňky ýazga geç",
-    "cyclePlaybackSpeed": "Görkeziş tizligi — {{speed}}× (üýtgetmek üçin basyň)",
     "currentFootageTime": "Häzirki ýazgy wagty",
     "openCalendar": "Kalendary aç",
     "previousMonth": "Öňki aý",
@@ -184,7 +180,6 @@
     "exportFailed": "Ýükleme şowsuz — gaýtadan synanyşyň",
     "resetVideoZoom": "Ulaltmany dikeld",
     "noRecorders": "Heniz ýazyjy ýok — ýazgylary görmek üçin NVR bölüminden goşuň.",
-    "ffSampled": "Çalt geçiş ýazgyny böleklär bilen görkezýär — bu ýazyjy diňe hakyky wagtda akym berýär, şonuň üçin 2×/4×/8× tekiz oýnaman, böküp gözden geçirýär.",
     "notSupportedOnRecorder": "Bu ýazyjy üçin oýnatmak entek elýeterli däl (Hikvision ýazyjylary başga ulgam ulanýar). Janly görnüş kadaly işleýär."
   },
   "nvrs": {
