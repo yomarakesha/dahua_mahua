@@ -1,0 +1,7 @@
+# License Manager — vendor-side panel.
+# It also reuses the backend's `cryptography` (imported via app.licensing), so
+# the simplest way to run it is inside the backend's virtualenv, which already
+# has all of these:  source backend/.venv/bin/activate
+fastapi>=0.115
+uvicorn[standard]>=0.32
+cryptography>=43.0   # provided by the backend; needed for Ed25519 signing

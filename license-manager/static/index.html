@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kanagatly · License Manager</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel-2: #1c2230; --border: #2a3341;
+    --text: #e6edf3; --muted: #8b98a9; --accent: #4c8dff; --accent-2: #2f6bd6;
+    --green: #3fb950; --amber: #d9a441; --red: #f0605d; --violet: #a371f7;
+    --radius: 10px; --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header.top {
+    display: flex; align-items: center; gap: 14px; padding: 16px 24px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header.top h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header.top .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--border);
+    padding: 2px 8px; border-radius: 20px; }
+  header.top .spacer { flex: 1; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 380px; gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+    margin: 0; padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .card .body { padding: 16px 18px; }
+
+  /* pubkey bar */
+  .pubkey { display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; }
+  .pubkey .label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .pubkey code { font-family: var(--mono); font-size: 12px; color: var(--violet);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .pubkey .hint { font-size: 11px; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  tbody tr:hover { background: var(--panel-2); }
+  td .sub { color: var(--muted); font-size: 12px; }
+  td.fp code { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 20px;
+    font-size: 12px; font-weight: 600; }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.active { color: var(--green); background: rgba(63,185,80,.12); }
+  .pill.expiring-soon { color: var(--amber); background: rgba(217,164,65,.14); }
+  .pill.expired { color: var(--red); background: rgba(240,96,93,.14); }
+  .pill.perpetual { color: var(--violet); background: rgba(163,113,247,.14); }
+
+  .actions { display: flex; gap: 6px; }
+  button, .btn { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); padding: 6px 12px; font-size: 13px; }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { background: var(--accent-2); }
+  button.ghost { background: transparent; padding: 5px 9px; font-size: 12px; }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  label.field { display: block; margin-bottom: 14px; }
+  label.field > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  input[type=text], input[type=date], input[type=number], textarea {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 10px; font: inherit; }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 52px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .feats { display: flex; flex-wrap: wrap; gap: 8px; }
+  .feats label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  .feats input { accent-color: var(--accent); }
+  .perp-row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: -6px 0 12px; color: var(--muted); }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px 20px; }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 18px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; }
+  .toast.show { opacity: 1; }
+  .toast.err { border-color: var(--red); color: var(--red); }
+
+  /* modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none;
+    align-items: center; justify-content: center; z-index: 30; padding: 20px; }
+  .modal-bg.show { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    width: 100%; max-width: 640px; max-height: 86vh; overflow: auto; }
+  .modal h3 { margin: 0; padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; }
+  .modal .body { padding: 18px 20px; }
+  .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+  pre.lic { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px; overflow: auto; max-height: 320px; color: #cfe1ff; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Kanagatly License Manager</h1>
+  <span class="tag">vendor · localhost</span>
+  <span class="spacer"></span>
+  <span id="count" class="tag"></span>
+</header>
+
+<div class="wrap">
+  <div class="pubkey">
+    <span class="label">Public key</span>
+    <code id="pubkey">loading…</code>
+    <button class="ghost" onclick="copyPubkey()">Copy PEM</button>
+    <span class="hint">→ paste into the VMS at <code style="color:var(--muted)">backend/licensing/public_key.pem</code></span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Licensed clients</h2>
+      <div class="body" style="padding:0">
+        <table>
+          <thead>
+            <tr><th>Client</th><th>Fingerprint</th><th>Issued</th><th>Expires</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody id="rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>New client</h2>
+      <div class="body">
+        <form id="newForm" onsubmit="return createClient(event)">
+          <div class="row2">
+            <label class="field"><span>Name *</span><input type="text" id="f_name" required placeholder="Contact / site"></label>
+            <label class="field"><span>Company</span><input type="text" id="f_company" placeholder="ACME LLC"></label>
+          </div>
+          <label class="field"><span>Machine fingerprint * (customer sends this)</span>
+            <input type="text" id="f_hwid" required placeholder="a1b2c3… (32 hex chars)"></label>
+          <div class="perp-row">
+            <label><input type="checkbox" id="f_perp" onchange="togglePerp()"> Perpetual (never expires)</label>
+          </div>
+          <label class="field"><span>Expires</span><input type="date" id="f_expires"></label>
+          <label class="field"><span>Features</span>
+            <div class="feats" id="f_features">
+              <label><input type="checkbox" value="playback" checked> playback</label>
+              <label><input type="checkbox" value="hikvision"> hikvision</label>
+              <label><input type="checkbox" value="analytics"> analytics</label>
+              <label><input type="checkbox" value="export"> export</label>
+            </div>
+          </label>
+          <div class="row2">
+            <label class="field"><span>Max cameras (0 = unlimited)</span><input type="number" id="f_cams" min="0" value="0"></label>
+            <label class="field"><span>Max NVRs (0 = unlimited)</span><input type="number" id="f_nvrs" min="0" value="0"></label>
+          </div>
+          <label class="field"><span>Notes</span><textarea id="f_notes" placeholder="Internal notes…"></textarea></label>
+          <button type="submit" class="primary" style="width:100%">Create &amp; mint license</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- License / edit modal -->
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const FEATURES = ["playback","hikvision","analytics","export"];
+let CLIENTS = [];
+
+function toast(msg, err=false){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (err?' err':'');
+  clearTimeout(t._t); t._t = setTimeout(()=>t.className='toast', 2600);
+}
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(!r.ok){ let d; try{ d = await r.json(); }catch(e){} throw new Error(d && d.detail ? d.detail : ('HTTP '+r.status)); }
+  const ct = r.headers.get('content-type')||'';
+  return ct.includes('json') ? r.json() : r.text();
+}
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadPubkey(){
+  try{ const pem = await api('/api/pubkey');
+    window._pem = pem;
+    document.getElementById('pubkey').textContent = pem.replace(/\n/g,' ').trim();
+  }catch(e){ document.getElementById('pubkey').textContent = 'error: '+e.message; }
+}
+function copyPubkey(){ navigator.clipboard.writeText(window._pem||'').then(()=>toast('Public key PEM copied')); }
+
+function statusLabel(c){
+  const map = {active:'Active','expiring-soon':'Expiring soon',expired:'Expired',perpetual:'Perpetual'};
+  let extra = '';
+  if(c.days_left!=null){ extra = c.days_left<0 ? ` (${-c.days_left}d ago)` : ` (${c.days_left}d)`; }
+  return `<span class="pill ${c.status}">${map[c.status]||c.status}${extra}</span>`;
+}
+
+async function loadClients(){
+  try{ CLIENTS = await api('/api/clients'); }
+  catch(e){ toast('Load failed: '+e.message, true); return; }
+  document.getElementById('count').textContent = CLIENTS.length + ' client' + (CLIENTS.length===1?'':'s');
+  const tb = document.getElementById('rows');
+  if(!CLIENTS.length){ tb.innerHTML = '<tr><td colspan="6" class="empty">No clients yet. Create one on the right →</td></tr>'; return; }
+  tb.innerHTML = CLIENTS.map(c => `
+    <tr>
+      <td><div>${esc(c.name)}</div>${c.company?`<div class="sub">${esc(c.company)}</div>`:''}</td>
+      <td class="fp"><code title="${esc(c.hardware_id)}">${esc(c.hardware_id_short)}…</code></td>
+      <td>${esc(c.issued)}</td>
+      <td>${c.expires?esc(c.expires):'<span class="sub">—</span>'}</td>
+      <td>${statusLabel(c)}</td>
+      <td><div class="actions">
+        <button class="ghost" onclick="viewLicense(${c.id})">License</button>
+        <button class="ghost" onclick="downloadLic(${c.id})">.lic</button>
+        <button class="ghost" onclick="editClient(${c.id})">Re-issue</button>
+        <button class="ghost danger" onclick="delClient(${c.id})">✕</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function togglePerp(){
+  const perp = document.getElementById('f_perp').checked;
+  const exp = document.getElementById('f_expires');
+  exp.disabled = perp; if(perp) exp.value = '';
+}
+
+async function createClient(ev){
+  ev.preventDefault();
+  const perp = document.getElementById('f_perp').checked;
+  const features = [...document.querySelectorAll('#f_features input:checked')].map(i=>i.value);
+  const body = {
+    name: document.getElementById('f_name').value.trim(),
+    company: document.getElementById('f_company').value.trim(),
+    hardware_id: document.getElementById('f_hwid').value.trim(),
+    expires: perp ? null : (document.getElementById('f_expires').value || null),
+    features,
+    max_cameras: parseInt(document.getElementById('f_cams').value||'0',10),
+    max_nvrs: parseInt(document.getElementById('f_nvrs').value||'0',10),
+    notes: document.getElementById('f_notes').value.trim(),
+  };
+  try{
+    const c = await api('/api/clients', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    document.getElementById('newForm').reset();
+    document.getElementById('f_expires').disabled = false;
+    await loadClients();
+    toast('License minted for '+c.name);
+    showLicenseModal(c);
+  }catch(e){ toast('Create failed: '+e.message, true); }
+  return false;
+}
+
+async function viewLicense(id){
+  try{ const c = await api('/api/clients/'+id); showLicenseModal(c); }
+  catch(e){ toast(e.message, true); }
+}
+function showLicenseModal(c){
+  const m = document.getElementById('modal');
+  m.innerHTML = `
+    <h3>License · ${esc(c.name)}</h3>
+    <div class="body">
+      <p class="sub" style="color:var(--muted);margin-top:0">Send this <code>.lic</code> file to the customer — they upload it in the VMS License screen.</p>
+      <pre class="lic">${esc(c.license_json||'')}</pre>
+    </div>
+    <div class="foot">
+      <button onclick="downloadLic(${c.id})">Download .lic</button>
+      <button onclick="navigator.clipboard.writeText(${JSON.stringify(c.license_json||'')}).then(()=>toast('License copied'))">Copy JSON</button>
+      <button class="primary" onclick="closeModal()">Done</button>
+    </div>`;
+  document.getElementById('modalBg').classList.add('show');
+}
+
+function editClient(id){
+  const c = CLIENTS.find(x=>x.id===id); if(!c) return;
+  const m = document.getElementById('modal');
+  m.innerHTML = `
+    <h3>Re-issue · ${esc(c.name)}</h3>
+    <div class="body">
+      <p class="sub" style="color:var(--muted);margin-top:0">Fingerprint stays bound to the same machine. Extend expiry or change features → a fresh signed license is minted.</p>
+      <div class="perp-row"><label><input type="checkbox" id="e_perp" ${c.status==='perpetual'?'checked':''} onchange="document.getElementById('e_exp').disabled=this.checked"> Perpetual</label></div>
+      <label class="field"><span>Expires</span><input type="date" id="e_exp" value="${c.expires||''}" ${c.status==='perpetual'?'disabled':''}></label>
+      <label class="field"><span>Features</span><div class="feats" id="e_features">
+        ${FEATURES.map(f=>`<label><input type="checkbox" value="${f}" ${c.features.includes(f)?'checked':''}> ${f}</label>`).join('')}
+      </div></label>
+      <div class="row2">
+        <label class="field"><span>Max cameras</span><input type="number" id="e_cams" min="0" value="${c.max_cameras}"></label>
+        <label class="field"><span>Max NVRs</span><input type="number" id="e_nvrs" min="0" value="${c.max_nvrs}"></label>
+      </div>
+      <label class="field"><span>Notes</span><textarea id="e_notes">${esc(c.notes)}</textarea></label>
+    </div>
+    <div class="foot">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="saveEdit(${c.id})">Re-mint license</button>
+    </div>`;
+  document.getElementById('modalBg').classList.add('show');
+}
+async function saveEdit(id){
+  const perp = document.getElementById('e_perp').checked;
+  const features = [...document.querySelectorAll('#e_features input:checked')].map(i=>i.value);
+  const body = {
+    perpetual: perp,
+    expires: perp ? null : (document.getElementById('e_exp').value || null),
+    features,
+    max_cameras: parseInt(document.getElementById('e_cams').value||'0',10),
+    max_nvrs: parseInt(document.getElementById('e_nvrs').value||'0',10),
+    notes: document.getElementById('e_notes').value.trim(),
+  };
+  try{
+    const c = await api('/api/clients/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    await loadClients(); closeModal(); toast('Re-minted for '+c.name); showLicenseModal(c);
+  }catch(e){ toast('Re-issue failed: '+e.message, true); }
+}
+
+function downloadLic(id){ window.location.href = '/api/clients/'+id+'/license.lic'; }
+async function delClient(id){
+  const c = CLIENTS.find(x=>x.id===id);
+  if(!confirm('Delete client "'+(c?c.name:id)+'"? This removes it from the registry (the customer keeps any .lic already sent).')) return;
+  try{ await api('/api/clients/'+id, {method:'DELETE'}); await loadClients(); toast('Deleted'); }
+  catch(e){ toast(e.message, true); }
+}
+function closeModal(){ document.getElementById('modalBg').classList.remove('show'); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+
+loadPubkey(); loadClients();
+</script>
+</body>
+</html>
