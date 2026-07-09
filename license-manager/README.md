@@ -15,8 +15,15 @@ byte-identically inside the customer's app.
 
 ## Run it
 
-The panel reuses the backend's `cryptography`, so the easiest path is the
-backend's virtualenv (it already has fastapi + uvicorn + cryptography):
+**Easiest — the launcher script** (sets up the venv/deps on first run and opens
+the browser for you):
+
+```bash
+./license-manager/run.sh
+```
+
+Or manually — the panel reuses the backend's `cryptography`, so the simplest
+path is the backend's virtualenv (it already has fastapi + uvicorn + cryptography):
 
 ```bash
 cd /path/to/dahua_mahua
