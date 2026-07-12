@@ -4,7 +4,8 @@ import { logout } from "@/api/client";
 import { useAuth } from "@/lib/auth";
 import { LogoWordmark } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
-import { GridIcon, ServerIcon, GearIcon, PowerIcon, UsersIcon, FilmIcon, KeyIcon } from "./icons";
+import { LicenseChip } from "@/features/license/LicenseChip";
+import { GridIcon, ServerIcon, GearIcon, PowerIcon, UsersIcon, FilmIcon } from "./icons";
 import type { ComponentType } from "react";
 
 interface NavItem {
@@ -19,7 +20,6 @@ const NAV: NavItem[] = [
   { to: "/playback", labelKey: "nav.playback", Icon: FilmIcon },
   { to: "/nvrs", labelKey: "nav.nvrs", Icon: ServerIcon, adminOnly: true },
   { to: "/users", labelKey: "nav.users", Icon: UsersIcon, adminOnly: true },
-  { to: "/license", labelKey: "nav.license", Icon: KeyIcon, adminOnly: true },
   { to: "/settings", labelKey: "nav.settings", Icon: GearIcon },
 ];
 
@@ -55,6 +55,7 @@ export function AppShell() {
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-2">
+          {isAdmin && <LicenseChip />}
           <LanguageSwitcher />
           <button
             onClick={() => void logout()}

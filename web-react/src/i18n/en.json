@@ -359,7 +359,17 @@
     "activate": "Activate",
     "title": "License",
     "subtitle": "Activation, entitlements and machine binding",
-    "adminOnlyNotice": "Only an administrator can install or update the license file."
+    "adminOnlyNotice": "Only an administrator can install or update the license file.",
+    "chip": {
+      "licensed": "Licensed",
+      "expiresIn": "Expires {{days}}d",
+      "grace": "Grace {{days}}d",
+      "expired": "Expired",
+      "missing": "Unlicensed",
+      "invalid": "Invalid license",
+      "mismatch": "Wrong machine",
+      "title": "License status — click to manage"
+    }
   },
   "licenseGate": {
     "blockedTitle": "License required",
