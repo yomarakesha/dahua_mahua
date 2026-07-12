@@ -1,0 +1,49 @@
+name: Build desktop installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/nvr-playback-stream]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: "dist:win"
+            pattern: "desktop/dist/*.exe"
+            artifact: kanagatly-vms-windows
+          - os: macos-latest
+            script: "dist:mac"
+            pattern: "desktop/dist/*.dmg"
+            artifact: kanagatly-vms-macos
+          - os: ubuntu-latest
+            script: "dist:linux"
+            pattern: "desktop/dist/*.AppImage"
+            artifact: kanagatly-vms-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install deps
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Build installer
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # do not attempt code signing in CI
+        run: npm run ${{ matrix.script }}
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.pattern }}
+          if-no-files-found: error
