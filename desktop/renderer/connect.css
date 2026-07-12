@@ -188,3 +188,39 @@ button#connect:disabled { opacity: 0.55; cursor: default; }
   line-height: 1.5;
   color: var(--ink-faint);
 }
+
+/* ── language toggle + help hint (added) ─────────────────────────────────── */
+.card { position: relative; }
+.langs {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.langs button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-faint);
+  font: 600 11px/1 system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+.langs button:hover { color: var(--ink); }
+.langs button.active {
+  background: rgba(46, 204, 113, 0.16);
+  color: var(--green-light);
+}
+.hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
