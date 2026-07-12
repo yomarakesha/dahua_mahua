@@ -35,12 +35,11 @@ jobs:
       - name: Install deps
         working-directory: desktop
         run: npm install --no-audit --no-fund
-      - name: Build installer
+      - name: Build installer (no publish)
         working-directory: desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # do not attempt code signing in CI
-        run: npm run ${{ matrix.script }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # no code signing in CI
+        run: npm run ${{ matrix.script }} -- --publish never
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
