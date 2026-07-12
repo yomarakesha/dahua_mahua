@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+*.log
+.DS_Store
+
+# build/icon.svg (source) and build/icon.png (512, committed) are tracked so
+# builds work without an SVG toolchain. electron-builder derives .ico/.icns
+# from icon.png at package time; those live under dist/ and are ignored above.

@@ -1,0 +1,29 @@
+{
+  "name": "kanagatly-vms-desktop",
+  "productName": "Kanagatly VMS",
+  "version": "1.0.0",
+  "description": "Desktop client for the Kanagatly VMS video surveillance web app.",
+  "author": "Kanagatly",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "icons": "sh ./scripts/gen-icon.sh",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "extends": null
+  }
+}
