@@ -22,6 +22,7 @@ $ErrorActionPreference = "Stop"
 $GO2RTC_VER = "v1.9.14"
 $CADDY_VER  = "2.8.4"
 $FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"  # gyan.dev static Windows build
+$NSSM_URL   = "https://nssm.cc/release/nssm-2.24.zip"                              # service wrapper (win64)
 
 function Ok($m){ Write-Host "[ok] $m" -ForegroundColor Green }
 function Step($m){ Write-Host "-> $m" -ForegroundColor Cyan }
@@ -79,6 +80,19 @@ Expand-Archive -Path $cdzip -DestinationPath $cdtmp -Force
 Copy-Item (Join-Path $cdtmp "caddy.exe") -Destination (Join-Path $Out "bin") -Force
 Remove-Item $cdzip -Force; Remove-Item $cdtmp -Recurse -Force
 Ok "caddy -> bin\caddy.exe"
+
+# ── NSSM service wrapper (so install.ps1 needs nothing preinstalled) ─────────
+Step "Downloading NSSM (service wrapper)"
+$nszip = Join-Path $Out "bin\nssm.zip"
+Invoke-WebRequest -Uri $NSSM_URL -OutFile $nszip
+$nstmp = Join-Path $Out "bin\_nstmp"
+Expand-Archive -Path $nszip -DestinationPath $nstmp -Force
+$nssrc = Get-ChildItem -Path $nstmp -Recurse -Filter nssm.exe |
+  Where-Object { $_.FullName -match 'win64' } | Select-Object -First 1
+if (-not $nssrc) { $nssrc = Get-ChildItem -Path $nstmp -Recurse -Filter nssm.exe | Select-Object -First 1 }
+Copy-Item $nssrc.FullName -Destination (Join-Path $Out "bin") -Force
+Remove-Item $nszip -Force; Remove-Item $nstmp -Recurse -Force
+Ok "nssm -> bin\nssm.exe"
 
 # ── (e) built web UI (web-react\dist) ────────────────────────────────────────
 Step "Building the web UI (npm ci && npm run build)..."
