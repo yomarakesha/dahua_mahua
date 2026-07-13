@@ -55,7 +55,9 @@ async def _ensure_bootstrap_admin(session: AsyncSession) -> None:
         username=settings.bootstrap_admin_username,
         password_hash=hash_password(settings.bootstrap_admin_password),
         role=Role.admin,
-        must_change_password=False,
+        # Force a first-login password rotation (the bootstrap password is
+        # known). Enforced server-side in deps.get_current_user.
+        must_change_password=True,
     )
     session.add(admin)
     # Don't print the literal password — it lands in deploy logs. It's set from

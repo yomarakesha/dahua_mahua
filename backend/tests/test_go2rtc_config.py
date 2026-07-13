@@ -9,7 +9,13 @@ picking a WORKING encoder (hardware probe → CPU fallback). See
 import yaml
 
 import app.services.go2rtc_reencode as rc
-from app.services.go2rtc_config import read_streams, write_streams
+import app.services.go2rtc_config as g2cfg
+from app.services.go2rtc_config import (
+    read_streams,
+    render_runtime_config,
+    resolve_webrtc_candidates,
+    write_streams,
+)
 
 
 # ── file writer ──────────────────────────────────────────────────────────────
@@ -94,3 +100,63 @@ def test_auto_result_is_cached(monkeypatch):
     rc.resolve_vcodec(_S())  # cached → no new probes
     assert len(calls) == n
     rc.reset_vcodec_cache()
+
+
+# ── WebRTC candidate resolution + rendering (portability) ─────────────────────
+
+class _WS:
+    def __init__(self, candidates="", port=8556):
+        self.go2rtc_webrtc_candidates = candidates
+        self.go2rtc_webrtc_port = port
+
+
+def test_explicit_candidates_are_parsed_and_port_appended():
+    s = _WS(candidates="10.0.0.5:8556, 192.168.1.20 ,  ")  # bare host gets port
+    assert resolve_webrtc_candidates(s) == ["10.0.0.5:8556", "192.168.1.20:8556"]
+
+
+def test_empty_setting_auto_detects_lan_ips(monkeypatch):
+    monkeypatch.setattr(
+        "app.net.detect_lan_ipv4s", lambda: ["10.10.1.152", "192.168.1.13"]
+    )
+    assert resolve_webrtc_candidates(_WS(candidates="")) == [
+        "10.10.1.152:8556",
+        "192.168.1.13:8556",
+    ]
+
+
+def test_render_injects_candidates_and_preserves_sections(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.net.detect_lan_ipv4s", lambda: ["10.0.0.9"])
+    base = tmp_path / "go2rtc.base.yaml"
+    base.write_text(yaml.safe_dump({
+        "api": {"listen": ":1984", "origin": "*"},
+        "webrtc": {"listen": ":8556"},
+        "log": {"level": "warn"},
+    }))
+    out = tmp_path / ".go2rtc" / "go2rtc.yaml"
+    cands = render_runtime_config(str(base), str(out), _WS(candidates=""))
+    assert cands == ["10.0.0.9:8556"]
+    loaded = yaml.safe_load(out.read_text())
+    assert loaded["webrtc"]["listen"] == ":8556"           # listen preserved
+    assert loaded["webrtc"]["candidates"] == ["10.0.0.9:8556"]
+    assert loaded["api"] == {"listen": ":1984", "origin": "*"}  # other sections intact
+    assert loaded["log"] == {"level": "warn"}
+
+
+def test_render_omits_candidates_when_none_detected(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.net.detect_lan_ipv4s", lambda: [])
+    base = tmp_path / "go2rtc.base.yaml"
+    base.write_text(yaml.safe_dump({"webrtc": {"listen": ":8556"}}))
+    out = tmp_path / "go2rtc.yaml"
+    cands = render_runtime_config(str(base), str(out), _WS(candidates=""))
+    assert cands == []
+    loaded = yaml.safe_load(out.read_text())
+    assert "candidates" not in loaded["webrtc"]  # left to go2rtc auto-advertise
+
+
+def test_committed_base_has_no_hardcoded_candidates():
+    # The deploy-specific IPs must never ship in the committed template.
+    from pathlib import Path
+    base = Path(__file__).resolve().parent.parent.parent / "go2rtc.base.yaml"
+    cfg = yaml.safe_load(base.read_text())
+    assert "candidates" not in (cfg.get("webrtc") or {})

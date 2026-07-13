@@ -10,3 +10,17 @@ venv
 *.egg-info
 build
 dist
+# Never bake the local/dev database into a shipped image (leaks cameras + creds).
+*.db
+*.db-*
+*.db.*
+*.bak
+*.bak-*
+*.clean-bak
+# Runtime state.
+.go2rtc/
+logs/
+# Vendor-only license material (public_key.pem IS copied explicitly by the Dockerfile).
+licensing/*.lic
+licensing/*private*.pem
+tests

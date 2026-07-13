@@ -9,13 +9,15 @@ import UsersPage from "@/features/users/UsersPage";
 import SettingsPage from "@/features/settings/SettingsPage";
 import PlaybackPage from "@/features/playback/PlaybackPage";
 import LicensePage from "@/features/license/LicensePage";
+import { LicenseGate } from "@/features/license/LicenseGate";
 import SetupWizard from "@/features/setup/SetupWizard";
 import { SetupGate } from "@/features/setup/SetupGate";
 
 export default function App() {
   return (
     <AuthProvider>
-      <Routes>
+      <LicenseGate>
+        <Routes>
         <Route path="/login" element={<LoginPage />} />
         {/* First-run setup — full-screen (outside AppShell), admin-only. */}
         <Route
@@ -69,7 +71,8 @@ export default function App() {
           <Route path="playback" element={<PlaybackPage />} />
           <Route path="license" element={<LicensePage />} />
         </Route>
-      </Routes>
+        </Routes>
+      </LicenseGate>
     </AuthProvider>
   );
 }

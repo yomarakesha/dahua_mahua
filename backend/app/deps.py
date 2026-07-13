@@ -14,7 +14,7 @@ import uuid
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,18 @@ from app.models import Camera, Nvr, Role, User
 from app.security import decode_token
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+# While a user still holds must_change_password, EVERY request is rejected with
+# 403 password_change_required EXCEPT the ones needed to recover: read the
+# profile, change the password, log out, and load branding (so the login/wizard
+# screens still theme themselves). Matched by path suffix so it's independent of
+# the configurable api_prefix.
+_PW_CHANGE_ALLOWED_SUFFIXES = (
+    "/auth/me",
+    "/auth/change-password",
+    "/auth/logout",
+    "/branding",
+)
 
 
 def _extract_bearer(authorization: str | None) -> str:
@@ -36,6 +48,7 @@ def _extract_bearer(authorization: str | None) -> str:
 
 
 async def get_current_user(
+    request: Request,
     session: SessionDep,
     authorization: Annotated[str | None, Header()] = None,
 ) -> User:
@@ -59,8 +72,15 @@ async def get_current_user(
     user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
-    # Note: must_change_password is no longer enforced — users log straight in
-    # without a forced change (product decision).
+
+    # Forced password rotation: a user still on a must-change password (the
+    # bootstrap admin) is locked out of every route except the recovery set
+    # until they rotate it. The frontend keys the first-run wizard off the same
+    # flag; this is the server-side backstop so the flag can't be bypassed.
+    if user.must_change_password:
+        path = request.url.path
+        if not any(path.endswith(sfx) for sfx in _PW_CHANGE_ALLOWED_SUFFIXES):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "password_change_required")
     return user
 
 

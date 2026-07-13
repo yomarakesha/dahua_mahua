@@ -70,6 +70,20 @@ async function request<T>(method: string, path: string, opts: ReqOpts = {}): Pro
     if (!location.hash.startsWith("#/login")) location.hash = "#/login";
     throw new ApiError(401, "unauthenticated");
   }
+  // License enforcement (backend LicenseEnforcementMiddleware). If a protected
+  // call is blocked, tell the LicenseGate so it swaps to the full-screen block
+  // even if its own cached status was stale — a server block can't be bypassed.
+  if (res.status === 402) {
+    let state = "invalid";
+    try {
+      const j = await res.json();
+      if (typeof j?.state === "string") state = j.state;
+    } catch {
+      /* non-json body */
+    }
+    window.dispatchEvent(new CustomEvent("license-blocked", { detail: { state } }));
+    throw new ApiError(402, "license_blocked");
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {

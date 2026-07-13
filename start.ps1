@@ -98,9 +98,24 @@ function Ensure-Go2rtc {
         } catch { throw "go2rtc download failed: $_" }
         Write-Ok "go2rtc installed"
     }
-    # Fresh runtime config from the committed template (no secrets — the backend
-    # registers streams via the go2rtc API on startup).
-    Copy-Item (Join-Path $root "go2rtc.base.yaml") $g2Cfg -Force
+    # Render the runtime config from the committed template (no secrets — the
+    # backend registers streams via the go2rtc API on startup). The renderer
+    # injects the WebRTC ICE candidates for THIS box (GO2RTC_WEBRTC_CANDIDATES,
+    # or auto-detected LAN IP) so the fullscreen main connects on any firm's
+    # server. Fall back to a plain copy if python isn't ready yet.
+    $rendered = $false
+    if (Test-Path $pyVenv) {
+        Push-Location $backend
+        try {
+            & $pyVenv -m app.services.go2rtc_config --base (Join-Path $root "go2rtc.base.yaml") --out $g2Cfg
+            if ($LASTEXITCODE -eq 0) { $rendered = $true }
+        } catch {}
+        finally { Pop-Location }
+    }
+    if (-not $rendered) {
+        Write-Warn2 "go2rtc config render failed — copying template as-is"
+        Copy-Item (Join-Path $root "go2rtc.base.yaml") $g2Cfg -Force
+    }
 }
 
 # venv + deps -------------------------------------------------------------

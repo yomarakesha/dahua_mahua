@@ -1,0 +1,75 @@
+name: Build desktop installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/nvr-playback-stream]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: "dist:win"
+            pattern: "desktop/dist/*.exe"
+            artifact: kanagatly-vms-windows
+          - os: macos-latest
+            script: "dist:mac"
+            pattern: "desktop/dist/*.dmg"
+            artifact: kanagatly-vms-macos
+          - os: ubuntu-latest
+            script: "dist:linux"
+            pattern: "desktop/dist/*.AppImage"
+            artifact: kanagatly-vms-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deps
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Build installer (no publish)
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # no code signing in CI
+        run: npm run ${{ matrix.script }} -- --publish never
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.pattern }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish rolling "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-latest
+          name: Kanagatly VMS — Desktop (latest)
+          body: |
+            Latest desktop installers, rebuilt automatically from `feat/nvr-playback-stream`.
+
+            - **Windows:** `Kanagatly VMS Setup*.exe` (unsigned → SmartScreen: More info → Run anyway)
+            - **macOS:** `*.dmg`
+            - **Linux:** `*.AppImage`
+
+            Launch → enter your VMS server URL (e.g. https://10.10.1.152:8443) → log in.
+          files: artifacts/**/*
+          prerelease: false
+          make_latest: "true"

@@ -1,0 +1,51 @@
+appId: com.kanagatly.vms
+productName: Kanagatly VMS
+copyright: Copyright © 2026 Kanagatly
+
+directories:
+  buildResources: build
+  output: dist
+
+# Only ship what the app needs (exclude the SVG source + scripts from the app asar).
+files:
+  - main.js
+  - preload.js
+  - renderer/**/*
+  - build/icon.png
+  - package.json
+  - "!**/*.map"
+
+# Icons: electron-builder auto-generates .ico (Windows) and .icns (macOS)
+# from build/icon.png (512×512) — no committed binary icons needed.
+
+# ---- Windows (PRIMARY target): NSIS .exe installer ----
+win:
+  target:
+    - nsis
+  icon: build/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Kanagatly VMS
+
+# ---- macOS: dmg ----
+mac:
+  target:
+    - dmg
+  icon: build/icon.png
+  category: public.app-category.video
+
+dmg:
+  title: Kanagatly VMS
+
+# ---- Linux: AppImage ----
+linux:
+  target:
+    - AppImage
+  icon: build/icon.png
+  category: AudioVideo
+  synopsis: Desktop client for the Kanagatly VMS

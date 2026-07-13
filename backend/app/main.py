@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, text
 
 from app.db import Base, SessionLocal, engine
-from app.middleware import RequestIDMiddleware
+from app.middleware import LicenseEnforcementMiddleware, RequestIDMiddleware
 from app.models import User, Role  # noqa: F401  (ensure mappers register before create_all)
 from app.routers import (
     auth,
@@ -78,12 +78,50 @@ async def _ensure_bootstrap_admin() -> None:
                     username=settings.bootstrap_admin_username,
                     password_hash=hash_password(settings.bootstrap_admin_password),
                     role=Role.admin,
-                    must_change_password=False,
+                    # Force a password change on first login: the bootstrap
+                    # password is known (env / install default), so the operator
+                    # MUST rotate it. get_current_user enforces this server-side
+                    # and the frontend first-run wizard drives it.
+                    must_change_password=True,
                 )
             )
     log.warning(
         "Bootstrap admin '%s' created — change the password on first login",
         settings.bootstrap_admin_username,
+    )
+
+
+def _log_connect_banner(settings) -> None:
+    """Print a clear, deploy-agnostic banner: which address a client connects the
+    desktop app to, and the effective playback timezone offset. Auto-detects the
+    box's LAN IP(s) so a firm installing on their own server sees the right URL
+    without editing anything."""
+    from app.net import detect_lan_ipv4s
+
+    ips = detect_lan_ipv4s()
+    tz = settings.playback_tz_offset_minutes
+    sign = "+" if tz >= 0 else "-"
+    hours = abs(tz) / 60.0
+    if ips:
+        primary = ips[0]
+        log.warning(
+            "Kanagatly VMS ready → connect the desktop app to https://%s:8443  "
+            "(ports: 8443 UI/API, 8556 WebRTC)",
+            primary,
+        )
+        if len(ips) > 1:
+            others = ", ".join(f"https://{ip}:8443" for ip in ips[1:])
+            log.warning("  other LAN addresses on this box: %s", others)
+    else:
+        log.warning(
+            "Kanagatly VMS ready → no LAN IPv4 auto-detected; connect the "
+            "desktop app to https://<this-server-ip>:8443  (ports: 8443 UI/API, "
+            "8556 WebRTC)"
+        )
+    log.warning(
+        "Playback timezone offset: %s%d min (UTC%s%g) — change "
+        "PLAYBACK_TZ_OFFSET_MINUTES for another timezone",
+        sign, abs(tz), sign, hours,
     )
 
 
@@ -156,6 +194,7 @@ async def lifespan(app: FastAPI):
 
     await _ensure_schema()
     await _ensure_bootstrap_admin()
+    _log_connect_banner(settings)
 
     # Recover NVRs the watchdog disabled in a previous session BEFORE the
     # startup reconcile — so the reconcile recreates their go2rtc streams.
@@ -228,6 +267,12 @@ def create_app() -> FastAPI:
     # Correlation id + JSON 500 on unhandled HTTP errors. Added before CORS so
     # it runs innermost (closest to the route); WebSocket routes are untouched.
     app.add_middleware(RequestIDMiddleware)
+
+    # License enforcement (NO-OP unless license_enforcement_enabled). Added AFTER
+    # RequestID and BEFORE CORS so CORS stays the OUTERMOST middleware — it then
+    # handles OPTIONS preflight and decorates even a 402 block response with the
+    # ACAO headers the browser needs to read it.
+    app.add_middleware(LicenseEnforcementMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

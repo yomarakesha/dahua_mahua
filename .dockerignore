@@ -1,0 +1,38 @@
+# Build context for the Caddy image (context = repo root, so it can reach
+# web-react/). Keep it lean: the only thing the Caddy build needs is web-react/
+# source + the Caddyfile. Everything heavy or irrelevant is excluded.
+.git/
+.github/
+.run/
+.netcheck/
+.superpowers/
+.claude/
+node_modules/
+**/node_modules/
+web-react/dist/
+web-react/node_modules/
+# Legacy media binaries (50MB+ each) — not used by the Docker stack.
+mediamtx
+mediamtx.exe
+mediamtx.yml
+# Legacy / unrelated app trees.
+backend/
+license-manager/
+installer/
+desktop/
+web/
+docs/
+# Local databases, envs, logs, backups.
+*.db
+*.db-*
+*.env
+.env
+*.log
+*.bak
+*.bak-*
+.go2rtc/
+# Misc large/local artifacts. (Do NOT use a blanket *.html — web-react/index.html
+# is the Vite entry point and must stay in the context.)
+/Kanagatly VMS.html
+*.tar
+/dist/

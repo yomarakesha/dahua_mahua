@@ -47,6 +47,22 @@ class Settings(BaseSettings):
     brand_accent: str = "#43e088"
     brand_logo_url: str = ""
 
+    # ── License enforcement ──────────────────────────────────────────────────
+    # The app is deployed and running WITHOUT any license today, so enforcement
+    # ships DEFAULT OFF: when False the licensing subsystem only *reports* status
+    # (the License page + GET /license) and NOTHING is ever blocked — behaviour is
+    # byte-for-byte today's. An operator flips LICENSE_ENFORCEMENT_ENABLED=true
+    # only AFTER they've generated keys and installed a valid `.lic`. When True the
+    # grace→hard-block policy in licensing.license_state() activates: a valid or
+    # in-grace license runs the full app; an expired-past-grace / missing / invalid
+    # / machine-mismatched license gets protected API routes rejected with HTTP 402
+    # (login + the license-activation + health + branding endpoints stay open so an
+    # admin can recover by installing a fresh license without a shell).
+    license_enforcement_enabled: bool = False
+    # Days past `expires` that the app keeps working (with a renewal warning
+    # banner) before it hard-blocks. Only meaningful when enforcement is ON.
+    license_grace_days: int = 7
+
     # ── Logging ──────────────────────────────────────────────────────────────
     # On NSSM (Windows service) stderr is not persisted, so add a rotating file
     # handler alongside the stream handler. Empty string disables the file
@@ -80,6 +96,18 @@ class Settings(BaseSettings):
     go2rtc_api_url: str = "http://localhost:1984"
     # Browser-facing base the frontend uses for the MSE/WebRTC WebSocket.
     go2rtc_ws_url: str = "ws://localhost:1984"
+    # Explicit WebRTC ICE candidates for the fullscreen main (go2rtc :8556).
+    # These are the server's VIEWER-FACING LAN IP(s); without them go2rtc
+    # advertises EVERY local IP (incl. the unreachable camera subnet) and the
+    # browser stalls on dead candidates → WebRTC never connects. Comma-separated
+    # `host:port`, e.g. "10.0.0.5:8556,192.168.1.20:8556". Deploy-specific, so it
+    # MUST NOT be hardcoded in the committed go2rtc template. When EMPTY the
+    # backend AUTO-DETECTS the box's primary private-LAN IPv4 (see app/net.py)
+    # and uses `<ip>:8556`. Set GO2RTC_WEBRTC_CANDIDATES to override on a
+    # multi-NIC box where auto-detect might pick the wrong interface.
+    go2rtc_webrtc_candidates: str = ""
+    # WebRTC listen port (used to build an auto-detected candidate `<ip>:<port>`).
+    go2rtc_webrtc_port: int = 8556
 
     # ── Anti-freeze re-encode relay ──────────────────────────────────────────
     # Cameras ship a ~2s GOP (keyframe interval); on any jitter the picture

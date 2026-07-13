@@ -28,7 +28,8 @@
     "hidePassword": "Paroly gizle",
     "connecting": "birikdirilýär",
     "signalLost": "signal ýitdi",
-    "retryStream": "Akymy gaýtadan synanyş"
+    "retryStream": "Akymy gaýtadan synanyş",
+    "dismiss": "Ýap"
   },
   "nav": {
     "live": "Janly",
@@ -358,7 +359,31 @@
     "activate": "Işjeňleşdir",
     "title": "Lisenziýa",
     "subtitle": "Işjeňleşdirme, hukuklar we enjama baglanyşyk",
-    "adminOnlyNotice": "Diňe administrator lisenziýa faýlyny gurup ýa-da täzeläp biler."
+    "adminOnlyNotice": "Diňe administrator lisenziýa faýlyny gurup ýa-da täzeläp biler.",
+    "chip": {
+      "licensed": "Ygtyýarnamaly",
+      "expiresIn": "{{days}}g soň gutarýar",
+      "grace": "Ýeňillik {{days}}g",
+      "expired": "Möhleti gutardy",
+      "missing": "Ygtyýarnamasyz",
+      "invalid": "Nädogry ygtyýarnama",
+      "mismatch": "Başga enjam",
+      "title": "Ygtyýarnama ýagdaýy — dolandyrmak üçin basyň"
+    }
+  },
+  "licenseGate": {
+    "blockedTitle": "Ygtyýarnama zerur",
+    "state": {
+      "valid": "Ygtyýarnamaňyz işjeň.",
+      "grace": "Ygtyýarnamaňyzyň möhleti gutardy, ýöne täzelemek üçin ýeňillik döwri dowam edýär.",
+      "expired": "Ygtyýarnamaňyzyň möhleti gutardy we täzelemek üçin ýeňillik döwri tamamlandy.",
+      "missing": "Bu enjamda ygtyýarnama gurnalmadyk.",
+      "invalid": "Gurnalan ygtyýarnama nädogry ýa-da üýtgedilipdir.",
+      "mismatch": "Gurnalan ygtyýarnama başga enjama baglanan."
+    },
+    "contactAdmin": "Bu enjam üçin ygtyýarnamany işjeňleşdirmek üçin administratoryňyz bilen habarlaşyň.",
+    "loginAsAdmin": "Administrator hökmünde gir",
+    "graceWarning": "Ygtyýarnamaňyzyň möhleti gutardy — giriş petiklenmezden ozal täzelemäge {{days}} gün galdy."
   },
   "setup": {
     "subtitle": "Ilkinji gurnama",

@@ -1,0 +1,45 @@
+# Kanagatly VMS native ingress — ONE secure origin so the browser gets a secure
+# context (required for WebCodecs) with no mixed-content / CORS. Native twin of
+# deploy/docker/Caddyfile, but every upstream is on localhost (backend + go2rtc
+# run as sibling services on the same host, not compose DNS names).
+#
+#   /api/*      → backend  (path kept → FastAPI sees /api/v1/… ; api_prefix)
+#   /readyz     → backend  (liveness/readiness; used by the installer)
+#   /healthz    → backend
+#   /go2rtc/*   → go2rtc    (prefix STRIPPED → /api/ws?src=… ; MSE/WebRTC signalling)
+#   everything else → the built SPA (served from {$WWW_ROOT})
+#
+# `tls internal` mints a self-signed cert (Caddy's local CA) so :8443 is HTTPS
+# with zero config — the desktop client trusts it explicitly. WebSocket upgrades
+# (go2rtc MSE + the playback API WS) are handled automatically by reverse_proxy.
+#
+# The installer sets WWW_ROOT + CADDY_HTTPS_PORT in the service environment.
+{
+	admin off
+	# Self-signed certs have no ACME/OCSP; keep Caddy fully offline.
+	auto_https disable_redirects
+}
+
+:{$CADDY_HTTPS_PORT:8443} {
+	tls internal
+
+	# Backend API + health/readiness (path preserved).
+	@backend path /api/* /readyz /healthz /health
+	handle @backend {
+		reverse_proxy {$BACKEND_UPSTREAM:127.0.0.1:8000}
+	}
+
+	# go2rtc signalling/WS — strip the /go2rtc prefix so go2rtc sees /api/ws?src=…
+	handle_path /go2rtc/* {
+		reverse_proxy {$GO2RTC_UPSTREAM:127.0.0.1:1984}
+	}
+
+	# Static SPA (hash-routed; try_files keeps deep links working regardless).
+	handle {
+		root * {$WWW_ROOT}
+		try_files {path} /index.html
+		file_server
+	}
+
+	encode gzip zstd
+}

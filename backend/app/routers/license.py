@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from app import licensing
 from app.deps import AdminUser
+from app.settings import get_settings
 
 router = APIRouter(prefix="/license", tags=["license"])
 
@@ -24,6 +25,16 @@ router = APIRouter(prefix="/license", tags=["license"])
 def _payload(status: licensing.LicenseStatus, *, fingerprint: str) -> dict:
     d = status.to_dict()
     d["fingerprint"] = fingerprint
+    # Enforcement view: the computed state machine + whether it's actually
+    # enforced. The LicenseGate (and the block screen) read these; when
+    # enforcement is OFF the frontend treats every state as full-access but still
+    # shows the real state on the License page.
+    settings = get_settings()
+    info = licensing.license_state(status, grace_days=settings.license_grace_days)
+    d["state"] = info["state"]
+    d["enforced"] = settings.license_enforcement_enabled
+    d["days_left"] = info["days_left"]
+    d["grace_days_left"] = info["grace_days_left"]
     return d
 
 
