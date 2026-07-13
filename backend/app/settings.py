@@ -96,6 +96,18 @@ class Settings(BaseSettings):
     go2rtc_api_url: str = "http://localhost:1984"
     # Browser-facing base the frontend uses for the MSE/WebRTC WebSocket.
     go2rtc_ws_url: str = "ws://localhost:1984"
+    # Explicit WebRTC ICE candidates for the fullscreen main (go2rtc :8556).
+    # These are the server's VIEWER-FACING LAN IP(s); without them go2rtc
+    # advertises EVERY local IP (incl. the unreachable camera subnet) and the
+    # browser stalls on dead candidates → WebRTC never connects. Comma-separated
+    # `host:port`, e.g. "10.0.0.5:8556,192.168.1.20:8556". Deploy-specific, so it
+    # MUST NOT be hardcoded in the committed go2rtc template. When EMPTY the
+    # backend AUTO-DETECTS the box's primary private-LAN IPv4 (see app/net.py)
+    # and uses `<ip>:8556`. Set GO2RTC_WEBRTC_CANDIDATES to override on a
+    # multi-NIC box where auto-detect might pick the wrong interface.
+    go2rtc_webrtc_candidates: str = ""
+    # WebRTC listen port (used to build an auto-detected candidate `<ip>:<port>`).
+    go2rtc_webrtc_port: int = 8556
 
     # ── Anti-freeze re-encode relay ──────────────────────────────────────────
     # Cameras ship a ~2s GOP (keyframe interval); on any jitter the picture

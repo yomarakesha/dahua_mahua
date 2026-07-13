@@ -149,9 +149,16 @@ ensure_go2rtc() {
       || { c_err "go2rtc download failed"; return 1; }
     c_ok "go2rtc installed"
   fi
-  # Fresh runtime config from the committed template (no secrets — the backend
-  # registers streams via the go2rtc API on startup).
-  cp "$ROOT/go2rtc.base.yaml" "$G2DIR/go2rtc.yaml"
+  # Render the runtime config from the committed template (no secrets — the
+  # backend registers streams via the go2rtc API on startup). The renderer
+  # injects the WebRTC ICE candidates for THIS box (GO2RTC_WEBRTC_CANDIDATES, or
+  # auto-detected LAN IP) so the fullscreen main connects on any firm's server.
+  # Fall back to a plain copy if the venv/python isn't ready yet.
+  if ! ( cd "$BACKEND" && "$PY" -m app.services.go2rtc_config \
+        --base "$ROOT/go2rtc.base.yaml" --out "$G2DIR/go2rtc.yaml" ); then
+    c_warn "go2rtc config render failed — copying template as-is"
+    cp "$ROOT/go2rtc.base.yaml" "$G2DIR/go2rtc.yaml"
+  fi
 }
 
 # ── launch ───────────────────────────────────────────────────────────────────
