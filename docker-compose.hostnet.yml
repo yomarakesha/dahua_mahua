@@ -1,0 +1,27 @@
+# LINUX-ONLY overlay: give go2rtc the host network so its WebRTC ICE uses the
+# host's real interfaces directly (cleanest low-latency path; avoids per-port
+# UDP forwarding). Docker Desktop (Windows/Mac) does NOT support host networking
+# for this — omit this overlay there and rely on published :8556 + the
+# GO2RTC_WEBRTC_CANDIDATES the installer writes. MSE works either way via :8443.
+#
+# Usage (Linux):
+#   docker compose -f docker-compose.yml -f docker-compose.hostnet.yml up -d
+services:
+  go2rtc:
+    network_mode: host
+    # Host networking ignores published ports; clear them to silence the warning.
+    ports: []
+
+  # Bridged services must now reach host-networked go2rtc via the host gateway.
+  backend:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      GO2RTC_API_URL: http://host.docker.internal:1984
+      GO2RTC_WS_URL: ws://host.docker.internal:1984
+
+  caddy:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      GO2RTC_UPSTREAM: host.docker.internal:1984
