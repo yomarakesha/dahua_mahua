@@ -1,0 +1,17 @@
+# Kanagatly VMS — go2rtc live media relay (MSE + WebRTC).
+# Template: install.sh substitutes @INSTALL_DIR@ and installs to
+# /etc/systemd/system/kanagatly-go2rtc.service.
+[Unit]
+Description=Kanagatly VMS go2rtc relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@INSTALL_DIR@
+ExecStart=@INSTALL_DIR@/bin/go2rtc -config @INSTALL_DIR@/.go2rtc/go2rtc.yaml
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+# Kanagatly VMS — FastAPI backend (uvicorn :8000, behind the Caddy TLS front).
+# Template: install.sh substitutes @INSTALL_DIR@ and installs to
+# /etc/systemd/system/kanagatly-backend.service.
+[Unit]
+Description=Kanagatly VMS backend (uvicorn)
+After=network-online.target kanagatly-go2rtc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@INSTALL_DIR@/backend
+EnvironmentFile=@INSTALL_DIR@/backend/.env
+# NO --reload in production.
+ExecStart=@INSTALL_DIR@/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
