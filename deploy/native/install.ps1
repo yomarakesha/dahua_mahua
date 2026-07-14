@@ -73,7 +73,18 @@ Copy-Item -Recurse -Force (Join-Path $src "backend\app")     (Join-Path $Install
 Copy-Item -Recurse -Force (Join-Path $src "backend\alembic") (Join-Path $InstallDir "backend\alembic")
 Copy-Item -Force (Join-Path $src "backend\alembic.ini")      (Join-Path $InstallDir "backend\alembic.ini")
 Copy-Item -Force (Join-Path $src "backend\requirements.txt") (Join-Path $InstallDir "backend\requirements.txt")
-Ok "files staged"
+
+# Bake the SPA root + HTTPS port straight into the Caddyfile (forward-slash path,
+# quoted) so Caddy needs NO service env — the NSSM AppEnvironmentExtra path for
+# WWW_ROOT is the least-reliable link; backend/go2rtc upstreams keep their
+# localhost defaults inside the Caddyfile.
+$wwwFwd = '"' + (((Join-Path $InstallDir "www")) -replace '\\','/') + '"'
+$caddyfilePath = Join-Path $InstallDir "Caddyfile"
+$cf = Get-Content $caddyfilePath -Raw
+$cf = $cf -replace '\{\$WWW_ROOT\}', $wwwFwd
+$cf = $cf -replace ':\{\$CADDY_HTTPS_PORT:8443\}', ":$HttpsPort"
+Set-Content -Encoding ascii $caddyfilePath $cf
+Ok "files staged (Caddyfile rendered: root=$wwwFwd port=$HttpsPort)"
 
 $envFile = Join-Path $InstallDir "backend\.env"
 $ffmpegBin = Join-Path $InstallDir "bin\ffmpeg.exe"
