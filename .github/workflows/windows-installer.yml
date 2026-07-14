@@ -1,0 +1,85 @@
+name: Build Windows server installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/nvr-playback-stream]
+    paths:
+      - "deploy/native/windows-installer/**"
+      - ".github/workflows/windows-installer.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The PAYLOAD ships its own embeddable CPython; this interpreter is only a
+      # convenience for the runner and is NOT what ends up in the installer.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Assemble the self-contained payload: embeddable CPython + baked backend
+      # deps, the go2rtc/ffmpeg/caddy/nssm binaries, the built web UI, backend
+      # source + templates. (This also runs `npm ci && npm run build`.)
+      - name: Assemble installer payload
+        working-directory: deploy/native/windows-installer
+        run: powershell -ExecutionPolicy Bypass -File build-payload.ps1 -Out payload
+
+      # KM green .ico for the wizard + installed app, from the existing app PNG.
+      - name: Install ImageMagick
+        run: choco install imagemagick -y --no-progress
+      - name: Generate installer icon
+        run: magick "desktop/build/icon.png" -background none -define icon:auto-resize=256,128,64,48,32,16 "deploy/native/windows-installer/icon.ico"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile installer (iscc)
+        working-directory: deploy/native/windows-installer
+        run: iscc "/DAppVersion=1.0.${{ github.run_number }}" "/DPayloadDir=payload" installer.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanagatly-vms-server-installer
+          path: deploy/native/windows-installer/installer-output/KanagatlyVMS-Server-Setup.exe
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: kanagatly-vms-server-installer
+          path: artifacts
+      - name: Publish rolling "server-latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: server-latest
+          name: Kanagatly VMS — Server (latest)
+          body: |
+            Latest Kanagatly VMS **server** installer, rebuilt automatically from
+            `feat/nvr-playback-stream`.
+
+            - **`KanagatlyVMS-Server-Setup.exe`** — double-click on the server box.
+              Nothing needs to be preinstalled (no Python/Node/Git). Unsigned →
+              SmartScreen: More info → Run anyway.
+
+            Installs + starts the services, then shows the connect URL
+            (`https://<lan-ip>:8443`). Point the desktop app at that URL.
+          files: artifacts/**/*
+          prerelease: false
+          make_latest: "false"
