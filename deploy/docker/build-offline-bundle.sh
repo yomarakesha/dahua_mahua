@@ -40,7 +40,10 @@ docker save \
   -o "$OUT/kanagatly-vms-images.tar"
 
 echo "==> Staging runtime files…"
-cp docker-compose.yml "$OUT/"
+# The OFFLINE compose (no build:, pull_policy:never) — the server uses the
+# loaded images, never builds/pulls. Ship it AS docker-compose.yml in the bundle.
+cp "$HERE/docker-compose.offline.yml" "$OUT/docker-compose.yml"
+cp go2rtc.base.yaml "$OUT/"                       # go2rtc-init bind-mounts this
 cp "$HERE/install.sh" "$HERE/install.ps1" "$OUT/"
 cp "$HERE/README.md" "$OUT/" 2>/dev/null || true
 if [ -f backend/.env.example ]; then cp backend/.env.example "$OUT/.env.example"; fi
