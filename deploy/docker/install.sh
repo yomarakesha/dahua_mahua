@@ -88,6 +88,18 @@ else
   fi
 fi
 
+# ── load pre-built images (air-gapped first run) ─────────────────────────────
+if ! docker image inspect kanagatly/backend:latest >/dev/null 2>&1; then
+  if [ -f "$COMPOSE_DIR/kanagatly-vms-images.tar" ]; then
+    c_step "Loading images from kanagatly-vms-images.tar (first run)…"
+    docker load -i "$COMPOSE_DIR/kanagatly-vms-images.tar"
+  else
+    c_err "Images not loaded and kanagatly-vms-images.tar not found next to docker-compose.yml."
+    c_err "Copy the whole bundle folder here (incl. the .tar), then re-run."
+    exit 1
+  fi
+fi
+
 # ── up ───────────────────────────────────────────────────────────────────────
 COMPOSE_ARGS=(-f docker-compose.yml)
 if [ "$HOSTNET" = 1 ]; then

@@ -1,0 +1,119 @@
+# Kanagatly VMS — OFFLINE runtime compose (shipped inside the bundle).
+#
+# This is what runs on the customer's air-gapped server. Unlike the repo-root
+# docker-compose.yml (which BUILDS the images), this file only REFERENCES the
+# pre-built images loaded from kanagatly-vms-images.tar — NO build: sections and
+# pull_policy: never, so it never needs source code or a registry.
+#
+# Keep in sync with ../../docker-compose.yml (env/volumes/ports).
+
+x-common-env: &common-env
+  GO2RTC_WEBRTC_CANDIDATES: ${GO2RTC_WEBRTC_CANDIDATES:-}
+  GO2RTC_WEBRTC_PORT: ${GO2RTC_WEBRTC_PORT:-8556}
+
+services:
+  go2rtc-init:
+    image: kanagatly/backend:latest
+    pull_policy: never
+    environment:
+      <<: *common-env
+      DEBUG: "true"
+    volumes:
+      - go2rtc_config:/config
+      - ./go2rtc.base.yaml:/base/go2rtc.base.yaml:ro
+    command: >
+      python -m app.services.go2rtc_config
+      --base /base/go2rtc.base.yaml
+      --out /config/go2rtc.yaml
+    restart: "no"
+
+  go2rtc:
+    image: alexxit/go2rtc:1.9.14
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      go2rtc-init:
+        condition: service_completed_successfully
+    command: ["-config", "/config/go2rtc.yaml"]
+    volumes:
+      - go2rtc_config:/config
+    ports:
+      - "${GO2RTC_WEBRTC_PORT:-8556}:8556/tcp"
+      - "${GO2RTC_WEBRTC_PORT:-8556}:8556/udp"
+
+  backend:
+    image: kanagatly/backend:latest
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      go2rtc:
+        condition: service_started
+    environment:
+      <<: *common-env
+      DEBUG: "false"
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:////data/dss.db}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (install.sh generates it)}
+      NVR_SECRET_KEY: ${NVR_SECRET_KEY:?set NVR_SECRET_KEY in .env (Fernet key)}
+      GO2RTC_API_URL: http://go2rtc:1984
+      GO2RTC_WS_URL: ws://go2rtc:1984
+      GO2RTC_CONFIG_PATH: /config/go2rtc.yaml
+      MAIN_STREAM_MODE: ${MAIN_STREAM_MODE:-native}
+      REENCODE_ENABLED: ${REENCODE_ENABLED:-false}
+      REENCODE_FFMPEG_BIN: ffmpeg
+      PLAYBACK_TZ_OFFSET_MINUTES: ${PLAYBACK_TZ_OFFSET_MINUTES:-0}
+      LOG_FILE: /data/logs/backend.log
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8080"]}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD in .env}
+    volumes:
+      - backend_data:/data
+      - go2rtc_config:/config
+      - backend_licensing:/app/licensing
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  caddy:
+    image: kanagatly/caddy:latest
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      CADDY_HTTPS_PORT: "8443"
+      BACKEND_UPSTREAM: backend:8000
+      GO2RTC_UPSTREAM: go2rtc:1984
+    ports:
+      - "${CADDY_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+  postgres:
+    image: postgres:16-alpine
+    pull_policy: never
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dss}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dss}
+      POSTGRES_DB: ${POSTGRES_DB:-dss}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dss} -d ${POSTGRES_DB:-dss}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  backend_data:
+  backend_licensing:
+  go2rtc_config:
+  caddy_data:
+  caddy_config:
+  pgdata:

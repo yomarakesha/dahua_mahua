@@ -88,6 +88,21 @@ CADDY_HTTPS_PORT=8443
 # bridged with published :8556 + the candidate above. WebRTC may still fall back
 # to MSE on some networks - MSE always works via the :8443 proxy.
 
+# ── load pre-built images (air-gapped first run) ─────────────────────────────
+$tar = Join-Path $composeDir "kanagatly-vms-images.tar"
+$haveBackend = $false
+try { docker image inspect kanagatly/backend:latest | Out-Null; $haveBackend = $true } catch { }
+if (-not $haveBackend) {
+  if (Test-Path $tar) {
+    Step "Loading images from kanagatly-vms-images.tar (first run)..."
+    docker load -i $tar
+  } else {
+    Err "Images not loaded and kanagatly-vms-images.tar not found next to docker-compose.yml."
+    Err "Copy the whole bundle folder here (incl. the .tar), then re-run."
+    exit 1
+  }
+}
+
 Step "Starting stack..."
 docker compose -f docker-compose.yml up -d
 
