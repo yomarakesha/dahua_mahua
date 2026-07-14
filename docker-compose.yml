@@ -28,10 +28,9 @@ x-common-env: &common-env
 
 services:
   # ── One-shot: render runtime go2rtc.yaml (candidates for this host) ─────────
+  # Reuses the image built by the `backend` service (NO own build: — two services
+  # building the same tag makes buildx-bake collide with "image already exists").
   go2rtc-init:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
     image: kanagatly/backend:latest
     environment:
       <<: *common-env
