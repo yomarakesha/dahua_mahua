@@ -15,7 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="${1:-$ROOT/kanagatly-vms-offline}"
 
-GO2RTC_IMG="alexxit/go2rtc:v1.9.14"
+GO2RTC_IMG="alexxit/go2rtc:1.9.14"
 PG_IMG="postgres:16-alpine"
 
 cd "$ROOT"

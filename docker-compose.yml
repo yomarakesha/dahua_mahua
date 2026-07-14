@@ -48,7 +48,7 @@ services:
 
   # ── Live-media relay ────────────────────────────────────────────────────────
   go2rtc:
-    image: alexxit/go2rtc:v1.9.14
+    image: alexxit/go2rtc:1.9.14
     restart: unless-stopped
     depends_on:
       go2rtc-init:
