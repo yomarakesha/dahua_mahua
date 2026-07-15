@@ -173,8 +173,12 @@ function Reinstall-Service($name, $exe, $argline, $appdir, $envPairs) {
 }
 
 Step "Registering NSSM services"
+# Config paths are RELATIVE to AppDirectory (= $InstallDir). An absolute path like
+# "C:\Program Files\..." must be quoted, but nssm DROPS the quotes we pass through
+# PowerShell, so caddy/go2rtc then read a truncated "C:\Program". Relative paths
+# have no spaces → nothing to quote → the service starts reliably.
 Reinstall-Service "dahua-go2rtc" (Join-Path $InstallDir "bin\go2rtc.exe") `
-  ("-config `"" + (Join-Path $InstallDir ".go2rtc\go2rtc.yaml") + "`"") $InstallDir $null
+  "-config .go2rtc\go2rtc.yaml" $InstallDir $null
 
 Reinstall-Service "dahua-backend" $py `
   "-m uvicorn app.main:app --host 0.0.0.0 --port 8000" (Join-Path $InstallDir "backend") $null
@@ -188,7 +192,7 @@ $caddyEnv = @(
   "XDG_CONFIG_HOME=$(Join-Path $InstallDir '.caddy\config')"
 )
 Reinstall-Service "dahua-caddy" (Join-Path $InstallDir "bin\caddy.exe") `
-  ("run --config `"" + (Join-Path $InstallDir "Caddyfile") + "`" --adapter caddyfile") $InstallDir $caddyEnv
+  "run --config Caddyfile --adapter caddyfile" $InstallDir $caddyEnv
 
 Step "Starting services"
 & $nssm start dahua-go2rtc  2>&1 | Out-Null
