@@ -230,7 +230,16 @@ Ok "services registered + started"
 # ── wait for readiness (through Caddy TLS, self-signed) ──────────────────────
 Step "Waiting for the backend to become ready..."
 $ps7 = $PSVersionTable.PSVersion.Major -ge 6
-if (-not $ps7) { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } }
+if (-not $ps7) {
+  # PS 5.1 defaults to TLS 1.0/1.1 but Caddy only serves TLS 1.2/1.3 → the probe
+  # else dies "Could not create SSL/TLS secure channel" (false negative). Enable
+  # TLS 1.2/1.3 + trust the self-signed cert.
+  [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+  try { [System.Net.ServicePointManager]::SecurityProtocol =
+          [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12 } catch {}
+  try { [System.Net.ServicePointManager]::SecurityProtocol =
+          [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls13 } catch {}
+}
 $ready = $false
 for ($i=0; $i -lt 60; $i++) {
   try {

@@ -205,7 +205,17 @@ Get-Service dahua-go2rtc,dahua-backend,dahua-caddy -ErrorAction SilentlyContinue
 # ── wait for readiness (through Caddy TLS, self-signed) ──────────────────────
 Step "Waiting for the backend to become ready..."
 $ps7 = $PSVersionTable.PSVersion.Major -ge 6
-if (-not $ps7) { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } }
+if (-not $ps7) {
+  # Windows PowerShell 5.1 defaults to TLS 1.0/1.1; Caddy only accepts TLS 1.2/1.3,
+  # so the probe otherwise dies with "Could not create SSL/TLS secure channel" —
+  # a FALSE negative that made a healthy server look unready. Enable TLS 1.2 (+1.3
+  # where the enum exists) and trust the self-signed cert.
+  [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+  try { [System.Net.ServicePointManager]::SecurityProtocol =
+          [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12 } catch {}
+  try { [System.Net.ServicePointManager]::SecurityProtocol =
+          [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls13 } catch {}
+}
 $ready = $false
 for ($i=0; $i -lt 60; $i++) {
   try {
