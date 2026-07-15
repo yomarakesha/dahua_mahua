@@ -19,6 +19,9 @@ param(
   [int]$HttpsPort = 8443
 )
 $ErrorActionPreference = "Stop"
+# UTF-8 for bundled-python calls — a cp1251/Russian console else crashes on
+# Unicode prints (go2rtc_config's "→") with UnicodeEncodeError.
+$env:PYTHONUTF8 = "1"; $env:PYTHONIOENCODING = "utf-8"
 
 function Ok($m){ Write-Host "[ok] $m" -ForegroundColor Green }
 function Step($m){ Write-Host "-> $m" -ForegroundColor Cyan }
@@ -105,11 +108,17 @@ Ok "deps installed"
 # ── host LAN IP ──────────────────────────────────────────────────────────────
 function Detect-Ip {
   if ($HostIp) { return $HostIp }
-  $ip = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" } |
+  # Skip Docker/WSL/Hyper-V/VM virtual switches — they hand out a bogus 172.x
+  # gateway (seen: 172.18.0.1) no real client can reach.
+  $skip = 'vEthernet|WSL|Docker|Hyper-V|Loopback|VirtualBox|VMware|Npcap|TAP|Bluetooth'
+  $ip = Get-NetIPConfiguration | Where-Object {
+          $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" -and
+          $_.NetAdapter.InterfaceDescription -notmatch $skip -and $_.InterfaceAlias -notmatch $skip } |
         Select-Object -First 1 -ExpandProperty IPv4Address | Select-Object -First 1 -ExpandProperty IPAddress
   if (-not $ip) {
     $ip = (Get-NetIPAddress -AddressFamily IPv4 |
-      Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' -and $_.IPAddress -notmatch '^169\.254' } |
+      Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' -and
+                     $_.IPAddress -notmatch '^169\.254' -and $_.InterfaceAlias -notmatch $skip } |
       Select-Object -First 1 -ExpandProperty IPAddress)
   }
   return $ip
@@ -174,14 +183,21 @@ try {
 
 # ── NSSM services ─────────────────────────────────────────────────────────────
 function Reinstall-Service($name, $exe, $argline, $appdir, $envPairs) {
-  & $nssm status $name *> $null
-  if ($LASTEXITCODE -eq 0) { & $nssm stop $name *> $null; & $nssm remove $name confirm *> $null }
-  & $nssm install $name $exe $argline
-  & $nssm set $name AppDirectory $appdir
-  & $nssm set $name Start SERVICE_AUTO_START
-  & $nssm set $name AppStdout (Join-Path $InstallDir "$name.log")
-  & $nssm set $name AppStderr (Join-Path $InstallDir "$name.log")
-  if ($envPairs) { & $nssm set $name AppEnvironmentExtra $envPairs }
+  # nssm writes "Can't open service!" to stderr when the service doesn't exist;
+  # under $ErrorActionPreference='Stop' PS 5.1 turns that into a TERMINATING error
+  # that kills the installer before any service registers. Relax + use Get-Service.
+  $ErrorActionPreference = 'SilentlyContinue'
+  if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
+    & $nssm stop $name 2>&1 | Out-Null
+    & $nssm remove $name confirm 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+  }
+  & $nssm install $name $exe $argline 2>&1 | Out-Null
+  & $nssm set $name AppDirectory $appdir 2>&1 | Out-Null
+  & $nssm set $name Start SERVICE_AUTO_START 2>&1 | Out-Null
+  & $nssm set $name AppStdout (Join-Path $InstallDir "$name.log") 2>&1 | Out-Null
+  & $nssm set $name AppStderr (Join-Path $InstallDir "$name.log") 2>&1 | Out-Null
+  if ($envPairs) { & $nssm set $name AppEnvironmentExtra $envPairs 2>&1 | Out-Null }
 }
 
 Step "Registering NSSM services"

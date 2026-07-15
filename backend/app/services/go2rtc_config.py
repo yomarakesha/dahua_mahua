@@ -162,7 +162,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     cands = render_runtime_config(args.base, args.out, get_settings())
-    print(f"go2rtc config rendered → {args.out}")
+    print(f"go2rtc config rendered -> {args.out}")
     print(f"  WebRTC candidates: {', '.join(cands) if cands else '(auto-advertise)'}")
 
 

@@ -33,6 +33,11 @@ $src = $InstallDir
 # diagnosable after the window closes. (The cmd window is transient; this isn't.)
 try { Start-Transcript -Path (Join-Path $InstallDir "install-log.txt") -Force | Out-Null } catch {}
 
+# Force UTF-8 for every bundled-python call — a Russian/cp1251 console otherwise
+# crashes on Unicode prints (e.g. go2rtc_config's "→") with UnicodeEncodeError.
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+
 # ── admin check (needed to register services) ────────────────────────────────
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
   [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -62,11 +67,17 @@ $ffmpegBin = Join-Path $InstallDir "bin\ffmpeg.exe"
 # ── host LAN IP ──────────────────────────────────────────────────────────────
 function Detect-Ip {
   if ($HostIp) { return $HostIp }
-  $ip = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" } |
+  # Skip virtual switches (Docker/WSL/Hyper-V/VM) — they otherwise win and hand
+  # out a bogus 172.x gateway (seen: 172.18.0.1) that no real client can reach.
+  $skip = 'vEthernet|WSL|Docker|Hyper-V|Loopback|VirtualBox|VMware|Npcap|TAP|Bluetooth'
+  $ip = Get-NetIPConfiguration | Where-Object {
+          $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" -and
+          $_.NetAdapter.InterfaceDescription -notmatch $skip -and $_.InterfaceAlias -notmatch $skip } |
         Select-Object -First 1 -ExpandProperty IPv4Address | Select-Object -First 1 -ExpandProperty IPAddress
   if (-not $ip) {
     $ip = (Get-NetIPAddress -AddressFamily IPv4 |
-      Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' -and $_.IPAddress -notmatch '^169\.254' } |
+      Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' -and
+                     $_.IPAddress -notmatch '^169\.254' -and $_.InterfaceAlias -notmatch $skip } |
       Select-Object -First 1 -ExpandProperty IPAddress)
   }
   return $ip
@@ -142,14 +153,23 @@ try {
 
 # ── NSSM services ─────────────────────────────────────────────────────────────
 function Reinstall-Service($name, $exe, $argline, $appdir, $envPairs) {
-  & $nssm status $name *> $null
-  if ($LASTEXITCODE -eq 0) { & $nssm stop $name *> $null; & $nssm remove $name confirm *> $null }
-  & $nssm install $name $exe $argline
-  & $nssm set $name AppDirectory $appdir
-  & $nssm set $name Start SERVICE_AUTO_START
-  & $nssm set $name AppStdout (Join-Path $InstallDir "$name.log")
-  & $nssm set $name AppStderr (Join-Path $InstallDir "$name.log")
-  if ($envPairs) { & $nssm set $name AppEnvironmentExtra $envPairs }
+  # Relax error handling for the whole function: nssm writes to stderr on benign
+  # cases ("Can't open service!" when the service doesn't exist yet), and under
+  # $ErrorActionPreference='Stop' PS 5.1 turns that native-stderr write into a
+  # TERMINATING error — which used to kill the installer before ANY service was
+  # registered. Test existence via Get-Service (SCM), not `nssm status`.
+  $ErrorActionPreference = 'SilentlyContinue'
+  if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
+    & $nssm stop $name 2>&1 | Out-Null
+    & $nssm remove $name confirm 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+  }
+  & $nssm install $name $exe $argline 2>&1 | Out-Null
+  & $nssm set $name AppDirectory $appdir 2>&1 | Out-Null
+  & $nssm set $name Start SERVICE_AUTO_START 2>&1 | Out-Null
+  & $nssm set $name AppStdout (Join-Path $InstallDir "$name.log") 2>&1 | Out-Null
+  & $nssm set $name AppStderr (Join-Path $InstallDir "$name.log") 2>&1 | Out-Null
+  if ($envPairs) { & $nssm set $name AppEnvironmentExtra $envPairs 2>&1 | Out-Null }
 }
 
 Step "Registering NSSM services"
@@ -171,10 +191,12 @@ Reinstall-Service "dahua-caddy" (Join-Path $InstallDir "bin\caddy.exe") `
   ("run --config `"" + (Join-Path $InstallDir "Caddyfile") + "`" --adapter caddyfile") $InstallDir $caddyEnv
 
 Step "Starting services"
-& $nssm start dahua-go2rtc  | Out-Null
-& $nssm start dahua-backend | Out-Null
-& $nssm start dahua-caddy   | Out-Null
+& $nssm start dahua-go2rtc  2>&1 | Out-Null
+& $nssm start dahua-backend 2>&1 | Out-Null
+& $nssm start dahua-caddy   2>&1 | Out-Null
 Ok "services registered + started"
+Get-Service dahua-go2rtc,dahua-backend,dahua-caddy -ErrorAction SilentlyContinue |
+  ForEach-Object { Ok ("  {0}: {1}" -f $_.Name, $_.Status) }
 
 # ── wait for readiness (through Caddy TLS, self-signed) ──────────────────────
 Step "Waiting for the backend to become ready..."
