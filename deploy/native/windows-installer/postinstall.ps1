@@ -29,6 +29,10 @@ function Err($m){ Write-Host "[x] $m" -ForegroundColor Red }
 if (-not $InstallDir) { $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 $src = $InstallDir
 
+# Capture EVERYTHING this console prints to a file so a failed/flashed install is
+# diagnosable after the window closes. (The cmd window is transient; this isn't.)
+try { Start-Transcript -Path (Join-Path $InstallDir "install-log.txt") -Force | Out-Null } catch {}
+
 # ── admin check (needed to register services) ────────────────────────────────
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
   [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -184,6 +188,8 @@ for ($i=0; $i -lt 60; $i++) {
     $ready = $true; break
   } catch { Start-Sleep -Seconds 2 }
 }
+
+try { Stop-Transcript | Out-Null } catch {}
 
 Write-Host ""
 if ($ready) {
