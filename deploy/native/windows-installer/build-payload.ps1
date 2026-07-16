@@ -153,6 +153,16 @@ Copy-Item -Recurse -Force (Join-Path $root "backend\app")     (Join-Path $Out "b
 Copy-Item -Recurse -Force (Join-Path $root "backend\alembic") (Join-Path $Out "backend\alembic")
 Copy-Item -Force (Join-Path $root "backend\alembic.ini")      (Join-Path $Out "backend\alembic.ini")
 Copy-Item -Force (Join-Path $root "backend\requirements.txt") (Join-Path $Out "backend\requirements.txt")
+# Vendor PUBLIC key — lets the VMS verify our signed licenses out of the box (no
+# manual drop). Public half only; the private key never leaves the vendor panel.
+$pubkey = Join-Path $root "backend\licensing\public_key.pem"
+if (Test-Path $pubkey) {
+  New-Item -ItemType Directory -Force -Path (Join-Path $Out "backend\licensing") | Out-Null
+  Copy-Item -Force $pubkey (Join-Path $Out "backend\licensing\public_key.pem")
+  Ok "bundled vendor public_key.pem (licenses verify out of the box)"
+} else {
+  Err "backend\licensing\public_key.pem missing — installs will need it dropped manually"
+}
 Get-ChildItem -Path (Join-Path $Out "backend") -Recurse -Directory -Filter __pycache__ |
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
