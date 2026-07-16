@@ -130,6 +130,26 @@ $cf = $cf -replace ':\{\$CADDY_HTTPS_PORT:8443\}', ":$HttpsPort"
 Set-Content -Encoding ascii $caddyfilePath $cf
 Ok "Caddyfile rendered (root=$wwwFwd port=$HttpsPort)"
 
+# ── static self-signed TLS cert (SANs: localhost, 127.0.0.1, LAN IP) ─────────
+# `tls internal` on a port-only site (:8443) presents NO cert for IP/localhost
+# access (no SNI) and, running as a LocalSystem service, also can't install its
+# CA into the Windows store — the TLS handshake then breaks (browser:
+# ERR_SSL_PROTOCOL_ERROR, schannel: SEC_E_INTERNAL_ERROR). A static cert fixes
+# the handshake; clients just get the normal self-signed warning. See gen_cert.py.
+Step "Generating TLS certificate"
+$certPem = Join-Path $InstallDir ".caddy\cert.pem"
+$keyPem  = Join-Path $InstallDir ".caddy\key.pem"
+& $py (Join-Path $InstallDir "gen_cert.py") $hostIpVal $certPem $keyPem
+if ($LASTEXITCODE -eq 0 -and (Test-Path $certPem)) {
+  $cFwd = ($certPem -replace '\\','/'); $kFwd = ($keyPem -replace '\\','/')
+  $cf2 = Get-Content $caddyfilePath -Raw
+  $cf2 = $cf2 -replace '(?m)^(\s*)tls internal\s*$', ('${1}tls "' + $cFwd + '" "' + $kFwd + '"')
+  Set-Content -Encoding ascii $caddyfilePath $cf2
+  Ok "TLS: static self-signed cert for $hostIpVal (+localhost/127.0.0.1)"
+} else {
+  Err "cert generation failed - keeping 'tls internal' (browser may show a TLS handshake error)"
+}
+
 # ── render go2rtc runtime config (WebRTC candidates for THIS box) ────────────
 Step "Rendering go2rtc config"
 Push-Location (Join-Path $InstallDir "backend")

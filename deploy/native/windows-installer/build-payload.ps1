@@ -159,7 +159,9 @@ Get-ChildItem -Path (Join-Path $Out "backend") -Recurse -Directory -Filter __pyc
 Copy-Item -Force (Join-Path $root "go2rtc.base.yaml")            (Join-Path $Out "go2rtc.base.yaml")
 Copy-Item -Force (Join-Path $here "..\Caddyfile")               (Join-Path $Out "Caddyfile")
 Copy-Item -Force (Join-Path $here "postinstall.ps1")           (Join-Path $Out "postinstall.ps1")
-Ok "backend + templates + postinstall.ps1 staged"
+Copy-Item -Force (Join-Path $here "gen_cert.py")               (Join-Path $Out "gen_cert.py")
+Copy-Item -Force (Join-Path $here "collect-diagnostics.ps1")   (Join-Path $Out "collect-diagnostics.ps1")
+Ok "backend + templates + postinstall.ps1 + gen_cert.py staged"
 
 Write-Host ""
 Write-Host "────────────────────────────────────────────────────────────────────────────"
