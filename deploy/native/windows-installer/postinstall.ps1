@@ -29,6 +29,15 @@ function Err($m){ Write-Host "[x] $m" -ForegroundColor Red }
 if (-not $InstallDir) { $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 $src = $InstallDir
 
+# Capture EVERYTHING this console prints to a file so a failed/flashed install is
+# diagnosable after the window closes. (The cmd window is transient; this isn't.)
+try { Start-Transcript -Path (Join-Path $InstallDir "install-log.txt") -Force | Out-Null } catch {}
+
+# Force UTF-8 for every bundled-python call — a Russian/cp1251 console otherwise
+# crashes on Unicode prints (e.g. go2rtc_config's "→") with UnicodeEncodeError.
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+
 # ── admin check (needed to register services) ────────────────────────────────
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
   [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -58,11 +67,17 @@ $ffmpegBin = Join-Path $InstallDir "bin\ffmpeg.exe"
 # ── host LAN IP ──────────────────────────────────────────────────────────────
 function Detect-Ip {
   if ($HostIp) { return $HostIp }
-  $ip = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" } |
+  # Skip virtual switches (Docker/WSL/Hyper-V/VM) — they otherwise win and hand
+  # out a bogus 172.x gateway (seen: 172.18.0.1) that no real client can reach.
+  $skip = 'vEthernet|WSL|Docker|Hyper-V|Loopback|VirtualBox|VMware|Npcap|TAP|Bluetooth'
+  $ip = Get-NetIPConfiguration | Where-Object {
+          $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" -and
+          $_.NetAdapter.InterfaceDescription -notmatch $skip -and $_.InterfaceAlias -notmatch $skip } |
         Select-Object -First 1 -ExpandProperty IPv4Address | Select-Object -First 1 -ExpandProperty IPAddress
   if (-not $ip) {
     $ip = (Get-NetIPAddress -AddressFamily IPv4 |
-      Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' -and $_.IPAddress -notmatch '^169\.254' } |
+      Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' -and
+                     $_.IPAddress -notmatch '^169\.254' -and $_.InterfaceAlias -notmatch $skip } |
       Select-Object -First 1 -ExpandProperty IPAddress)
   }
   return $ip
@@ -115,6 +130,26 @@ $cf = $cf -replace ':\{\$CADDY_HTTPS_PORT:8443\}', ":$HttpsPort"
 Set-Content -Encoding ascii $caddyfilePath $cf
 Ok "Caddyfile rendered (root=$wwwFwd port=$HttpsPort)"
 
+# ── static self-signed TLS cert (SANs: localhost, 127.0.0.1, LAN IP) ─────────
+# `tls internal` on a port-only site (:8443) presents NO cert for IP/localhost
+# access (no SNI) and, running as a LocalSystem service, also can't install its
+# CA into the Windows store — the TLS handshake then breaks (browser:
+# ERR_SSL_PROTOCOL_ERROR, schannel: SEC_E_INTERNAL_ERROR). A static cert fixes
+# the handshake; clients just get the normal self-signed warning. See gen_cert.py.
+Step "Generating TLS certificate"
+$certPem = Join-Path $InstallDir ".caddy\cert.pem"
+$keyPem  = Join-Path $InstallDir ".caddy\key.pem"
+& $py (Join-Path $InstallDir "gen_cert.py") $hostIpVal $certPem $keyPem
+if ($LASTEXITCODE -eq 0 -and (Test-Path $certPem)) {
+  $cFwd = ($certPem -replace '\\','/'); $kFwd = ($keyPem -replace '\\','/')
+  $cf2 = Get-Content $caddyfilePath -Raw
+  $cf2 = $cf2 -replace '(?m)^(\s*)tls internal\s*$', ('${1}tls "' + $cFwd + '" "' + $kFwd + '"')
+  Set-Content -Encoding ascii $caddyfilePath $cf2
+  Ok "TLS: static self-signed cert for $hostIpVal (+localhost/127.0.0.1)"
+} else {
+  Err "cert generation failed - keeping 'tls internal' (browser may show a TLS handshake error)"
+}
+
 # ── render go2rtc runtime config (WebRTC candidates for THIS box) ────────────
 Step "Rendering go2rtc config"
 Push-Location (Join-Path $InstallDir "backend")
@@ -138,19 +173,32 @@ try {
 
 # ── NSSM services ─────────────────────────────────────────────────────────────
 function Reinstall-Service($name, $exe, $argline, $appdir, $envPairs) {
-  & $nssm status $name *> $null
-  if ($LASTEXITCODE -eq 0) { & $nssm stop $name *> $null; & $nssm remove $name confirm *> $null }
-  & $nssm install $name $exe $argline
-  & $nssm set $name AppDirectory $appdir
-  & $nssm set $name Start SERVICE_AUTO_START
-  & $nssm set $name AppStdout (Join-Path $InstallDir "$name.log")
-  & $nssm set $name AppStderr (Join-Path $InstallDir "$name.log")
-  if ($envPairs) { & $nssm set $name AppEnvironmentExtra $envPairs }
+  # Relax error handling for the whole function: nssm writes to stderr on benign
+  # cases ("Can't open service!" when the service doesn't exist yet), and under
+  # $ErrorActionPreference='Stop' PS 5.1 turns that native-stderr write into a
+  # TERMINATING error — which used to kill the installer before ANY service was
+  # registered. Test existence via Get-Service (SCM), not `nssm status`.
+  $ErrorActionPreference = 'SilentlyContinue'
+  if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
+    & $nssm stop $name 2>&1 | Out-Null
+    & $nssm remove $name confirm 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+  }
+  & $nssm install $name $exe $argline 2>&1 | Out-Null
+  & $nssm set $name AppDirectory $appdir 2>&1 | Out-Null
+  & $nssm set $name Start SERVICE_AUTO_START 2>&1 | Out-Null
+  & $nssm set $name AppStdout (Join-Path $InstallDir "$name.log") 2>&1 | Out-Null
+  & $nssm set $name AppStderr (Join-Path $InstallDir "$name.log") 2>&1 | Out-Null
+  if ($envPairs) { & $nssm set $name AppEnvironmentExtra $envPairs 2>&1 | Out-Null }
 }
 
 Step "Registering NSSM services"
+# Config paths are RELATIVE to AppDirectory (= $InstallDir). An absolute path like
+# "C:\Program Files\..." must be quoted, but nssm DROPS the quotes we pass through
+# PowerShell, so caddy/go2rtc then read a truncated "C:\Program". Relative paths
+# have no spaces → nothing to quote → the service starts reliably.
 Reinstall-Service "dahua-go2rtc" (Join-Path $InstallDir "bin\go2rtc.exe") `
-  ("-config `"" + (Join-Path $InstallDir ".go2rtc\go2rtc.yaml") + "`"") $InstallDir $null
+  "-config .go2rtc\go2rtc.yaml" $InstallDir $null
 
 Reinstall-Service "dahua-backend" $py `
   "-m uvicorn app.main:app --host 0.0.0.0 --port 8000" (Join-Path $InstallDir "backend") $null
@@ -164,18 +212,30 @@ $caddyEnv = @(
   "XDG_CONFIG_HOME=$(Join-Path $InstallDir '.caddy\config')"
 )
 Reinstall-Service "dahua-caddy" (Join-Path $InstallDir "bin\caddy.exe") `
-  ("run --config `"" + (Join-Path $InstallDir "Caddyfile") + "`" --adapter caddyfile") $InstallDir $caddyEnv
+  "run --config Caddyfile --adapter caddyfile" $InstallDir $caddyEnv
 
 Step "Starting services"
-& $nssm start dahua-go2rtc  | Out-Null
-& $nssm start dahua-backend | Out-Null
-& $nssm start dahua-caddy   | Out-Null
+& $nssm start dahua-go2rtc  2>&1 | Out-Null
+& $nssm start dahua-backend 2>&1 | Out-Null
+& $nssm start dahua-caddy   2>&1 | Out-Null
 Ok "services registered + started"
+Get-Service dahua-go2rtc,dahua-backend,dahua-caddy -ErrorAction SilentlyContinue |
+  ForEach-Object { Ok ("  {0}: {1}" -f $_.Name, $_.Status) }
 
 # ── wait for readiness (through Caddy TLS, self-signed) ──────────────────────
 Step "Waiting for the backend to become ready..."
 $ps7 = $PSVersionTable.PSVersion.Major -ge 6
-if (-not $ps7) { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } }
+if (-not $ps7) {
+  # Windows PowerShell 5.1 defaults to TLS 1.0/1.1; Caddy only accepts TLS 1.2/1.3,
+  # so the probe otherwise dies with "Could not create SSL/TLS secure channel" —
+  # a FALSE negative that made a healthy server look unready. Enable TLS 1.2 (+1.3
+  # where the enum exists) and trust the self-signed cert.
+  [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+  try { [System.Net.ServicePointManager]::SecurityProtocol =
+          [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12 } catch {}
+  try { [System.Net.ServicePointManager]::SecurityProtocol =
+          [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls13 } catch {}
+}
 $ready = $false
 for ($i=0; $i -lt 60; $i++) {
   try {
@@ -184,6 +244,8 @@ for ($i=0; $i -lt 60; $i++) {
     $ready = $true; break
   } catch { Start-Sleep -Seconds 2 }
 }
+
+try { Stop-Transcript | Out-Null } catch {}
 
 Write-Host ""
 if ($ready) {

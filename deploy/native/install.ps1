@@ -19,6 +19,9 @@ param(
   [int]$HttpsPort = 8443
 )
 $ErrorActionPreference = "Stop"
+# UTF-8 for bundled-python calls — a cp1251/Russian console else crashes on
+# Unicode prints (go2rtc_config's "→") with UnicodeEncodeError.
+$env:PYTHONUTF8 = "1"; $env:PYTHONIOENCODING = "utf-8"
 
 function Ok($m){ Write-Host "[ok] $m" -ForegroundColor Green }
 function Step($m){ Write-Host "-> $m" -ForegroundColor Cyan }
@@ -105,11 +108,17 @@ Ok "deps installed"
 # ── host LAN IP ──────────────────────────────────────────────────────────────
 function Detect-Ip {
   if ($HostIp) { return $HostIp }
-  $ip = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" } |
+  # Skip Docker/WSL/Hyper-V/VM virtual switches — they hand out a bogus 172.x
+  # gateway (seen: 172.18.0.1) no real client can reach.
+  $skip = 'vEthernet|WSL|Docker|Hyper-V|Loopback|VirtualBox|VMware|Npcap|TAP|Bluetooth'
+  $ip = Get-NetIPConfiguration | Where-Object {
+          $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" -and
+          $_.NetAdapter.InterfaceDescription -notmatch $skip -and $_.InterfaceAlias -notmatch $skip } |
         Select-Object -First 1 -ExpandProperty IPv4Address | Select-Object -First 1 -ExpandProperty IPAddress
   if (-not $ip) {
     $ip = (Get-NetIPAddress -AddressFamily IPv4 |
-      Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' -and $_.IPAddress -notmatch '^169\.254' } |
+      Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' -and
+                     $_.IPAddress -notmatch '^169\.254' -and $_.InterfaceAlias -notmatch $skip } |
       Select-Object -First 1 -ExpandProperty IPAddress)
   }
   return $ip
@@ -174,19 +183,29 @@ try {
 
 # ── NSSM services ─────────────────────────────────────────────────────────────
 function Reinstall-Service($name, $exe, $argline, $appdir, $envPairs) {
-  & $nssm status $name *> $null
-  if ($LASTEXITCODE -eq 0) { & $nssm stop $name *> $null; & $nssm remove $name confirm *> $null }
-  & $nssm install $name $exe $argline
-  & $nssm set $name AppDirectory $appdir
-  & $nssm set $name Start SERVICE_AUTO_START
-  & $nssm set $name AppStdout (Join-Path $InstallDir "$name.log")
-  & $nssm set $name AppStderr (Join-Path $InstallDir "$name.log")
-  if ($envPairs) { & $nssm set $name AppEnvironmentExtra $envPairs }
+  # nssm writes "Can't open service!" to stderr when the service doesn't exist;
+  # under $ErrorActionPreference='Stop' PS 5.1 turns that into a TERMINATING error
+  # that kills the installer before any service registers. Relax + use Get-Service.
+  $ErrorActionPreference = 'SilentlyContinue'
+  if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
+    & $nssm stop $name 2>&1 | Out-Null
+    & $nssm remove $name confirm 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+  }
+  & $nssm install $name $exe $argline 2>&1 | Out-Null
+  & $nssm set $name AppDirectory $appdir 2>&1 | Out-Null
+  & $nssm set $name Start SERVICE_AUTO_START 2>&1 | Out-Null
+  & $nssm set $name AppStdout (Join-Path $InstallDir "$name.log") 2>&1 | Out-Null
+  & $nssm set $name AppStderr (Join-Path $InstallDir "$name.log") 2>&1 | Out-Null
+  if ($envPairs) { & $nssm set $name AppEnvironmentExtra $envPairs 2>&1 | Out-Null }
 }
 
 Step "Registering NSSM services"
+# Config paths RELATIVE to AppDirectory (= $InstallDir): an absolute spaced path
+# ("C:\Program Files\...") needs quotes, but nssm drops the quotes we pass through
+# PowerShell → caddy/go2rtc read a truncated "C:\Program". Relative = no spaces.
 Reinstall-Service "dahua-go2rtc" (Join-Path $InstallDir "bin\go2rtc.exe") `
-  ("-config `"" + (Join-Path $InstallDir ".go2rtc\go2rtc.yaml") + "`"") $InstallDir $null
+  "-config .go2rtc\go2rtc.yaml" $InstallDir $null
 
 Reinstall-Service "dahua-backend" $venvPy `
   "-m uvicorn app.main:app --host 0.0.0.0 --port 8000" (Join-Path $InstallDir "backend") $null
@@ -200,7 +219,7 @@ $caddyEnv = @(
   "XDG_CONFIG_HOME=$(Join-Path $InstallDir '.caddy\config')"
 )
 Reinstall-Service "dahua-caddy" (Join-Path $InstallDir "bin\caddy.exe") `
-  ("run --config `"" + (Join-Path $InstallDir "Caddyfile") + "`" --adapter caddyfile") $InstallDir $caddyEnv
+  "run --config Caddyfile --adapter caddyfile" $InstallDir $caddyEnv
 
 Step "Starting services"
 & $nssm start dahua-go2rtc  | Out-Null
@@ -211,7 +230,16 @@ Ok "services registered + started"
 # ── wait for readiness (through Caddy TLS, self-signed) ──────────────────────
 Step "Waiting for the backend to become ready..."
 $ps7 = $PSVersionTable.PSVersion.Major -ge 6
-if (-not $ps7) { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } }
+if (-not $ps7) {
+  # PS 5.1 defaults to TLS 1.0/1.1 but Caddy only serves TLS 1.2/1.3 → the probe
+  # else dies "Could not create SSL/TLS secure channel" (false negative). Enable
+  # TLS 1.2/1.3 + trust the self-signed cert.
+  [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+  try { [System.Net.ServicePointManager]::SecurityProtocol =
+          [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12 } catch {}
+  try { [System.Net.ServicePointManager]::SecurityProtocol =
+          [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls13 } catch {}
+}
 $ready = $false
 for ($i=0; $i -lt 60; $i++) {
   try {

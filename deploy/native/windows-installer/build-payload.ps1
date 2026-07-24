@@ -153,13 +153,25 @@ Copy-Item -Recurse -Force (Join-Path $root "backend\app")     (Join-Path $Out "b
 Copy-Item -Recurse -Force (Join-Path $root "backend\alembic") (Join-Path $Out "backend\alembic")
 Copy-Item -Force (Join-Path $root "backend\alembic.ini")      (Join-Path $Out "backend\alembic.ini")
 Copy-Item -Force (Join-Path $root "backend\requirements.txt") (Join-Path $Out "backend\requirements.txt")
+# Vendor PUBLIC key — lets the VMS verify our signed licenses out of the box (no
+# manual drop). Public half only; the private key never leaves the vendor panel.
+$pubkey = Join-Path $root "backend\licensing\public_key.pem"
+if (Test-Path $pubkey) {
+  New-Item -ItemType Directory -Force -Path (Join-Path $Out "backend\licensing") | Out-Null
+  Copy-Item -Force $pubkey (Join-Path $Out "backend\licensing\public_key.pem")
+  Ok "bundled vendor public_key.pem (licenses verify out of the box)"
+} else {
+  Err "backend\licensing\public_key.pem missing — installs will need it dropped manually"
+}
 Get-ChildItem -Path (Join-Path $Out "backend") -Recurse -Directory -Filter __pycache__ |
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 Copy-Item -Force (Join-Path $root "go2rtc.base.yaml")            (Join-Path $Out "go2rtc.base.yaml")
 Copy-Item -Force (Join-Path $here "..\Caddyfile")               (Join-Path $Out "Caddyfile")
 Copy-Item -Force (Join-Path $here "postinstall.ps1")           (Join-Path $Out "postinstall.ps1")
-Ok "backend + templates + postinstall.ps1 staged"
+Copy-Item -Force (Join-Path $here "gen_cert.py")               (Join-Path $Out "gen_cert.py")
+Copy-Item -Force (Join-Path $here "collect-diagnostics.ps1")   (Join-Path $Out "collect-diagnostics.ps1")
+Ok "backend + templates + postinstall.ps1 + gen_cert.py staged"
 
 Write-Host ""
 Write-Host "────────────────────────────────────────────────────────────────────────────"
